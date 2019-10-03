@@ -59,6 +59,12 @@ def main():
         'live sea scallop': 'live sea scallop',
     }
 
+    if True:
+        # do one category
+        for key in catname_map:
+            if catname_map[key] is not None:
+                catname_map[key] = 'scallop'
+
     import ndsampler
     coco_dset = ndsampler.CocoDataset()
 
@@ -136,7 +142,6 @@ def main():
             'image_id': gid,
             'bbox': xywh,
             'weight': weight,
-            'source': 'habcam_2015',
             'meta': {
                 'geom_code': code,
                 'geom_data': value,
@@ -147,7 +152,6 @@ def main():
         coco_dset.add_annotation(**ann)
 
     # raw_dset = coco_dset.copy()
-
     # Other has some weird (bad?) anns in it, lets just remove it
     coco_dset.remove_categories(['other'])
 
@@ -159,10 +163,9 @@ def main():
     coco_dset.remove_annotations(weird_anns)
 
     # populate image size / remove bad images
-    coco_fpath =  ub.expandpath('~/raid/data/noaa/Habcam_2015_AnnotatedObjects_all.mscoco.json')
+    from PIL import Image
     coco_dset.dataset['img_root'] = '2015_Habcam_photos'
     coco_dset.img_root = ub.expandpath('~/raid/data/noaa/2015_Habcam_photos')
-    from PIL import Image
     bad_images = []
     for img in ub.ProgIter(coco_dset.dataset['images'],
                            verbose=1):
@@ -179,10 +182,22 @@ def main():
                 img['height'] = h
     coco_dset.remove_images(bad_images)
 
+    # Add special tag indicating a stereo image
+    for img in coco_dset.imgs.values():
+        img['source'] = 'habcam_2015_stereo'
+
+    stats = coco_dset.basic_stats()
+    suffix = 'g{n_imgs:06d}_a{n_anns:08d}_c{n_cats:04d}'.format(**stats)
+
     coco_dset.dataset['img_root'] = '2015_Habcam_photos'
-    coco_dset.fpath = coco_fpath
-    coco_dset.dump(coco_fpath, newlines=True)
-    train_dset, vali_dset = train_vali_split(coco_dset)
+    coco_dset.fpath = ub.expandpath('~/raid/data/noaa/Habcam_2015_{}_v1.mscoco.json'.format(suffix))
+    coco_dset.dump(coco_dset.fpath, newlines=True)
+
+    datasets = train_vali_split(coco_dset)
+    print('datasets = {!r}'.format(datasets))
+    for tag, tag_dset in datasets.items():
+        print('{} fpath = {!r}'.format(tag, tag_dset.fpath))
+        tag_dset.dump(tag_dset.fpath, newlines=True)
 
     """
     # To Inspect
@@ -271,34 +286,51 @@ def draw_data_pmf(data, bw_factor=0.05, color='red', nbins=500):
 
 
 def train_vali_split(coco_dset):
-    images = coco_dset.images()
-    cids_per_image = images.annots.cids
-    gid_to_cids = ub.odict(zip(images.gids, cids_per_image))
 
-    # Note: this removes images with no annotations, which is what we want here
-    gids = [gid for gid, cids_ in gid_to_cids.items() for cid in cids_]
-    cids = [cid for gid, cids_ in gid_to_cids.items() for cid in cids_]
+    split_gids = _split_train_vali_test_gids(coco_dset)
+    datasets = {}
+    for tag, gids in split_gids.items():
+        tag_dset = coco_dset.subset(gids)
+        tag_dset.fpath = ub.augpath(coco_dset.fpath, suffix='_' + tag, multidot=True)
+        datasets[tag] = tag_dset
 
-    groups = gids
+    return datasets
 
+
+def _split_train_vali_test_gids(coco_dset, factor=2):
     import kwil
+    import kwarray
+
+    def _stratified_split(gids, cids, n_splits=2, rng=None):
+        """ helper to split while trying to maintain class balance within images """
+        rng = kwarray.ensure_rng(rng)
+        selector = kwil.StratifiedGroupKFold(n_splits=n_splits, random_state=rng)
+        skf_list = list(selector.split(X=gids, y=cids, groups=gids))
+        trainx, testx = skf_list[0]
+        return trainx, testx
+
+    # Create flat table of image-ids and category-ids
+    gids, cids = [], []
+    images = coco_dset.images()
+    for gid_, cids_ in zip(images, images.annots.cids):
+        cids.extend(cids_)
+        gids.extend([gid_] * len(cids_))
+
+    # Split into learn/test then split learn into train/vali
     rng = kwil.ensure_rng(1617402282)
-    factor = 4
-    skf = kwil.StratifiedGroupKFold(n_splits=factor, random_state=rng)
-    skf_list = list(skf.split(X=gids, y=cids, groups=groups))
-    trainx, valix = skf_list[0]
+    learnx, testx = _stratified_split(gids, cids, rng=rng,
+                                      n_splits=factor)
+    learn_gids = list(ub.take(gids, learnx))
+    learn_cids = list(ub.take(cids, learnx))
+    _trainx, _valix = _stratified_split(learn_gids, learn_cids, rng=rng,
+                                        n_splits=factor)
+    trainx = learnx[_trainx]
+    valix = learnx[_valix]
 
-    train_gids = sorted(ub.unique(ub.take(gids, trainx)))
-    vali_gids = sorted(ub.unique(ub.take(gids, valix)))
-
-    train_dset = coco_dset.subset(train_gids)
-    vali_dset = coco_dset.subset(vali_gids)
-    print('train_dset = {!r}'.format(train_dset))
-    print('vali_dset = {!r}'.format(vali_dset))
-
-    train_fpath = ub.augpath(coco_dset.fpath, suffix='_train', multidot=True)
-    vali_fpath = ub.augpath(coco_dset.fpath, suffix='_vali', multidot=True)
-
-    train_dset.dump(train_fpath, newlines=True)
-    vali_dset.dump(vali_fpath, newlines=True)
-    return train_dset, vali_dset
+    split_gids = {
+        'train': sorted(set(ub.take(gids, trainx))),
+        'vali': sorted(set(ub.take(gids, valix))),
+        'test': sorted(set(ub.take(gids, testx))),
+    }
+    print('splits = {}'.format(ub.repr2(ub.map_vals(len, split_gids))))
+    return split_gids

@@ -50,7 +50,10 @@ class DetectFitConfig(scfg.Config):
         'ovthresh': 0.5,
 
         # High level options
-        'arch': scfg.Value('yolo2', help='network toplogy', choices=['yolo2']),
+        'arch': scfg.Value(
+            'yolo2', help='network toplogy',
+            # choices=['yolo2']
+        ),
 
         'optim': scfg.Value('adamw', help='torch optimizer',
                             choices=['sgd', 'adam', 'adamw']),
@@ -79,6 +82,9 @@ class DetectFitConfig(scfg.Config):
         if self['datasets'] == 'special:voc':
             self['train_dataset'] = ub.expandpath('~/data/VOC/voc-trainval.mscoco.json')
             self['vali_dataset'] = ub.expandpath('~/data/VOC/voc-test-2007.mscoco.json')
+        elif self['datasets'] == 'special:habcam':
+            self['train_dataset'] = ub.expandpath('~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_train.mscoco.json')
+            self['vali_dataset'] = ub.expandpath('~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_vali.mscoco.json')
 
         key = self.get('pretrained', None) or self.get('init', None)
         if key == 'imagenet':
@@ -150,7 +156,6 @@ def _devcheck_stereo():
     kwplot.imshow(imgR, pnum=(1, 3, 3))
 
 
-
 class DetectDataset(torch.utils.data.Dataset):
     """
     Loads data with ndsampler.CocoSampler and formats it in a way suitable for
@@ -206,7 +211,7 @@ class DetectDataset(torch.utils.data.Dataset):
         """
         import ndsampler
         if key == 'habcam':
-            fpath = ub.expandpath('$HOME/raid/data/noaa/Habcam_2015_AnnotatedObjects_all_vali.mscoco.json')
+            fpath = ub.expandpath('$HOME/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_vali.mscoco.json')
             dset = ndsampler.CocoDataset(fpath)
             config = DetectFitConfig()
             sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
@@ -259,7 +264,7 @@ class DetectDataset(torch.utils.data.Dataset):
         imdata = self.sampler.load_image(gid, cache=False)
 
         # Hack for stereo habcam data
-        if img.get('source', None) == 'habcam_2015' or True:
+        if img.get('source', None) == 'habcam_2015_stereo':
             width = imdata.shape[1]
             imdata = imdata[:, 0:width // 2]
 
@@ -397,7 +402,8 @@ class DetectHarn(nh.FitHarn):
 
     def after_initialize(harn):
         # hack the coder into the criterion
-        harn.criterion.coder = harn.raw_model.coder
+        if harn.criterion is not None:
+            harn.criterion.coder = harn.raw_model.coder
 
         # Prepare structures we will use to measure and quantify quality
         for tag, voc_dset in harn.datasets.items():
@@ -422,24 +428,25 @@ class DetectHarn(nh.FitHarn):
 
         Example:
             >>> # DISABLE_DOCTSET
-            >>> harn = setup_harn(bsize=2)
+            >>> harn = setup_harn(bsize=2, datasets='special:habcam', arch='retinanet', init='noop')
             >>> harn.initialize()
             >>> batch = harn._demo_batch(0, 'vali')
-            >>> weights_fpath = yolo2.demo_voc_weights()
-            >>> initializer = nh.initializers.Pretrained(weights_fpath)
-            >>> init_info = initializer(harn.model.module)
             >>> outputs, loss = harn.run_batch(batch)
         """
         # Compute how many images have been seen before
-        bsize = harn.loaders['train'].batch_sampler.batch_size
-        nitems = (len(harn.datasets['train']) // bsize) * bsize
-        bx = harn.bxs['train']
-        n_seen = (bx * bsize) + (nitems * harn.epoch)
+        if getattr(harn.raw_model, '__BUILTIN_CRITERION__', False):
+            output = harn.model.forward(batch, return_loss=True, return_result=False)
+            loss = output['loss_parts']
+        else:
+            bsize = harn.loaders['train'].batch_sampler.batch_size
+            nitems = (len(harn.datasets['train']) // bsize) * bsize
+            bx = harn.bxs['train']
+            n_seen = (bx * bsize) + (nitems * harn.epoch)
 
-        inputs = batch['im']
-        target = batch['label']
-        output = harn.model(inputs)
-        loss = harn.criterion(output, target, seen=n_seen)
+            inputs = batch['im']
+            target = batch['label']
+            output = harn.model(inputs)
+            loss = harn.criterion(output, target, seen=n_seen)
         return output, loss
 
     def on_batch(harn, batch, outputs, losses):
@@ -463,6 +470,10 @@ class DetectHarn(nh.FitHarn):
             >>> nh.util.imshow(stacked)
             >>> nh.util.show_if_requested()
         """
+        if getattr(harn.raw_model, '__BUILTIN_CRITERION__', False):
+            # HACK
+            return
+
         try:
             detections = harn.raw_model.coder.decode_batch(outputs)
             bx = harn.bxs[harn.current_tag]
@@ -663,8 +674,19 @@ def setup_harn(cmdline=True, **kw):
     print('initializer_ = {!r}'.format(initializer_))
 
     arch = config['arch']
-    if arch == 'yolo2':
+    classes = samplers['train'].classes
 
+    if arch == 'retinanet':
+        from bioharn.models import mm_models
+        initkw = dict(
+            classes=classes,
+        )
+        model = mm_models.MM_RetinaNet(**initkw)
+        model._initkw = initkw
+
+        criterion_ = None
+
+    elif arch == 'yolo2':
         if False:
             dset = samplers['train'].dset
             print('dset = {!r}'.format(dset))
@@ -682,10 +704,10 @@ def setup_harn(cmdline=True, **kw):
         #                     (5.05587, 8.09892), (9.47112, 4.84053),
         #                     (11.2364, 10.0071)])
 
-        classes = samplers['train'].classes
         model_ = (yolo2.Yolo2, {
             'classes': classes,
             'anchors': anchors,
+            'input_stats': input_stats,
             'conf_thresh': 0.001,
             'nms_thresh': 0.5,
         })
@@ -766,7 +788,7 @@ def setup_harn(cmdline=True, **kw):
     harn.config.update({
         'num_keep': 2,
         'keep_freq': 30,
-        'export_modules': ['netharn'],  # TODO
+        'export_modules': ['bioharn'],  # TODO
         'prog_backend': 'progiter',  # alternative: 'tqdm'
         'keyboard_debug': True,
     })
@@ -774,7 +796,7 @@ def setup_harn(cmdline=True, **kw):
         'log_iter_train': 50,
     })
     harn.fit_config = config
-    harn.coder = model.coder
+
     print('harn = {!r}'.format(harn))
     print('samplers = {!r}'.format(samplers))
     return harn
@@ -800,8 +822,8 @@ if __name__ == '__main__':
 
         python -m bioharn.detect_fit \
             --nice=bioharn-test-yolo \
-            --train_dataset=~/raid/data/noaa/Habcam_2015_AnnotatedObjects_all_train.mscoco.json \
-            --vali_dataset=~/raid/data/noaa/Habcam_2015_AnnotatedObjects_all_vali.mscoco.json \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_vali.mscoco.json \
             --pretrained=imagenet \
             --schedule=step90 \
             --input_dims=512,512 \
@@ -809,13 +831,30 @@ if __name__ == '__main__':
 
         python -m bioharn.detect_fit \
             --nice=bioharn-test-yolo-v5 \
-            --train_dataset=~/raid/data/noaa/Habcam_2015_AnnotatedObjects_all_train.mscoco.json \
-            --vali_dataset=~/raid/data/noaa/Habcam_2015_AnnotatedObjects_all_vali.mscoco.json \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_vali.mscoco.json \
             --pretrained=/home/joncrall/work/bioharn/fit/nice/bioharn-test-yolo/torch_snapshots/_epoch_00000011.pt \
             --schedule=ReduceLROnPlateau \
             --optim=adamw --lr=3e-4 \
             --input_dims=512,512 \
             --workers=4 --xpu=1 --batch_size=16 --bstep=4
+
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v6-test-retinanet \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau \
+            --arch=retinanet \
+            --init=noop \
+            --optim=adamw --lr=3e-4 \
+            --input_dims=512,512 \
+            --workers=4 --xpu=1 --batch_size=16 --bstep=4
+
+        # --pretrained='https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth' \
+
+
+
     """
     import warnings
     import traceback
