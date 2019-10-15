@@ -20,6 +20,9 @@ def main():
     print('Raw categories:')
     print(ub.repr2(ub.odict(sorted(list(cathist.items()), key=lambda t: t[1]))))
 
+    # Note: Clappers are dead. They differ from just shells because the hinge
+    # is intact. They are generally open more widely than a live scallop
+
     # Simplify the categories
     catname_map = {
         'American Lobster': None,
@@ -190,11 +193,12 @@ def main():
     suffix = 'g{n_imgs:06d}_a{n_anns:08d}_c{n_cats:04d}'.format(**stats)
 
     coco_dset.dataset['img_root'] = '2015_Habcam_photos'
-    coco_dset.fpath = ub.expandpath('~/raid/data/noaa/Habcam_2015_{}_v1.mscoco.json'.format(suffix))
-    coco_dset.dump(coco_dset.fpath, newlines=True)
+    coco_dset.fpath = ub.expandpath('~/raid/data/noaa/Habcam_2015_{}_v2.mscoco.json'.format(suffix))
 
     datasets = train_vali_split(coco_dset)
     print('datasets = {!r}'.format(datasets))
+
+    coco_dset.dump(coco_dset.fpath, newlines=True)
     for tag, tag_dset in datasets.items():
         print('{} fpath = {!r}'.format(tag, tag_dset.fpath))
         tag_dset.dump(tag_dset.fpath, newlines=True)
@@ -318,6 +322,7 @@ def _split_train_vali_test_gids(coco_dset, factor=2):
 
     # Split into learn/test then split learn into train/vali
     rng = kwil.ensure_rng(1617402282)
+    # FIXME: make train bigger with 2
     learnx, testx = _stratified_split(gids, cids, rng=rng,
                                       n_splits=factor)
     learn_gids = list(ub.take(gids, learnx))
@@ -334,3 +339,9 @@ def _split_train_vali_test_gids(coco_dset, factor=2):
     }
     print('splits = {}'.format(ub.repr2(ub.map_vals(len, split_gids))))
     return split_gids
+
+"""
+
+/home/joncrall/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_test.mscoco.json
+
+"""

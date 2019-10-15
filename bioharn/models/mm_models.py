@@ -6,6 +6,7 @@ import numpy as np
 import netharn as nh
 import torch
 import kwimage
+from collections import OrderedDict
 from distutils.version import LooseVersion
 
 
@@ -91,27 +92,93 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3):
         >>> batch = _demo_batch()
         >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
-    input_shape = B, C, H, W = (bsize, in_channels, h, w)
-    imgs = torch.rand(*input_shape)
 
-    batch_items = []
-    for bx in range(B):
-        dets = kwimage.Detections.random(num=(10 - bx) % 11, classes=classes)
-        dets = dets.scale((W, H)).tensor()
+    if True:
 
-        label = {
-            'tlbr': dets.boxes.to_tlbr().data.float(),
-            'class_idxs': dets.class_idxs,
-        }
-        item = {
-            'im': imgs[bx],
-            'label': label,
-        }
-        batch_items.append(item)
+        import ndsampler
+        coco_dset = ndsampler.CocoDataset.demo()
+        sampler = ndsampler.CocoSampler(coco_dset)
+
+        batch_items = []
+
+        for gid in [1]:
+            img, annots = sampler.load_image_with_annots(gid)
+            annots = [ann for ann in annots if 'bbox' in ann]
+            hwc = img['imdata'][:]
+            xywh = kwimage.Boxes([ann['bbox'] for ann in annots], 'xywh')
+            cids = [ann['category_id'] for ann in annots]
+
+            label = {
+                'tlbr': torch.FloatTensor(xywh.to_tlbr().data),
+                'class_idxs': torch.LongTensor(cids),
+            }
+            item = {
+                'im': torch.FloatTensor(hwc.transpose(2, 0, 1) / 255),
+                'label': label,
+            }
+            batch_items.append(item)
+
+    else:
+        input_shape = B, C, H, W = (bsize, in_channels, h, w)
+        imgs = torch.rand(*input_shape)
+
+        batch_items = []
+        for bx in range(B):
+            dets = kwimage.Detections.random(num=(10 - bx) % 11, classes=classes)
+            dets = dets.scale((W, H)).tensor()
+
+            label = {
+                'tlbr': dets.boxes.to_tlbr().data.float(),
+                'class_idxs': dets.class_idxs,
+            }
+            item = {
+                'im': imgs[bx],
+                'label': label,
+            }
+            batch_items.append(item)
 
     import netharn as nh
     batch = nh.data.collate.padded_collate(batch_items)
     return batch
+
+
+class MM_Coder(object):
+    """
+    Standardize network inputs and outputs
+    """
+
+    def __init__(self, classes):
+        self.classes = classes
+
+    def decode_batch(self, outputs):
+        """
+        Transform mmdet outputs into a list of detections objects
+        """
+        batch_results = outputs['batch_results']
+        batch_dets = []
+
+        # HACK for the way mmdet handles background
+        if 'backround' in self.classes:
+            start = 1
+        else:
+            start = 0
+
+        for result in batch_results:
+            # Stack the results into a detections object
+            pred_cidxs = []
+            for cidx, cls_results in enumerate(result, start=start):
+                pred_cidxs.extend([cidx + 1] * len(cls_results))
+
+            pred_tlbr = np.vstack([r[:, 0:4] for r in result])
+            pred_score = np.hstack([r[:, 4] for r in result])
+            det = kwimage.Detections(
+                boxes=kwimage.Boxes(pred_tlbr, 'tlbr'),
+                scores=pred_score,
+                class_idxs=pred_cidxs,
+                classes=self.classes
+            )
+            batch_dets.append(det)
+        return batch_dets
 
 
 class MM_Detector(nh.layers.Module):
@@ -144,6 +211,8 @@ class MM_Detector(nh.layers.Module):
 
         self.detector = build_detector(mm_config, train_cfg=train_cfg,
                                        test_cfg=test_cfg)
+
+        self.coder = MM_Coder(self.classes)
 
     def demo_batch(self, bsize=3, in_channels=3, h=256, w=256):
         """
@@ -193,10 +262,17 @@ class MM_Detector(nh.layers.Module):
                                            gt_labels=gt_labels,
                                            gt_bboxes_ignore=gt_bboxes_ignore,
                                            return_loss=True)
-            loss_parts = {}
-            for k, vals in losses.items():
-                for sx, val in enumerate(vals):
-                    loss_parts[k + '_scale{}'.format(sx)] = val
+            loss_parts = OrderedDict()
+            for loss_name, loss_value in losses.items():
+                if 'loss' in loss_name:
+                    if isinstance(loss_value, torch.Tensor):
+                        loss_parts[loss_name] = loss_value.mean()
+                    elif isinstance(loss_value, list):
+                        loss_parts[loss_name] = sum(_loss.mean() for _loss in loss_value)
+                    else:
+                        raise TypeError(
+                            '{} is not a tensor or list of tensors'.format(loss_name))
+
             outputs['loss_parts'] = loss_parts
 
         if return_result:
@@ -204,32 +280,76 @@ class MM_Detector(nh.layers.Module):
                 hack_imgs = [g[None, :] for g in imgs]
                 # For whaver reason we cant run more than one test image at the
                 # same time.
-                import kwimage
-                batch_dets = []
                 batch_results = []
-
                 for one_img, one_meta in zip(hack_imgs, img_metas):
                     result = self.detector.forward([one_img], [one_meta],
                                                    return_loss=False)
                     batch_results.append(result)
-
-                    # Stack the results into a detections object
-                    pred_cidxs = []
-                    for cidx, cls_results in enumerate(result):
-                        pred_cidxs.extend([cidx] * len(cls_results))
-                    pred_tlbr = np.vstack([r[:, 0:4] for r in result])
-                    pred_score = np.hstack([r[:, 4] for r in result])
-                    det = kwimage.Detections(
-                        boxes=kwimage.Boxes(pred_tlbr, 'tlbr'),
-                        scores=pred_score,
-                        class_idxs=pred_cidxs,
-                        classes=self.classes
-                    )
-                    batch_dets.append(det)
-
-                outputs['batch_dets'] = batch_dets
                 outputs['batch_results'] = batch_results
         return outputs
+
+def _debug_rpn_head():
+
+    cls_scores = [
+        torch.rand.rand(4, 3, 128, 128),
+        torch.rand.rand(4, 3, 64, 64),
+        torch.rand.rand(4, 3, 32, 32),
+        torch.rand.rand(4, 3, 16, 16),
+    ]
+
+    bbox_preds = [
+        torch.rand.rand(4, 12, 128, 128),
+        torch.rand.rand(4, 12, 64, 64),
+        torch.rand.rand(4, 12, 32, 32),
+        torch.rand.rand(4, 12, 16, 16),
+    ]
+
+    gt_bboxes_list = gt_bboxes = [
+        torch.Tensor([[132.6667, 104.8757, 238.6326, 151.8874]]),
+        torch.Tensor([[340.4850, 229.0487, 390.2335, 278.8027]]),
+        torch.Tensor([], size=(0, 4)),
+        torch.Tensor([[296.1572, 128.4955, 397.9146, 169.0519]])
+    ]
+
+    # self = RPNHead(
+    #   (loss_cls): CrossEntropyLoss()
+    #   (loss_bbox): SmoothL1Loss()
+    #   (rpn_conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
+    #   (rpn_cls): Conv2d(256, 3, kernel_size=(1, 1), stride=(1, 1))
+    #   (rpn_reg): Conv2d(256, 12, kernel_size=(1, 1), stride=(1, 1))
+    # )
+
+    img_metas = [{'img_shape': (512, 512, 3),
+                  'ori_shape': (512, 512, 3),
+                  'pad_shape': (512, 512, 3),
+                  'filename': '<memory>.png',
+                  'scale_factor': 1.0,
+                  'flip': False},
+                 {'img_shape': (512, 512, 3),
+                  'ori_shape': (512, 512, 3),
+                  'pad_shape': (512, 512, 3),
+                  'filename': '<memory>.png',
+                  'scale_factor': 1.0,
+                  'flip': False},
+                 {'img_shape': (512, 512, 3),
+                  'ori_shape': (512, 512, 3),
+                  'pad_shape': (512, 512, 3),
+                  'filename': '<memory>.png',
+                  'scale_factor': 1.0,
+                  'flip': False},
+                 {'img_shape': (512, 512, 3),
+                  'ori_shape': (512, 512, 3),
+                  'pad_shape': (512, 512, 3),
+                  'filename': '<memory>.png',
+                  'scale_factor': 1.0,
+                  'flip': False}]
+
+    target_means = self.target_means
+    target_stds = self.target_stds
+    sampling = self.sampling
+    unmap_outputs=True
+
+
 
 
 class MM_RetinaNet(MM_Detector):
@@ -237,13 +357,21 @@ class MM_RetinaNet(MM_Detector):
     CommandLine:
         xdoctest -m ~/code/bioharn/bioharn/models/mm_models.py MM_RetinaNet
 
+
+    SeeAlso:
+        ~/code/mmdetection/mmdet/models/detectors/cascade_rcnn.py
+        ~/code/mmdetection/mmdet/models/detectors/retinanet.py
+
     Example:
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> import torch
         >>> import mmcv
         >>> classes = ['class_{:0d}'.format(i) for i in range(80)]
+        >>> self = MM_RetinaNet(classes)
+        >>> head = self.detector.bbox_head
+
         >>> xpu = nh.XPU(0)
-        >>> self = MM_RetinaNet(classes).to(xpu.main_device)
+        >>> self = self.to(xpu.main_device)
         >>> filename = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth'
         >>> _ = mmcv.runner.checkpoint.load_checkpoint(self.detector, filename)
         >>> batch = self.demo_batch()
@@ -288,7 +416,7 @@ class MM_RetinaNet(MM_Detector):
         classes = ndsampler.CategoryTree.coerce(classes)
         self.classes = classes
         if 'background' in classes:
-            assert classes.node_to_idx['background'] == len(classes) - 1
+            assert classes.node_to_idx['background'] == 0
             num_classes = len(classes)
         else:
             num_classes = len(classes) + 1
@@ -302,7 +430,7 @@ class MM_RetinaNet(MM_Detector):
                 depth=50,
                 num_stages=4,
                 out_indices=(0, 1, 2, 3),
-                frozen_stages=1,
+                frozen_stages=0,
                 style='pytorch'),
             neck=dict(
                 type='FPN',
@@ -319,8 +447,13 @@ class MM_RetinaNet(MM_Detector):
                 feat_channels=256,
                 octave_base_scale=4,
                 scales_per_octave=3,
-                anchor_ratios=[0.5, 1.0, 2.0],
+
+                # anchor_ratios=[0.5, 1.0, 2.0],
+                anchor_ratios=[0.75, 1.0, 1.5],
+                # anchor_ratios=[0.8, 0.9, 1.0, 1.1, 1.2],
+
                 anchor_strides=[8, 16, 32, 64, 128],
+                # anchor_strides=[4, 8, 16, 32, 64],
                 target_means=[.0, .0, .0, .0],
                 target_stds=[1.0, 1.0, 1.0, 1.0],
                 loss_cls=dict(
@@ -355,7 +488,7 @@ class MM_RetinaNet(MM_Detector):
                                            input_stats=input_stats)
 
 
-class MM_CascadeRCNN(nh.layers.Module):
+class MM_CascadeRCNN(MM_Detector):
     """
     CommandLine:
         xdoctest -m ~/code/bioharn/bioharn/models/mm_models.py MM_CascadeRCNN
@@ -364,19 +497,35 @@ class MM_CascadeRCNN(nh.layers.Module):
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> import torch
         >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
-        >>> self = MM_CascadeRCNN(classes)
-        >>> mm_inputs = self.detector.demo_batch()
+        >>> xpu = nh.XPU(0)
+        >>> self = MM_CascadeRCNN(classes).to(xpu.main_device)
+        >>> batch = self.demo_batch(bsize=1, h=128, w=128)
+        >>> batch = xpu.move(batch)
+        >>> outputs = self.forward(batch)
+        >>> batch_dets = self.coder.decode_batch(outputs)
+
+        import kwplot
+        kwplot.autompl()
+        kwplot.imshow(batch['im'].cpu()[0])
+        batch_dets[0].draw()
+
+
+        >>> #batch = xpu.move(batch)
+
+        >>> #filename = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth'
+        >>> #_ = mmcv.runner.checkpoint.load_checkpoint(self.detector, filename)
+
+
+        >>> mm_inputs = _batch_to_mm_inputs(batch)
         >>> gt_bboxes = mm_inputs['gt_bboxes']
         >>> gt_labels = mm_inputs['gt_labels']
-        >>> mm_inputs['img'] = mm_inputs.pop('imgs')
-        >>> mm_inputs['img_meta'] = mm_inputs.pop('img_metas')
-        >>> img = mm_inputs['img']
-        >>> img_meta = mm_inputs['img_meta']
+        >>> img = mm_inputs.pop('imgs')
+        >>> img_meta = mm_inputs.pop('img_metas')
+        >>> imgs_hack = [g[None, :] for g in img]
 
-        >>> imgs = [g[None, :] for g in img]
-        >>> outputs = self.detector.forward(imgs, img_meta, return_loss=False)
+        >>> losses = self.detector.forward(img, img_meta, **mm_inputs, return_loss=True)
+        >>> outputs = self.detector.forward(imgs_hack, img_meta, return_loss=False)
 
-        >>> losses = self.detector.forward(**mm_inputs, return_loss=True)
 
         >>> results = self.detector.simple_test(imgs[0], img_meta)
         >>> proposals=None
@@ -386,15 +535,13 @@ class MM_CascadeRCNN(nh.layers.Module):
         outputs = self.detector.extract_feat(inputs)
     """
     def __init__(self, classes, in_channels=3, input_stats=None):
-        super(MM_CascadeRCNN, self).__init__()
-
         import ndsampler
         classes = ndsampler.CategoryTree.coerce(classes)
-        self.classes = classes
-
-        if input_stats is None:
-            input_stats = {}
-        self.input_norm = nh.layers.InputNorm(**input_stats)
+        if 'background' in classes:
+            assert classes.node_to_idx['background'] == 0
+            num_classes = len(classes)
+        else:
+            num_classes = len(classes) + 1
 
         pretrained = 'open-mmlab://resnext101_32x4d'
         # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_64x4d_fpn_1x_20181218-e2dc376a.pth'
@@ -574,11 +721,7 @@ class MM_CascadeRCNN(nh.layers.Module):
 
         backbone_cfg = mm_config['backbone']
         _hack_mm_backbone_in_channels(backbone_cfg)
-
-        self.mm_detector = MM_Detector(mm_config, train_cfg=train_cfg,
-                                       test_cfg=test_cfg, classes=self.classes)
-
-    def forward(self, x):
-        x = self.input_norm(x)
-        x = self.mm_detector(x)
-        return x
+        super(MM_CascadeRCNN, self).__init__(mm_config, train_cfg=train_cfg,
+                                             test_cfg=test_cfg,
+                                             classes=classes,
+                                             input_stats=input_stats)

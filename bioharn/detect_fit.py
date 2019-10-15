@@ -8,6 +8,7 @@ import os
 import torch
 import ubelt as ub
 import kwarray
+import kwimage
 # import numpy as np
 # import torch
 # import netharn as nh
@@ -44,8 +45,8 @@ class DetectFitConfig(scfg.Config):
         'input_dims': scfg.Value((256, 256), help='size to '),
         'normalize_inputs': scfg.Value(False, help='if True, precompute training mean and std for data whitening'),
 
-        # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['complex', 'simple']),
-        'augment': scfg.Value(None, help='key indicating augmentation strategy', choices=['complex', 'simple', None]),
+        # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['medium', 'simple']),
+        'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'simple', None]),
 
         'ovthresh': 0.5,
 
@@ -55,16 +56,16 @@ class DetectFitConfig(scfg.Config):
             # choices=['yolo2']
         ),
 
-        'optim': scfg.Value('adamw', help='torch optimizer',
+        'optim': scfg.Value('sgd', help='torch optimizer',
                             choices=['sgd', 'adam', 'adamw']),
         'batch_size': scfg.Value(4, help='number of images that run through the network at a time'),
         'bstep': scfg.Value(8, help='num batches before stepping'),
         'lr': scfg.Value(1e-3, help='learning rate'),  # 1e-4,
-        'decay': scfg.Value(1e-5, help='weight decay'),
+        'decay': scfg.Value(1e-4, help='weight decay'),
 
-        'schedule': scfg.Value('step90', help='learning rate / momentum scheduler'),
-        'max_epoch': scfg.Value(140, help='Maximum number of epochs'),
-        'patience': scfg.Value(140, help='Maximum number of bad epochs on validation before stopping'),
+        'schedule': scfg.Value('ReduceLROnPlateau', help='learning rate / momentum scheduler'),
+        'max_epoch': scfg.Value(100, help='Maximum number of epochs'),
+        'patience': scfg.Value(20, help='Maximum number of bad epochs on validation before stopping'),
 
         # Initialization
         'init': scfg.Value('imagenet', help='initialization strategy'),
@@ -83,8 +84,8 @@ class DetectFitConfig(scfg.Config):
             self['train_dataset'] = ub.expandpath('~/data/VOC/voc-trainval.mscoco.json')
             self['vali_dataset'] = ub.expandpath('~/data/VOC/voc-test-2007.mscoco.json')
         elif self['datasets'] == 'special:habcam':
-            self['train_dataset'] = ub.expandpath('~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_train.mscoco.json')
-            self['vali_dataset'] = ub.expandpath('~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_vali.mscoco.json')
+            self['train_dataset'] = ub.expandpath('~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json')
+            self['vali_dataset'] = ub.expandpath('~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
 
         key = self.get('pretrained', None) or self.get('init', None)
         if key == 'imagenet':
@@ -96,66 +97,6 @@ class DetectFitConfig(scfg.Config):
             self['init'] = 'pretrained'
 
 
-def _devcheck_stereo():
-    """
-    pip install opencv-contrib-python
-    """
-    import cv2
-    img3 = cv2.imread('/home/joncrall/raid/data/noaa/2015_Habcam_photos/201503.20150517.073624748.4950.png')
-
-    imgL = img3[:, 0:img3.shape[1] // 2]
-    imgR = img3[:, img3.shape[1] // 2:]
-
-    window_size = 3
-    left_matcher = cv2.StereoSGBM_create(
-        minDisparity=0,
-        numDisparities=160,             # max_disp has to be dividable by 16 f. E. HH 192, 256
-        blockSize=5,
-        P1=8 * 3 * window_size ** 2,    # wsize default 3; 5; 7 for SGBM reduced size image; 15 for SGBM full size image (1300px and above); 5 Works nicely
-        P2=32 * 3 * window_size ** 2,
-        disp12MaxDiff=1,
-        uniquenessRatio=15,
-        speckleWindowSize=0,
-        speckleRange=2,
-        preFilterCap=63,
-        mode=cv2.STEREO_SGBM_MODE_SGBM_3WAY
-    )
-
-    right_matcher = cv2.ximgproc.createRightMatcher(left_matcher)
-
-    lmbda = 80000
-    sigma = 1.2
-    visual_multiplier = 1.0
-
-    wls_filter = cv2.ximgproc.createDisparityWLSFilter(matcher_left=left_matcher)
-    wls_filter.setLambda(lmbda)
-    wls_filter.setSigmaColor(sigma)
-
-    print('computing disparity...')
-    displ = left_matcher.compute(imgL, imgR)  # .astype(np.float32)/16
-    dispr = right_matcher.compute(imgR, imgL)  # .astype(np.float32)/16
-    displ = np.int16(displ)
-    dispr = np.int16(dispr)
-    filteredImg = wls_filter.filter(displ, imgL, None, dispr)  # important to put "imgL" here!!!
-    filteredImg = np.uint8(filteredImg)
-
-    import kwplot
-    displ = displ - displ.min()
-    displ = displ / displ.max()
-    kwplot.imshow(displ, pnum=(1, 2, 2))
-    kwplot.imshow(imgL, pnum=(1, 2, 1))
-
-    disp_alg = cv2.StereoBM_create(numDisparities=16, blockSize=15)
-
-    disp_alg = cv2.StereoSGBM_create(numDisparities=16, blockSize=15)
-    disparity = disp_alg.compute(imgL, imgR)
-    disparity = disparity - disparity.min()
-    disparity = disparity / disparity.max()
-    kwplot.imshow(imgL, pnum=(1, 3, 1))
-    kwplot.imshow(disparity, pnum=(1, 3, 2))
-    kwplot.imshow(imgR, pnum=(1, 3, 3))
-
-
 class DetectDataset(torch.utils.data.Dataset):
     """
     Loads data with ndsampler.CocoSampler and formats it in a way suitable for
@@ -164,7 +105,7 @@ class DetectDataset(torch.utils.data.Dataset):
     Example:
         >>> self = DetectDataset.demo()
     """
-    def __init__(self, sampler, augment='simple', input_dims=[416, 416],
+    def __init__(self, sampler, augment='simple', input_dims=[512, 512],
                  scales=[-3, 6], factor=32):
         super(DetectDataset, self).__init__()
 
@@ -172,14 +113,18 @@ class DetectDataset(torch.utils.data.Dataset):
 
         self.factor = factor  # downsample factor of yolo grid
         self.input_dims = np.array(input_dims, dtype=np.int)
+
         assert np.all(self.input_dims % self.factor == 0)
+
+        # FIXME: multiscale training is currently not enabled
+        if not scales:
+            scales = [1]
 
         self.multi_scale_inp_size = np.array([
             self.input_dims + (self.factor * i) for i in range(*scales)])
-        self.multi_scale_out_size = self.multi_scale_inp_size // self.factor
+        print('self.multi_scale_inp_size = {!r}'.format(self.multi_scale_inp_size))
 
         import imgaug.augmenters as iaa
-        # import imgaug.parameters as iap
 
         self.augmenter = None
         if not augment:
@@ -191,6 +136,21 @@ class DetectDataset(torch.utils.data.Dataset):
                 # iaa.Sometimes(.9, HSVShift(hue=0.1, sat=1.5, val=1.5)),
                 iaa.Crop(percent=(0, .2), keep_size=False),
                 iaa.Fliplr(p=.5),
+            ]
+            self.augmenter = iaa.Sequential(augmentors)
+        elif augment == 'medium':
+            augmentors = [
+                # Order used in lightnet is hsv, rc, rf, lb
+                # lb is applied externally to augmenters
+                # iaa.Sometimes(.9, HSVShift(hue=0.1, sat=1.5, val=1.5)),
+                iaa.Crop(percent=(0, .2), keep_size=False),
+                iaa.Fliplr(p=.5),
+                iaa.Rot90(k=[0, 1, 2, 3]),
+                iaa.Sometimes(.5, iaa.Grayscale(alpha=(0, 1))),
+                iaa.Sequential([
+                    iaa.Sometimes(.1, iaa.GammaContrast((0.5, 2.0))),
+                    iaa.Sometimes(.1, iaa.LinearContrast((0.5, 1.5))),
+                ], random_order=True),
             ]
             self.augmenter = iaa.Sequential(augmentors)
         else:
@@ -211,7 +171,7 @@ class DetectDataset(torch.utils.data.Dataset):
         """
         import ndsampler
         if key == 'habcam':
-            fpath = ub.expandpath('$HOME/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_vali.mscoco.json')
+            fpath = ub.expandpath('$HOME/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
             dset = ndsampler.CocoDataset(fpath)
             config = DetectFitConfig()
             sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
@@ -231,21 +191,19 @@ class DetectDataset(torch.utils.data.Dataset):
             >>> # DISABLE_DOCTSET
             >>> self = DetectDataset.demo()
             >>> index = 0
-            >>> item = self[index]
+            >>> item = self[(index, 4)]
             >>> hwc01 = item['im'].numpy().transpose(1, 2, 0)
             >>> print(hwc01.shape)
-            >>> norm_boxes = item['label']['cxywh'].numpy()
-            >>> inp_size = hwc01.shape[-2::-1]
+            >>> cxywh = item['label']['cxywh'].numpy()
             >>> # xdoc: +REQUIRES(--show)
             >>> import kwplot
             >>> kwplot.figure(doclf=True, fnum=1)
             >>> kwplot.autompl()  # xdoc: +SKIP
             >>> kwplot.imshow(hwc01)
-            >>> inp_boxes = kwimage.Boxes(norm_boxes, 'cxywh').scale(inp_size)
+            >>> inp_boxes = kwimage.Boxes(cxywh, 'cxywh')
             >>> inp_boxes.draw()
             >>> kwplot.show_if_requested()
         """
-        import kwimage
         if isinstance(index, tuple):
             # Get size index from the batch loader
             index, size_index = index
@@ -325,14 +283,18 @@ class DetectDataset(torch.utils.data.Dataset):
         # Lightnet YOLO accepts truth tensors in the format:
         # [class_id, center_x, center_y, w, h]
         # where coordinates are noramlized between 0 and 1
-        cxywh_norm = dets.boxes.toformat('cxywh').scale(1 / inp_size)
+
+        cxwh = dets.boxes.toformat('cxywh')
+        # if False:
+        #     # ONLY SACALE FOR YOLO, DONT SCALE FOR MM-DET
+        #     cxywh_norm = cxwh.scale(1 / inp_size)
 
         # Return index information in the label as well
         orig_size = torch.LongTensor(orig_size)
         index = torch.LongTensor([index])
         bg_weight = torch.FloatTensor([1.0])
         label = {
-            'cxywh': torch.FloatTensor(cxywh_norm.data),
+            'cxywh': torch.FloatTensor(cxwh.data),
             'class_idxs': torch.LongTensor(dets.class_idxs[:, None]),
             'weight': torch.FloatTensor(dets.weights),
 
@@ -432,11 +394,28 @@ class DetectHarn(nh.FitHarn):
             >>> harn.initialize()
             >>> batch = harn._demo_batch(0, 'vali')
             >>> outputs, loss = harn.run_batch(batch)
+
         """
         # Compute how many images have been seen before
         if getattr(harn.raw_model, '__BUILTIN_CRITERION__', False):
-            output = harn.model.forward(batch, return_loss=True, return_result=False)
-            loss = output['loss_parts']
+
+            bx = harn.bxs[harn.current_tag]
+            harn.raw_model.detector.test_cfg['score_thr'] = 0.0
+
+            if not getattr(harn, '_draw_timer', None):
+                harn._draw_timer = ub.Timer().tic()
+            # need to hack do draw here, because we need to call
+            # mmdet forward in a special way
+            harn._hack_do_draw = (harn.batch_index <= 4)
+            harn._hack_do_draw |= (harn._draw_timer.toc() > 60 * 1)
+
+            return_result = harn._hack_do_draw
+            outputs = harn.model.forward(batch, return_loss=True,
+                                         return_result=return_result)
+
+            # Criterion was computed in the forward pass
+            loss = outputs['loss_parts']
+
         else:
             bsize = harn.loaders['train'].batch_sampler.batch_size
             nitems = (len(harn.datasets['train']) // bsize) * bsize
@@ -445,9 +424,9 @@ class DetectHarn(nh.FitHarn):
 
             inputs = batch['im']
             target = batch['label']
-            output = harn.model(inputs)
-            loss = harn.criterion(output, target, seen=n_seen)
-        return output, loss
+            outputs = harn.model(inputs)
+            loss = harn.criterion(outputs, target, seen=n_seen)
+        return outputs, loss
 
     def on_batch(harn, batch, outputs, losses):
         """
@@ -455,30 +434,30 @@ class DetectHarn(nh.FitHarn):
 
         Example:
             >>> # DISABLE_DOCTSET
-            >>> harn = setup_harn(bsize=8, datasets='special:voc')
+            >>> harn = setup_harn(bsize=2, datasets='special:habcam', arch='retinanet', init='noop')
             >>> harn.initialize()
-            >>> weights_fpath = yolo2.demo_voc_weights()
+
+            >>> weights_fpath = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v8-test-retinanet/torch_snapshots/_epoch_00000021.pt'
+
             >>> initializer = nh.initializers.Pretrained(weights_fpath)
-            >>> init_info = initializer(harn.model.module)
-            >>> batch = harn._demo_batch(0, 'train')
+            >>> init_info = initializer(harn.raw_model)
+
+            >>> batch = harn._demo_batch(1, 'train')
             >>> outputs, losses = harn.run_batch(batch)
             >>> harn.on_batch(batch, outputs, losses)
             >>> # xdoc: +REQUIRES(--show)
-            >>> batch_dets = harn.model.module.postprocess(outputs)
+            >>> batch_dets = harn.raw_model.coder.decode_batch(outputs)
             >>> nh.util.autompl()  # xdoc: +SKIP
             >>> stacked = harn.draw_batch(batch, outputs, batch_dets, thresh=0.01)
             >>> nh.util.imshow(stacked)
             >>> nh.util.show_if_requested()
         """
-        if getattr(harn.raw_model, '__BUILTIN_CRITERION__', False):
-            # HACK
-            return
-
         try:
-            detections = harn.raw_model.coder.decode_batch(outputs)
             bx = harn.bxs[harn.current_tag]
-            if bx < 4:
-                stacked = harn.draw_batch(batch, outputs, detections, thresh=0.1)
+            if harn._hack_do_draw:
+                detections = harn.raw_model.coder.decode_batch(outputs)
+                harn._draw_timer.tic()
+                stacked = harn.draw_batch(batch, outputs, detections, thresh=0.0)
                 # img = nh.util.render_figure_to_image(fig)
                 dump_dpath = ub.ensuredir((harn.train_dpath, 'monitor', harn.current_tag, 'batch'))
                 dump_fname = 'pred_bx{:04d}_epoch{:08d}.png'.format(bx, harn.epoch)
@@ -516,7 +495,6 @@ class DetectHarn(nh.FitHarn):
             >>> nh.util.imshow(stacked)
             >>> nh.util.show_if_requested()
         """
-        import kwimage
         inputs = batch['im']
         labels = batch['label']
         orig_sizes = labels['orig_sizes']
@@ -559,8 +537,9 @@ class DetectHarn(nh.FitHarn):
             hwc01 = chw01.cpu().numpy().transpose(1, 2, 0)
             inp_size = np.array(hwc01.shape[0:2][::-1])
 
-            true_dets.boxes.scale(inp_size, inplace=True)
-            pred_dets.boxes.scale(inp_size, inplace=True)
+            # TODO: FIX YOLO SO SCALE IS NOT NEEDED
+            # true_dets.boxes.scale(inp_size, inplace=True)
+            # pred_dets.boxes.scale(inp_size, inplace=True)
 
             letterbox = harn.datasets[harn.current_tag].letterbox
             orig_size = orig_sizes[idx].cpu().numpy()
@@ -611,30 +590,40 @@ def setup_harn(cmdline=True, **kw):
     # Load ndsampler.CocoDataset objects from info in the config
     subsets = coerce_data.coerce_datasets(config)
 
+    # HACK: ENSURE BACKGROUND IS CLASS IDX 0 for mmdet
+    classes = subsets['train'].object_categories()
+    if 'background' not in classes:
+        for k, subset in subsets.items():
+            subset.add_category('background', id=0)
+
     samplers = {}
     for tag, subset in subsets.items():
         print('subset = {!r}'.format(subset))
         sampler = ndsampler.CocoSampler(subset, workdir=config['workdir'])
         samplers[tag] = sampler
 
+    assert config['multiscale'] is False, 'not implemented yet'
+
     torch_datasets = {
         tag: DetectDataset(
             sampler,
             input_dims=config['input_dims'],
             augment=config['augment'] if (tag == 'train') else False,
+            scales=[-3, 6] if (tag == 'train' and config['multiscale']) else False,
         )
         for tag, sampler in samplers.items()
     }
 
     print('make loaders')
     loaders_ = {
-        tag: torch.utils.data.DataLoader(
-            dset,
+        tag: dset.make_loader(
             batch_size=config['batch_size'],
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
-            collate_fn=nh.data.collate.padded_collate,
+            # collate_fn=nh.data.collate.padded_collate,
             pin_memory=True)
+        # torch.utils.data.DataLoader(
+        #     dset,
         for tag, dset in torch_datasets.items()
     }
     # for x in ub.ProgIter(loaders_['train']):
@@ -676,6 +665,7 @@ def setup_harn(cmdline=True, **kw):
     arch = config['arch']
     classes = samplers['train'].classes
 
+    criterion_ = None
     if arch == 'retinanet':
         from bioharn.models import mm_models
         initkw = dict(
@@ -683,9 +673,13 @@ def setup_harn(cmdline=True, **kw):
         )
         model = mm_models.MM_RetinaNet(**initkw)
         model._initkw = initkw
-
-        criterion_ = None
-
+    elif arch == 'cascade':
+        from bioharn.models import mm_models
+        initkw = dict(
+            classes=classes,
+        )
+        model = mm_models.MM_CascadeRCNN(**initkw)
+        model._initkw = initkw
     elif arch == 'yolo2':
         if False:
             dset = samplers['train'].dset
@@ -734,6 +728,10 @@ def setup_harn(cmdline=True, **kw):
     print('optimizer_ = {!r}'.format(optimizer_))
 
     dynamics_ = nh.Dynamics.coerce(config)
+    dynamics_['grad_norm_max'] = 35
+    dynamics_['grad_norm_type'] = 2
+    dynamics_['warmup_iters'] = 800
+    dynamics_['warmup_ratio'] = 1 / 10
     print('dynamics_ = {!r}'.format(dynamics_))
 
     xpu = nh.XPU.coerce(config['xpu'])
@@ -822,8 +820,8 @@ if __name__ == '__main__':
 
         python -m bioharn.detect_fit \
             --nice=bioharn-test-yolo \
-            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_train.mscoco.json \
-            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_vali.mscoco.json \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
             --pretrained=imagenet \
             --schedule=step90 \
             --input_dims=512,512 \
@@ -831,28 +829,51 @@ if __name__ == '__main__':
 
         python -m bioharn.detect_fit \
             --nice=bioharn-test-yolo-v5 \
-            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_train.mscoco.json \
-            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_vali.mscoco.json \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
             --pretrained=/home/joncrall/work/bioharn/fit/nice/bioharn-test-yolo/torch_snapshots/_epoch_00000011.pt \
             --schedule=ReduceLROnPlateau \
             --optim=adamw --lr=3e-4 \
             --input_dims=512,512 \
             --workers=4 --xpu=1 --batch_size=16 --bstep=4
 
-
         python -m bioharn.detect_fit \
-            --nice=bioharn-det-v6-test-retinanet \
-            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_train.mscoco.json \
-            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v1_vali.mscoco.json \
+            --nice=bioharn-det-v12-test-retinanet \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
             --schedule=ReduceLROnPlateau \
             --arch=retinanet \
+            --augment=medium \
             --init=noop \
-            --optim=adamw --lr=3e-4 \
+            --optim=sgd --lr=1e-3 \
             --input_dims=512,512 \
-            --workers=4 --xpu=1 --batch_size=16 --bstep=4
+            --workers=6 --xpu=1 --batch_size=12 --bstep=1
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v9-test-cascade \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --arch=cascade \
+            --init=noop \
+            --optim=sgd --lr=1e-2 \
+            --input_dims=512,512 \
+            --workers=4 --xpu=1 --batch_size=4 --bstep=1
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v11-test-cascade \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-v9-test-cascade/zjolejwz/deploy_MM_CascadeRCNN_zjolejwz_010_LUAKQJ.zip \
+            --augment=medium \
+            --arch=cascade \
+            --optim=sgd --lr=1e-3 \
+            --input_dims=512,512 \
+            --workers=4 --xpu=1 --batch_size=4 --bstep=1
+
 
         # --pretrained='https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth' \
-
 
 
     """
