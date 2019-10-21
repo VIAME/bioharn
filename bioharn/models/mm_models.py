@@ -41,9 +41,14 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
 def _batch_to_mm_inputs(batch):
     """
     Convert our netharn style batch to mmdet style
+
+    Example:
+        >>> # Test empty batch
+        >>> bsize = [0, 0, 0, 0]
+        >>> batch = _demo_batch(bsize)
+        >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
     B, C, H, W = batch['im'].shape
-    label = batch['label']
 
     # hack in img meta
     img_metas = [
@@ -58,27 +63,44 @@ def _batch_to_mm_inputs(batch):
         for _ in range(B)
     ]
 
-    gt_bboxes = []
-    gt_labels = []
-
-    batch_flags = label['class_idxs'] > -1
-    for bx, flags in enumerate(batch_flags):
-        flags = flags.view(-1)
-        if 'tlbr' in label:
-            gt_bboxes.append(label['tlbr'][bx][flags])
-        elif 'cxywh' in label:
-            gt_bboxes.append(kwimage.Boxes(label['cxywh'][bx][flags], 'cxywh').to_tlbr().data)
-        gt_labels.append(label['class_idxs'][bx][flags].view(-1))
-        # gt_bboxes_ignore = weight < 0.5
-        # weight = label.get('weight', None)
-
     mm_inputs = {
         'imgs': batch['im'],
         'img_metas': img_metas,
-        'gt_bboxes': gt_bboxes,
-        'gt_labels': gt_labels,
-        'gt_bboxes_ignore': None,
     }
+
+    # Handled pad collated batches. Ensure shapes are correct.
+    if 'label' in batch:
+        gt_bboxes = []
+        gt_labels = []
+
+        label = batch['label']
+        batch_cidxs = label['class_idxs'].view(B, -1)
+        batch_flags = batch_cidxs > -1
+        batch_tlbr = None
+        batch_cxywh = None
+        if 'tlbr' in label:
+            batch_tlbr = label['tlbr'].view(B, -1, 4)
+        if 'cxywh' in label:
+            batch_cxywh = label['cxywh'].view(B, -1, 4)
+
+        for bx in range(B):
+            flags = batch_flags[bx]
+            flags = flags.view(-1)
+            if batch_tlbr is not None:
+                gt_bboxes.append(batch_tlbr[bx][flags])
+            if batch_cxywh is not None:
+                _boxes = kwimage.Boxes(batch_cxywh[bx][flags], 'cxywh')
+                gt_bboxes.append(_boxes.to_tlbr().data)
+            gt_labels.append(batch_cidxs[bx][flags].view(-1))
+            # gt_bboxes_ignore = weight < 0.5
+            # weight = label.get('weight', None)
+
+        mm_inputs.update({
+            'gt_bboxes': gt_bboxes,
+            'gt_labels': gt_labels,
+            'gt_bboxes_ignore': None,
+        })
+
     return mm_inputs
 
 
@@ -91,12 +113,14 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3):
         >>> globals().update(**xdev.get_func_kwargs(_demo_batch))
         >>> batch = _demo_batch()
         >>> mm_inputs = _batch_to_mm_inputs(batch)
+
     """
-
-    if True:
-
+    USE_PHOTOS = False
+    import kwarray
+    rng = kwarray.ensure_rng(0)
+    if USE_PHOTOS:
         import ndsampler
-        coco_dset = ndsampler.CocoDataset.demo()
+        coco_dset = ndsampler.CocoDataset.demo('photos')
         sampler = ndsampler.CocoSampler(coco_dset)
 
         batch_items = []
@@ -119,12 +143,19 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3):
             batch_items.append(item)
 
     else:
+        if isinstance(bsize, list):
+            item_sizes = bsize
+            bsize = len(item_sizes)
+        else:
+            item_sizes = [rng.randint(0, 10) for bx in range(bsize)]
+
         input_shape = B, C, H, W = (bsize, in_channels, h, w)
         imgs = torch.rand(*input_shape)
 
         batch_items = []
         for bx in range(B):
-            dets = kwimage.Detections.random(num=(10 - bx) % 11, classes=classes)
+            dets = kwimage.Detections.random(num=item_sizes[bx],
+                                             classes=classes)
             dets = dets.scale((W, H)).tensor()
 
             label = {
@@ -174,7 +205,7 @@ class MM_Coder(object):
             det = kwimage.Detections(
                 boxes=kwimage.Boxes(pred_tlbr, 'tlbr'),
                 scores=pred_score,
-                class_idxs=pred_cidxs,
+                class_idxs=np.array(pred_cidxs, dtype=np.int),
                 classes=self.classes
             )
             batch_dets.append(det)
@@ -287,69 +318,6 @@ class MM_Detector(nh.layers.Module):
                     batch_results.append(result)
                 outputs['batch_results'] = batch_results
         return outputs
-
-def _debug_rpn_head():
-
-    cls_scores = [
-        torch.rand.rand(4, 3, 128, 128),
-        torch.rand.rand(4, 3, 64, 64),
-        torch.rand.rand(4, 3, 32, 32),
-        torch.rand.rand(4, 3, 16, 16),
-    ]
-
-    bbox_preds = [
-        torch.rand.rand(4, 12, 128, 128),
-        torch.rand.rand(4, 12, 64, 64),
-        torch.rand.rand(4, 12, 32, 32),
-        torch.rand.rand(4, 12, 16, 16),
-    ]
-
-    gt_bboxes_list = gt_bboxes = [
-        torch.Tensor([[132.6667, 104.8757, 238.6326, 151.8874]]),
-        torch.Tensor([[340.4850, 229.0487, 390.2335, 278.8027]]),
-        torch.Tensor([], size=(0, 4)),
-        torch.Tensor([[296.1572, 128.4955, 397.9146, 169.0519]])
-    ]
-
-    # self = RPNHead(
-    #   (loss_cls): CrossEntropyLoss()
-    #   (loss_bbox): SmoothL1Loss()
-    #   (rpn_conv): Conv2d(256, 256, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-    #   (rpn_cls): Conv2d(256, 3, kernel_size=(1, 1), stride=(1, 1))
-    #   (rpn_reg): Conv2d(256, 12, kernel_size=(1, 1), stride=(1, 1))
-    # )
-
-    img_metas = [{'img_shape': (512, 512, 3),
-                  'ori_shape': (512, 512, 3),
-                  'pad_shape': (512, 512, 3),
-                  'filename': '<memory>.png',
-                  'scale_factor': 1.0,
-                  'flip': False},
-                 {'img_shape': (512, 512, 3),
-                  'ori_shape': (512, 512, 3),
-                  'pad_shape': (512, 512, 3),
-                  'filename': '<memory>.png',
-                  'scale_factor': 1.0,
-                  'flip': False},
-                 {'img_shape': (512, 512, 3),
-                  'ori_shape': (512, 512, 3),
-                  'pad_shape': (512, 512, 3),
-                  'filename': '<memory>.png',
-                  'scale_factor': 1.0,
-                  'flip': False},
-                 {'img_shape': (512, 512, 3),
-                  'ori_shape': (512, 512, 3),
-                  'pad_shape': (512, 512, 3),
-                  'filename': '<memory>.png',
-                  'scale_factor': 1.0,
-                  'flip': False}]
-
-    target_means = self.target_means
-    target_stds = self.target_stds
-    sampling = self.sampling
-    unmap_outputs=True
-
-
 
 
 class MM_RetinaNet(MM_Detector):
@@ -499,7 +467,7 @@ class MM_CascadeRCNN(MM_Detector):
         >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
         >>> xpu = nh.XPU(0)
         >>> self = MM_CascadeRCNN(classes).to(xpu.main_device)
-        >>> batch = self.demo_batch(bsize=1, h=128, w=128)
+        >>> batch = self.demo_batch(bsize=1, h=256, w=256)
         >>> batch = xpu.move(batch)
         >>> outputs = self.forward(batch)
         >>> batch_dets = self.coder.decode_batch(outputs)
@@ -533,6 +501,19 @@ class MM_CascadeRCNN(MM_Detector):
         >>> self = self.detector
 
         outputs = self.detector.extract_feat(inputs)
+
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> import torch
+        >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+        >>> xpu = nh.XPU(None)
+        >>> self = MM_CascadeRCNN(classes).to(xpu.main_device)
+        >>> batch = _demo_batch([0, 0, 0], h=256, w=256)
+        >>> batch = xpu.move(batch)
+        >>> outputs = self.forward(batch)
+
+        >>> self = self.detector
+        >>> img = mm_inputs['imgs']
+        >>> img_meta = mm_inputs['img_metas']
     """
     def __init__(self, classes, in_channels=3, input_stats=None):
         import ndsampler

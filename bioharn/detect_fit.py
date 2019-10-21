@@ -379,6 +379,11 @@ class DetectHarn(nh.FitHarn):
         ensure batch is in a standardized structure
         """
         batch = harn.xpu.move(raw_batch)
+        # Fix batch shape
+        bsize = batch['im'].shape[0]
+        batch['label']['cxywh'] = batch['label']['cxywh'].view(bsize, -1, 4)
+        batch['label']['class_idxs'] = batch['label']['class_idxs'].view(bsize, -1)
+        batch['label']['weight'] = batch['label']['weight'].view(bsize, -1)
         return batch
 
     def run_batch(harn, batch):
@@ -871,6 +876,18 @@ if __name__ == '__main__':
             --optim=sgd --lr=1e-3 \
             --input_dims=512,512 \
             --workers=4 --xpu=1 --batch_size=4 --bstep=1
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v11-test-cascade \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p1-c2 \
+            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip \
+            --augment=medium \
+            --arch=cascade \
+            --optim=sgd --lr=1e-3 \
+            --input_dims=1024,1024 \
+            --workers=4 --xpu=1 --batch_size=1 --bstep=4
 
 
         # --pretrained='https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth' \

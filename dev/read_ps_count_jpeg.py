@@ -20,10 +20,12 @@ def hack_extract_all():
     ]
     fpaths = []
     for dpath in dpaths:
-        fpaths += list(glob.glob(join(dpath, '*.JPG')))
-        fpaths += list(glob.glob(join(dpath, '*.jpg')))
-        fpaths += list(glob.glob(join(dpath, '*.jpeg')))
-        fpaths += list(glob.glob(join(dpath, '*.JPEG')))
+        fpaths = []
+        dpath = '/home/joncrall/data/noaa/sealions-2/'
+        fpaths += list(glob.glob(join(dpath, '**/*.JPG'), recursive=True))
+        fpaths += list(glob.glob(join(dpath, '**/*.jpg'), recursive=True))
+        fpaths += list(glob.glob(join(dpath, '**/*.jpeg'), recursive=True))
+        fpaths += list(glob.glob(join(dpath, '**/*.JPEG'), recursive=True))
 
     fpath_to_annots = {}
     failed_fpaths = ub.ddict(list)
