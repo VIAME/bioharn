@@ -22,7 +22,7 @@ class DetectPredictConfig(scfg.Config):
 
         'workers': 0,
 
-        'overlap': 0.0,
+        'overlap': scfg.Value(0.0, help='overlap of the sliding window'),
 
         # Note: these dont work exactly correct due to mmdetection model
         # differences
@@ -58,6 +58,7 @@ class DetectPredictor(object):
         self.config = DetectPredictConfig(config)
         self.model = None
         self.xpu = None
+        self.coder = None
 
     def info(self, text):
         if self.config['verbose']:
@@ -74,6 +75,9 @@ class DetectPredictor(object):
             model.train(False)
             self.model = model
             self.xpu = xpu
+            # The model must have a coder
+            self.raw_model = self.xpu.raw(self.model)
+            self.coder = self.raw_model.coder
 
     def _rectify_image(self, path_or_image):
         if isinstance(path_or_image, six.string_types):
@@ -99,11 +103,6 @@ class DetectPredictor(object):
 
         # Ensure model is in prediction mode and disable gradients for speed
         self._ensure_model()
-        self.model.eval()
-
-        # The model must have a coder
-        self._raw_model = self.xpu.raw(self.model)
-        self._coder = self._raw_model.coder
 
         full_rgb = self._rectify_image(path_or_image)
         self.info('Detect objects in image (shape={})'.format(full_rgb.shape))
@@ -140,14 +139,72 @@ class DetectPredictor(object):
 
         # Perform final round of NMS on the stiched boxes
         self.info('Finalize detections')
-        keep = all_dets.non_max_supression(
-            thresh=self.config['nms_thresh'],
-            daq={'diameter': all_dets.boxes.width.max()},
-        )
 
-        final_dets = all_dets.take(keep)
+        if len(all_dets) > 0:
+            keep = all_dets.non_max_supression(
+                thresh=self.config['nms_thresh'],
+                daq={'diameter': all_dets.boxes.width.max()},
+            )
+            final_dets = all_dets.take(keep)
+        else:
+            final_dets = all_dets
+
         self.info('Finished prediction')
         return final_dets
+
+    def predict_sampler(self, sampler):
+        """
+        Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
+
+        Args:
+            sampler (ndsampler.CocoDataset): dset wrapped in a sampler
+        """
+        input_dims = self.config['input_dims']
+        window_dims = self.config['window_dims']
+
+        torch_dset = WindowedSamplerDataset(sampler, window_dims=window_dims,
+                                            input_dims=input_dims)
+        slider_loader = torch.utils.data.DataLoader(
+            torch_dset, shuffle=False, num_workers=self.config['workers'],
+            batch_size=self.config['batch_size'])
+
+        prog = ub.ProgIter(slider_loader, total=len(slider_loader),
+                           chunksize=self.config['batch_size'],
+                           desc='predict', enabled=1)
+
+        xpu = self.xpu
+        with torch.set_grad_enabled(False):
+
+            # ----
+            accum_gids = []
+            accum_dets = []
+            for raw_batch in prog:
+                batch = {
+                    'im': xpu.move(raw_batch['im']),
+                    'tf_chip_to_full': raw_batch['tf_chip_to_full'],
+                }
+                batch_gids = raw_batch['gid'].view(-1).numpy().tolist()
+                batch_dets = list(self._predict_batch(batch))
+                accum_gids.extend(batch_gids)
+                accum_dets.extend(batch_dets)
+            # ----
+
+            # Finalize detections
+            gid_to_accum_dets = ub.group_items(accum_dets, accum_gids)
+            gid_to_pred = ub.group_items(accum_dets, accum_gids)
+            for gid, accum_dets in gid_to_accum_dets.items():
+                if len(accum_dets) == 0:
+                    dets = kwimage.Detections.concatenate([])
+                elif len(accum_dets) == 1:
+                    dets = accum_dets[0]
+                elif len(accum_dets) > 1:
+                    dets = kwimage.Detections.concatenate(accum_dets)
+                    keep = dets.non_max_supression(
+                        thresh=self.config['nms_thresh'],
+                    )
+                    dets = dets.take(keep)
+                gid_to_pred[gid] = dets
+        return gid_to_pred
 
     def _prepare_image(self, full_rgb):
         full_dims = tuple(full_rgb.shape[0:2])
@@ -190,7 +247,7 @@ class DetectPredictor(object):
         if input_dims == 'full' or input_dims == window_dims:
             input_dims = None
 
-        slider_dataset = SliderDataset(full_rgb, slider, input_dims)
+        slider_dataset = SingleImageDataset(full_rgb, slider, input_dims)
         return slider_dataset
 
     def _predict_batch(self, batch):
@@ -202,12 +259,15 @@ class DetectPredictor(object):
         """
         chips = batch['im']
         tf_chip_to_full = batch['tf_chip_to_full']
-        pad_offset_xy = batch['pad_offset_xy']
 
         scale_xy = tf_chip_to_full['scale_xy']
         shift_xy = tf_chip_to_full['shift_xy']
 
-        shift_xy_ = shift_xy - pad_offset_xy[None, :]
+        if 'pad_offset_xy' in batch:
+            pad_offset_xy = batch['pad_offset_xy']
+            shift_xy_ = shift_xy - pad_offset_xy[None, :]
+        else:
+            shift_xy_ = shift_xy
 
         # All GPU work happens in this line
         if True:
@@ -230,7 +290,7 @@ class DetectPredictor(object):
             outputs = self.model.forward(chips, return_loss=False)
 
         # Postprocess GPU outputs
-        batch_dets = self._coder.decode_batch(outputs)
+        batch_dets = self.coder.decode_batch(outputs)
         for idx, det in enumerate(batch_dets):
             item_scale_xy = scale_xy[idx].numpy()
             item_shift_xy = shift_xy_[idx].numpy()
@@ -242,7 +302,7 @@ class DetectPredictor(object):
             yield det
 
 
-class SliderDataset(torch_data.Dataset):
+class SingleImageDataset(torch_data.Dataset):
     """
     Wraps a SlidingWindow in a torch dataset for fast data loading
 
@@ -277,6 +337,8 @@ class SliderDataset(torch_data.Dataset):
             # Record the inverse transformation
             window_size = self.window_dims[::-1]
             input_size = self.input_dims[::-1]
+            print('input_size = {!r}'.format(input_size))
+            print('window_size = {!r}'.format(window_size))
             shift, scale, embed_size = letterbox._letterbox_transform(window_size, input_size)
             # Resize the image
             chip_hwc = letterbox.augment_image(chip_hwc)
@@ -313,3 +375,238 @@ class SliderDataset(torch_data.Dataset):
             'im': tensor_chip,
             'tf_chip_to_full': tf_chip_to_full,
         }
+
+
+class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
+    """
+    Dataset that breaks up images into windows and optionally resizes those
+    windows.
+
+    TODO: Use as a base class for training detectors. This should ideally be
+    used as an input to another dataset which handles augmentation.
+    """
+
+    def __init__(self, sampler, window_dims='full', input_dims='native',
+                 input_overlap=0.0):
+        self.sampler = sampler
+        self.input_dims = input_dims
+        self.window_dims = window_dims
+        self.input_overlap = input_overlap
+        self.subindex = None
+        self._build_sliders()
+
+    @classmethod
+    def demo(WindowedSamplerDataset, key='habcam', **kwargs):
+        import ndsampler
+        if key == 'habcam':
+            dset_fpath = ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
+            workdir = ub.expandpath('~/work/bioharn')
+            dset = ndsampler.CocoDataset(dset_fpath)
+            sampler = ndsampler.CocoSampler(dset, workdir=workdir, backend=None)
+        else:
+            sampler = ndsampler.CocoSampler.demo(key)
+        self = WindowedSamplerDataset(sampler, **kwargs)
+        return self
+
+    def _build_sliders(self):
+        """
+        Use the ndsampler.Sampler and sliders to build a flat index that can
+        reach every subregion of every image in the training set.
+
+        Ignore:
+            window_dims = (512, 512)
+            input_dims = 'native'
+            input_overlap = 0
+        """
+        import netharn as nh
+        input_overlap = self.input_overlap
+        window_dims = self.window_dims
+        sampler = self.sampler
+
+        gid_to_slider = {}
+        for img in sampler.dset.imgs.values():
+            if img.get('source', '') == 'habcam_2015_stereo':
+                # Hack: todo, cannoncial way to get this effect
+                full_dims = [img['height'], img['width'] // 2]
+            else:
+                full_dims = [img['height'], img['width']]
+
+            window_dims_ = full_dims if window_dims == 'full' else window_dims
+            slider = nh.util.SlidingWindow(full_dims, window_dims_,
+                                           overlap=input_overlap,
+                                           allow_overshoot=True)
+            gid_to_slider[img['id']] = slider
+
+        self.gid_to_slider = gid_to_slider
+        self._gids = list(gid_to_slider.keys())
+        self._sliders = list(gid_to_slider.values())
+        self.subindex = nh.util.FlatIndexer.fromlist(self._sliders)
+
+    def __len__(self):
+        return len(self.subindex)
+
+    def __getitem__(self, index):
+        """
+        Example:
+            >>> # xdoctest: +REQUIRES(--data)
+            >>> self = WindowedSamplerDataset.demo(window_dims=(512, 512))
+            >>> index = 0
+            >>> item = self[1]
+            >>> # xdoctest: +REQUIRES(--show)
+            >>> import kwplot
+            >>> kwplot.autompl()
+            >>> kwplot.imshow(item['im'])
+
+        Ignore:
+            import netharn as nh
+            nh.data.collate.padded_collate([self[0], self[1], self[2]])
+
+            self = WindowedSamplerDataset.demo(window_dims='full', input_dims=(512, 512))
+            kwplot.imshow(self[19]['im'])
+        """
+        outer, inner = self.subindex.unravel(index)
+        gid = self._gids[outer]
+        slider = self._sliders[outer]
+        slices = slider[inner]
+
+        tr = {'gid': gid, 'slices': slices}
+        sample = self.sampler.load_sample(tr, with_annots=False)
+        chip_hwc = sample['im']
+
+        chip_dims = tuple(chip_hwc.shape[0:2])
+
+        # Resize the image patch if necessary
+        if self.input_dims != 'native':
+            letterbox = nh.data.transforms.Resize(None, mode='letterbox')
+            letterbox.target_size = self.input_dims[::-1]
+            # Record the inverse transformation
+            chip_size = chip_dims[::-1]
+            input_size = self.input_dims[::-1]
+            shift, scale, embed_size = letterbox._letterbox_transform(chip_size, input_size)
+            # Resize the image
+            chip_hwc = letterbox.augment_image(chip_hwc)
+        else:
+            shift = [0, 0]
+            scale = [1, 1]
+        scale_xy = torch.FloatTensor(scale)
+
+        # Assume 8-bit image inputs
+        chip_chw = np.transpose(chip_hwc, (2, 0, 1))
+        tensor_chip = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
+        offset_xy = torch.LongTensor([slices[1].start, slices[0].start])
+
+        # To apply a transform we first scale then shift
+        tf_full_to_chip = {
+            'scale_xy': torch.FloatTensor(scale_xy),
+            'shift_xy': torch.FloatTensor(shift) - (offset_xy * scale_xy),
+        }
+
+        if False:
+            tf_mat = np.array([
+                [tf_full_to_chip['scale_xy'][0], 0, tf_full_to_chip['shift_xy'][0]],
+                [0, tf_full_to_chip['scale_xy'][1], tf_full_to_chip['shift_xy'][1]],
+                [0, 0, 1],
+            ])
+            np.linalg.inv(tf_mat)
+
+        # This transform will bring us from chip space back to full img space
+        tf_chip_to_full = {
+            'scale_xy': 1.0 / tf_full_to_chip['scale_xy'],
+            'shift_xy': -tf_full_to_chip['shift_xy'] * (1.0 / tf_full_to_chip['scale_xy']),
+        }
+        item = {
+            'im': tensor_chip,
+            'gid': torch.LongTensor([gid]),
+            'tf_chip_to_full': tf_chip_to_full,
+        }
+        return item
+
+
+################################################################################
+# CLI
+
+class DetectPredictCLIConfig(scfg.Config):
+    default = ub.dict_union(
+        {
+            'dataset': scfg.Value(None, help='coco dataset, path to images or folder of images'),
+            'out_dpath': scfg.Value('./out', help='output directory'),
+            'draw': scfg.Value(False),
+            'workdir': scfg.Value('~/work/bioharn', help='work directory for sampler if needed'),
+        },
+        DetectPredictConfig.default
+    )
+
+
+def detect_cli(config):
+    """
+    CommandLine:
+        python -m bioharn.detect_predict --help
+
+    Ignore:
+        >>> config = {}
+        >>> config['dataset'] = '~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'
+        >>> config['deployed'] = '/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip'
+        >>> config['out_dpath'] = 'out'
+    """
+    import kwarray
+    from os.path import basename, join
+
+    config = DetectPredictCLIConfig(config)
+
+    out_dpath = config.get('out_dpath')
+
+    # TODO: allow dataset to be a list of images, coerce to a coco dataset
+    dataset = ub.expandpath(config.get('dataset'))
+    draw = config.get('draw')
+    workdir = config.get('workdir')
+
+    det_outdir = ub.ensuredir((out_dpath, 'pred'))
+    if draw:
+        draw_outdir = ub.ensuredir((out_dpath, 'draw'))
+
+    pred_config = ub.dict_subset(config, DetectPredictConfig.default)
+
+    import ndsampler
+    coco_dset = ndsampler.CocoDataset(dataset)
+    sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir, backend=None)
+    # print('prepare frames')
+    # sampler.frames.prepare(workers=config['workers'])
+
+    predictor = DetectPredictor(pred_config)
+    predictor._ensure_model()
+
+    # self = predictor
+    gid_to_pred = predictor.predict_sampler(sampler)
+
+    pred_dataset = coco_dset.dataset.copy()
+    pred_dataset['annotations'] = []
+    pred_dset = ndsampler.CocoDataset(pred_dataset)
+
+    for gid, pred in gid_to_pred.items():
+        for ann in pred.to_coco():
+            ann['image_id'] = gid
+            ann['category_id'] = pred_dset._resolve_to_cid(ann['category_name'])
+            pred_dset.add_annotation(**ann)
+
+    pred_fpath = join(det_outdir, 'detections.mscoco.json')
+    pred_dset.dump(pred_fpath, newlines=True)
+
+    if draw:
+        for gid, pred in gid_to_pred.items():
+            img_fpath = coco_dset.load_image_fpath(gid)
+            gname = basename(img_fpath)
+            viz_fname = ub.augpath(gname, prefix='detect_', ext='.png')
+            viz_fpath = join(draw_outdir, viz_fname)
+
+            image = kwimage.imread(img_fpath)
+
+            flags = pred.scores > .2
+            flags[kwarray.argmaxima(pred.scores, num=10)] = True
+            top_dets = pred.compress(flags)
+            toshow = top_dets.draw_on(image, alpha=None)
+            # kwplot.imshow(toshow)
+            kwimage.imwrite(viz_fpath, toshow, space='rgb')
+
+
+if __name__ == '__main__':
+    detect_cli()
