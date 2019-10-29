@@ -350,7 +350,7 @@ class SingleImageDataset(torch_data.Dataset):
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
         tensor_chip = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
-        offset_xy = torch.LongTensor([slice_[1].start, slice_[0].start])
+        offset_xy = torch.FloatTensor([slice_[1].start, slice_[0].start])
 
         # To apply a transform we first scale then shift
         tf_full_to_chip = {
@@ -476,7 +476,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         chip_dims = tuple(chip_hwc.shape[0:2])
 
         # Resize the image patch if necessary
-        if self.input_dims != 'native':
+        if self.input_dims not in {'native', 'window'}:
             letterbox = nh.data.transforms.Resize(None, mode='letterbox')
             letterbox.target_size = self.input_dims[::-1]
             # Record the inverse transformation
@@ -493,7 +493,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
         tensor_chip = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
-        offset_xy = torch.LongTensor([slices[1].start, slices[0].start])
+        offset_xy = torch.FloatTensor([slices[1].start, slices[0].start])
 
         # To apply a transform we first scale then shift
         tf_full_to_chip = {
@@ -549,6 +549,7 @@ def detect_cli(config):
         >>> config['out_dpath'] = 'out'
     """
     import kwarray
+    import ndsampler
     from os.path import basename, join
 
     config = DetectPredictCLIConfig(config)
@@ -556,18 +557,24 @@ def detect_cli(config):
     out_dpath = config.get('out_dpath')
 
     # TODO: allow dataset to be a list of images, coerce to a coco dataset
-    dataset = ub.expandpath(config.get('dataset'))
+    import six
+    if isinstance(config['dataset'], six.string_types):
+        if config['dataset'].endswith('.json'):
+            dataset_fpath = ub.expandpath(config['dataset'])
+            coco_dset = ndsampler.CocoDataset(dataset_fpath)
+        else:
+            # Single image case
+            image_fpath = ub.expandpath(config['dataset'])
+            coco_dset = ndsampler.CocoDataset()
+            coco_dset.add_image(image_fpath)
+
     draw = config.get('draw')
     workdir = config.get('workdir')
 
     det_outdir = ub.ensuredir((out_dpath, 'pred'))
-    if draw:
-        draw_outdir = ub.ensuredir((out_dpath, 'draw'))
 
     pred_config = ub.dict_subset(config, DetectPredictConfig.default)
 
-    import ndsampler
-    coco_dset = ndsampler.CocoDataset(dataset)
     sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir, backend=None)
     # print('prepare frames')
     # sampler.frames.prepare(workers=config['workers'])
@@ -592,6 +599,7 @@ def detect_cli(config):
     pred_dset.dump(pred_fpath, newlines=True)
 
     if draw:
+        draw_outdir = ub.ensuredir((out_dpath, 'draw'))
         for gid, pred in gid_to_pred.items():
             img_fpath = coco_dset.load_image_fpath(gid)
             gname = basename(img_fpath)
