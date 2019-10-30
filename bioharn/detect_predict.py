@@ -27,7 +27,7 @@ class DetectPredictConfig(scfg.Config):
         # Note: these dont work exactly correct due to mmdetection model
         # differences
         'nms_thresh': 0.4,
-        'conf_thresh': 0.001,
+        'conf_thresh': 0.1,
 
         'verbose': 3,
     }
@@ -152,60 +152,6 @@ class DetectPredictor(object):
         self.info('Finished prediction')
         return final_dets
 
-    def predict_sampler(self, sampler):
-        """
-        Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
-
-        Args:
-            sampler (ndsampler.CocoDataset): dset wrapped in a sampler
-        """
-        input_dims = self.config['input_dims']
-        window_dims = self.config['window_dims']
-
-        torch_dset = WindowedSamplerDataset(sampler, window_dims=window_dims,
-                                            input_dims=input_dims)
-        slider_loader = torch.utils.data.DataLoader(
-            torch_dset, shuffle=False, num_workers=self.config['workers'],
-            batch_size=self.config['batch_size'])
-
-        prog = ub.ProgIter(slider_loader, total=len(slider_loader),
-                           chunksize=self.config['batch_size'],
-                           desc='predict', enabled=1)
-
-        xpu = self.xpu
-        with torch.set_grad_enabled(False):
-
-            # ----
-            accum_gids = []
-            accum_dets = []
-            for raw_batch in prog:
-                batch = {
-                    'im': xpu.move(raw_batch['im']),
-                    'tf_chip_to_full': raw_batch['tf_chip_to_full'],
-                }
-                batch_gids = raw_batch['gid'].view(-1).numpy().tolist()
-                batch_dets = list(self._predict_batch(batch))
-                accum_gids.extend(batch_gids)
-                accum_dets.extend(batch_dets)
-            # ----
-
-            # Finalize detections
-            gid_to_accum_dets = ub.group_items(accum_dets, accum_gids)
-            gid_to_pred = ub.group_items(accum_dets, accum_gids)
-            for gid, accum_dets in gid_to_accum_dets.items():
-                if len(accum_dets) == 0:
-                    dets = kwimage.Detections.concatenate([])
-                elif len(accum_dets) == 1:
-                    dets = accum_dets[0]
-                elif len(accum_dets) > 1:
-                    dets = kwimage.Detections.concatenate(accum_dets)
-                    keep = dets.non_max_supression(
-                        thresh=self.config['nms_thresh'],
-                    )
-                    dets = dets.take(keep)
-                gid_to_pred[gid] = dets
-        return gid_to_pred
-
     def _prepare_image(self, full_rgb):
         full_dims = tuple(full_rgb.shape[0:2])
         if self.config['window_dims'] == 'full':
@@ -300,6 +246,83 @@ class DetectPredictor(object):
             # Fix type issue
             det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
             yield det
+
+    def predict_sampler(self, sampler):
+        """
+        Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
+
+        Args:
+            sampler (ndsampler.CocoDataset): dset wrapped in a sampler
+        """
+        input_dims = self.config['input_dims']
+        window_dims = self.config['window_dims']
+
+        torch_dset = WindowedSamplerDataset(sampler, window_dims=window_dims,
+                                            input_dims=input_dims)
+        slider_loader = torch.utils.data.DataLoader(
+            torch_dset, shuffle=False, num_workers=self.config['workers'],
+            batch_size=self.config['batch_size'])
+
+        prog = ub.ProgIter(slider_loader, total=len(slider_loader),
+                           chunksize=self.config['batch_size'],
+                           desc='predict', enabled=self.config['verbose'] > 1)
+
+        def finalize_dets(ready_dets, ready_gids):
+            gid_to_ready_dets = ub.group_items(ready_dets, ready_gids)
+            for gid, dets_list in gid_to_ready_dets.items():
+                if len(dets_list) == 0:
+                    dets = kwimage.Detections.concatenate([])
+                elif len(dets_list) == 1:
+                    dets = dets_list[0]
+                elif len(dets_list) > 1:
+                    dets = kwimage.Detections.concatenate(dets_list)
+                    keep = dets.non_max_supression(
+                        thresh=self.config['nms_thresh'],
+                    )
+                    dets = dets.take(keep)
+                yield (gid, dets)
+
+        xpu = self.xpu
+        with torch.set_grad_enabled(False):
+
+            # ----
+            buffer_gids = []
+            buffer_dets = []
+            for raw_batch in prog:
+                batch = {
+                    'im': xpu.move(raw_batch['im']),
+                    'tf_chip_to_full': raw_batch['tf_chip_to_full'],
+                }
+                batch_gids = raw_batch['gid'].view(-1).numpy()
+                batch_dets = list(self._predict_batch(batch))
+
+                # Determine if we have finished an image (assuming images are
+                # passed in sequentially in order)
+                buffer_gids.extend(batch_gids)
+                buffer_dets.extend(batch_dets)
+
+                # Test if we can yield intermediate results for an image
+                can_yield = (
+                    np.any(np.diff(batch_gids)) or
+                    (len(buffer_gids) and buffer_gids[-1] != batch_gids[0])
+                )
+                if can_yield:
+                    ready_idx = max(np.where(np.diff(buffer_gids))[0]) + 1
+                    ready_gids = buffer_gids[:ready_idx]
+                    ready_dets = buffer_dets[:ready_idx]
+
+                    #
+                    buffer_gids = buffer_gids[ready_idx:]
+                    buffer_dets = buffer_dets[ready_idx:]
+                    for gid, dets in finalize_dets(ready_dets, ready_gids):
+                        yield gid, dets
+            # ----
+
+            # Finalize anything that remains
+            ready_gids = buffer_gids
+            ready_dets = buffer_dets
+            for gid, dets in finalize_dets(ready_dets, ready_gids):
+                yield gid, dets
 
 
 class SingleImageDataset(torch_data.Dataset):
@@ -687,7 +710,9 @@ def detect_cli(config={}):
     buffered_gen = AsyncBufferedGenerator(pred_gen, size=coco_dset.n_images)
 
     gid_to_pred = {}
-    for img_idx, (gid, dets) in enumerate(ub.ProgIter(buffered_gen, total=coco_dset.n_images, desc='buffered detect')):
+    prog = ub.ProgIter(buffered_gen, total=coco_dset.n_images,
+                       desc='buffered detect')
+    for img_idx, (gid, dets) in enumerate(prog):
         gid_to_pred[gid] = dets
 
         for ann in dets.to_coco():
