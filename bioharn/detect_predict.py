@@ -270,7 +270,7 @@ class DetectPredictor(object):
             shift_xy_ = shift_xy
 
         # All GPU work happens in this line
-        if True:
+        if hasattr(self.model.module, 'detector'):
             # HACK FOR MMDET MODELS
             from bioharn.models.mm_models import _batch_to_mm_inputs
             mm_inputs = _batch_to_mm_inputs(batch)
@@ -476,7 +476,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         chip_dims = tuple(chip_hwc.shape[0:2])
 
         # Resize the image patch if necessary
-        if self.input_dims not in {'native', 'window'}:
+        if self.input_dims != 'native' and self.input_dims != 'window':
             letterbox = nh.data.transforms.Resize(None, mode='letterbox')
             letterbox.target_size = self.input_dims[::-1]
             # Record the inverse transformation
@@ -525,6 +525,68 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 ################################################################################
 # CLI
 
+import queue  # NOQA
+from threading import Thread  # NOQA
+
+
+class _AsyncConsumerThread(Thread):
+    """
+    Will fill the queue with content of the source in a separate thread.
+
+    >>> import queue
+    >>> q = queue.Queue()
+    >>> c = _background_consumer(q, range(3))
+    >>> c.start()
+    >>> q.get(True, 1)
+    0
+    >>> q.get(True, 1)
+    1
+    >>> q.get(True, 1)
+    2
+    >>> q.get(True, 1) is ub.NoParam
+    True
+    """
+    def __init__(self, queue, source):
+        Thread.__init__(self)
+
+        self._queue = queue
+        self._source = source
+
+    def run(self):
+        for item in self._source:
+            self._queue.put(item)
+        # Signal the consumer we are done.
+        self._queue.put(ub.NoParam)
+
+
+class AsyncBufferedGenerator(object):
+    """Buffers content of an iterator polling the contents of the given
+    iterator in a separate thread.
+    When the consumer is faster than many producers, this kind of
+    concurrency and buffering makes sense.
+
+    The size parameter is the number of elements to buffer.
+
+    The source must be threadsafe.
+
+    References:
+        http://code.activestate.com/recipes/576999-concurrent-buffer-for-generators/
+    """
+    def __init__(self, source, size=100):
+        self._queue = queue.Queue(size)
+
+        self._poller = _AsyncConsumerThread(self._queue, source)
+        self._poller.daemon = True
+        self._poller.start()
+
+    def __iter__(self):
+        while True:
+            item = self._queue.get(True)
+            if item is ub.NoParam:
+                return
+            yield item
+
+
 class DetectPredictCLIConfig(scfg.Config):
     default = ub.dict_union(
         {
@@ -537,10 +599,18 @@ class DetectPredictCLIConfig(scfg.Config):
     )
 
 
-def detect_cli(config):
+def detect_cli(config={}):
     """
     CommandLine:
         python -m bioharn.detect_predict --help
+
+    CommandLine:
+        python -m bioharn.detect_predict \
+            --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json \
+            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip \
+            --out_dpath=habcam_test_out \
+            --input_dims=512,512 \
+            --xpu=1 --batch_size=1
 
     Ignore:
         >>> config = {}
@@ -550,70 +620,110 @@ def detect_cli(config):
     """
     import kwarray
     import ndsampler
-    from os.path import basename, join
+    from os.path import basename, join, exists, isfile, isdir  # NOQA
 
-    config = DetectPredictCLIConfig(config)
+    config = DetectPredictCLIConfig(config, cmdline=True)
+    print('config = {}'.format(ub.repr2(config.asdict())))
 
     out_dpath = config.get('out_dpath')
 
-    # TODO: allow dataset to be a list of images, coerce to a coco dataset
     import six
     if isinstance(config['dataset'], six.string_types):
         if config['dataset'].endswith('.json'):
             dataset_fpath = ub.expandpath(config['dataset'])
             coco_dset = ndsampler.CocoDataset(dataset_fpath)
+            # Running prediction is much faster if you can build a sampler.
+            sampler_backend = {
+                'type': 'cog',
+                'config': {
+                    'compress': 'JPEG',
+                },
+                '_hack_old_names': False,  # flip to true to use legacy caches
+            }
+            sampler_backend = None
+            print('coco hashid = {}'.format(coco_dset._build_hashid()))
         else:
-            # Single image case
-            image_fpath = ub.expandpath(config['dataset'])
-            coco_dset = ndsampler.CocoDataset()
-            coco_dset.add_image(image_fpath)
+            sampler_backend = None
+            if exists(config['dataset']) and isfile(config['dataset']):
+                # Single image case
+                image_fpath = ub.expandpath(config['dataset'])
+                coco_dset = ndsampler.CocoDataset()
+                coco_dset.add_image(image_fpath)
+    elif isinstance(config['dataset'], list):
+        # Multiple image case
+        gpaths = config['dataset']
+        gpaths = [ub.expandpath(g) for g in gpaths]
+        coco_dset = ndsampler.CocoDataset()
+        for gpath in gpaths:
+            coco_dset.add_image(gpath)
+    else:
+        raise TypeError(config['dataset'])
 
     draw = config.get('draw')
-    workdir = config.get('workdir')
+    workdir = ub.expandpath(config.get('workdir'))
 
     det_outdir = ub.ensuredir((out_dpath, 'pred'))
 
     pred_config = ub.dict_subset(config, DetectPredictConfig.default)
 
-    sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir, backend=None)
-    # print('prepare frames')
-    # sampler.frames.prepare(workers=config['workers'])
+    print('Create sampler')
+    sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
+                                    backend=sampler_backend)
+    print('prepare frames')
+    sampler.frames.prepare(workers=config['workers'])
 
+    print('Create predictor')
     predictor = DetectPredictor(pred_config)
+    print('Ensure model')
     predictor._ensure_model()
-
-    # self = predictor
-    gid_to_pred = predictor.predict_sampler(sampler)
 
     pred_dataset = coco_dset.dataset.copy()
     pred_dataset['annotations'] = []
     pred_dset = ndsampler.CocoDataset(pred_dataset)
 
-    for gid, pred in gid_to_pred.items():
-        for ann in pred.to_coco():
+    # self = predictor
+    predictor.config['verbose'] = 1
+    pred_gen = predictor.predict_sampler(sampler)
+    buffered_gen = AsyncBufferedGenerator(pred_gen, size=coco_dset.n_images)
+
+    gid_to_pred = {}
+    for img_idx, (gid, dets) in enumerate(ub.ProgIter(buffered_gen, total=coco_dset.n_images, desc='buffered detect')):
+        gid_to_pred[gid] = dets
+
+        for ann in dets.to_coco():
             ann['image_id'] = gid
-            ann['category_id'] = pred_dset._resolve_to_cid(ann['category_name'])
+            try:
+                catname = ann['category_name']
+                ann['category_id'] = pred_dset._resolve_to_cid(catname)
+            except KeyError:
+                if 'category_id' not in ann:
+                    cid = pred_dset.add_category(catname)
+                    ann['category_id'] = cid
             pred_dset.add_annotation(**ann)
 
-    pred_fpath = join(det_outdir, 'detections.mscoco.json')
-    pred_dset.dump(pred_fpath, newlines=True)
+        single_img_coco = pred_dset.subset([gid])
+        single_pred_dpath = ub.ensuredir((det_outdir, 'single_image'))
+        single_pred_fpath = join(single_pred_dpath, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+        single_img_coco.dump(single_pred_fpath, newlines=True)
 
-    if draw:
-        draw_outdir = ub.ensuredir((out_dpath, 'draw'))
-        for gid, pred in gid_to_pred.items():
+        if draw is True or (draw and draw < img_idx):
+            draw_outdir = ub.ensuredir((out_dpath, 'draw'))
             img_fpath = coco_dset.load_image_fpath(gid)
             gname = basename(img_fpath)
-            viz_fname = ub.augpath(gname, prefix='detect_', ext='.png')
+            viz_fname = ub.augpath(gname, prefix='detect_', ext='.jpg')
             viz_fpath = join(draw_outdir, viz_fname)
 
             image = kwimage.imread(img_fpath)
 
-            flags = pred.scores > .2
-            flags[kwarray.argmaxima(pred.scores, num=10)] = True
-            top_dets = pred.compress(flags)
+            flags = dets.scores > .2
+            flags[kwarray.argmaxima(dets.scores, num=10)] = True
+            top_dets = dets.compress(flags)
             toshow = top_dets.draw_on(image, alpha=None)
             # kwplot.imshow(toshow)
             kwimage.imwrite(viz_fpath, toshow, space='rgb')
+
+    pred_fpath = join(det_outdir, 'detections.mscoco.json')
+    pred_dset.dump(pred_fpath, newlines=True)
 
 
 if __name__ == '__main__':
