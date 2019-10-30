@@ -731,7 +731,7 @@ def detect_cli(config={}):
         single_pred_fpath = join(single_pred_dpath, 'detections_gid_{:08d}.mscoco.json'.format(gid))
         single_img_coco.dump(single_pred_fpath, newlines=True)
 
-        if draw is True or (draw and draw < img_idx):
+        if draw is True or (draw and img_idx < draw):
             draw_outdir = ub.ensuredir((out_dpath, 'draw'))
             img_fpath = coco_dset.load_image_fpath(gid)
             gname = basename(img_fpath)
