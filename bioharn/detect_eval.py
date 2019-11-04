@@ -1,12 +1,10 @@
 from os.path import exists
 import ndsampler
-import torch
 import kwimage
 import netharn as nh
 import numpy as np
 import ubelt as ub
 import scriptconfig as scfg
-import torch.utils.data as torch_data
 from bioharn import detect_predict
 
 
@@ -296,3 +294,69 @@ class DetectEvaluator(object):
         sampler = self.sampler
         gid_to_pred = self.predictor.predict_sampler(sampler)
         return gid_to_pred
+
+
+def eval_coco(true_dataset, pred_dataset):
+    """
+    Ignore:
+        >>> true_dataset = ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json')
+        >>> pred_dataset = '/home/joncrall/work/bioharn/habcam_test_out/pred/detections.mscoco.json'
+    """
+    import ndsampler
+    pred_coco = ndsampler.CocoDataset(pred_dataset)
+    true_coco = ndsampler.CocoDataset(true_dataset)
+
+    import netharn as nh
+    dmet = nh.metrics.DetectionMetrics.from_coco(true_coco, pred_coco)
+    print(dmet.score_coco(verbose=1))
+    print(dmet.score_voc())
+    print(dmet.score_voc(method='sklearn'))
+    print(dmet.score_voc(method='voc2012'))
+    print(dmet.score_voc(method='voc2007'))
+    print(dmet.score_netharn())
+
+    z = dmet.score_voc(method='sklearn')
+
+    gid = 23
+    gid = 61
+
+    for gid in ub.ProgIter(true_coco.imgs.keys()):
+        # gid = 24
+        t = true_coco.subset([gid])
+        p = pred_coco.subset([gid])
+
+        if len(t.anns) > 10:
+            continue
+
+        dmet2 = nh.metrics.DetectionMetrics.from_coco(t, p)
+        nh_info = dmet2.score_netharn()
+        voc_info = dmet2.score_voc()
+
+        voc_info['perclass']
+        nh_info['peritem']
+
+        cfsn_vecs = dmet2.confusion_vectors()
+
+        ap1 = nh_info['peritem']['ap']
+        ap3 = voc_info['perclass'][0]['ap']
+
+        nh_info['peritem']['ppv'][::-1]
+        nh_info['peritem']['tpr'][::-1]
+
+        voc_info['perclass'][0]['prec']
+        voc_info['perclass'][0]['rec']
+
+        if abs(ap1 - ap3) > 0.1:
+            break
+
+
+#    pred_raw  pred  true  score  weight     iou  txs  pxs  gid
+# 0         0     0     0 0.9797  0.9000  0.8887    2    1   61
+# 1         0     0     0 0.9704  0.9000  0.8866    0    0   61
+# 2         0     0    -1 0.8839  1.0000 -1.0000   -1    2   61
+# 3         0     0    -1 0.7681  1.0000 -1.0000   -1    3   61
+# 4         0     0    -1 0.4356  1.0000 -1.0000   -1    6   61
+# 5         0     0    -1 0.2764  1.0000 -1.0000   -1    5   61
+# 6         0     0    -1 0.1799  1.0000 -1.0000   -1    4   61
+# 7        -1    -1     0 0.0000  0.9000 -1.0000    1   -1   61
+

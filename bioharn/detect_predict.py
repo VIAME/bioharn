@@ -631,9 +631,10 @@ def detect_cli(config={}):
         python -m bioharn.detect_predict \
             --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json \
             --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip \
-            --out_dpath=habcam_test_out \
+            --out_dpath=~/work/bioharn/habcam_test_out \
+            --draw=100 \
             --input_dims=512,512 \
-            --xpu=1 --batch_size=1
+            --xpu=0 --batch_size=1
 
     Ignore:
         >>> config = {}
@@ -648,7 +649,7 @@ def detect_cli(config={}):
     config = DetectPredictCLIConfig(config, cmdline=True)
     print('config = {}'.format(ub.repr2(config.asdict())))
 
-    out_dpath = config.get('out_dpath')
+    out_dpath = ub.expandpath(config.get('out_dpath'))
 
     import six
     if isinstance(config['dataset'], six.string_types):
@@ -748,6 +749,7 @@ def detect_cli(config={}):
             kwimage.imwrite(viz_fpath, toshow, space='rgb')
 
     pred_fpath = join(det_outdir, 'detections.mscoco.json')
+    print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
     pred_dset.dump(pred_fpath, newlines=True)
 
 
