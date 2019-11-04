@@ -336,9 +336,19 @@ def eval_coco(true_dataset, pred_dataset):
         nh_info['peritem']
 
         cfsn_vecs = dmet2.confusion_vectors()
+        ovr_vecs = cfsn_vecs.binarize_ovr(mode=1)
+        ovr_vecs.cx_to_binvecs[0].data._pandas()
+
+        ovr_vecs.precision_recall()
+        dmet2.score_voc(method='sklearn')
 
         ap1 = nh_info['peritem']['ap']
         ap3 = voc_info['perclass'][0]['ap']
+
+        print(dmet2.score_netharn())
+        print(dmet2.score_voc(method='sklearn'))
+        print(dmet2.score_voc(method='voc2012'))
+        print(dmet2.score_voc(method='voc2007'))
 
         nh_info['peritem']['ppv'][::-1]
         nh_info['peritem']['tpr'][::-1]
@@ -359,4 +369,3 @@ def eval_coco(true_dataset, pred_dataset):
 # 5         0     0    -1 0.2764  1.0000 -1.0000   -1    5   61
 # 6         0     0    -1 0.1799  1.0000 -1.0000   -1    4   61
 # 7        -1    -1     0 0.0000  0.9000 -1.0000    1   -1   61
-
