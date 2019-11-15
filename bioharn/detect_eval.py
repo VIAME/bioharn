@@ -296,6 +296,24 @@ class DetectEvaluator(object):
         return gid_to_pred
 
 
+class CocoEvaluator(object):
+    """
+    Abstracts the evaluation process to execute on two coco datasets.
+
+    This can be run as a standalone script where the user specifies the paths
+    to the true and predited dataset explicitly, or this can be used by a
+    higher level script that produces the predictions and then sends them to
+    this evaluator.
+    """
+
+    def __init__(self, true_dataset, pred_dataset):
+
+        def _coerce_dataset():
+            # coerce the input into an ndsampler dataset or a dictionary of
+            # detection objects.
+            pass
+
+
 def eval_coco(true_dataset, pred_dataset):
     """
     Ignore:

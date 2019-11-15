@@ -313,7 +313,7 @@ class MM_Detector(nh.layers.Module):
                 # same time.
                 batch_results = []
                 for one_img, one_meta in zip(hack_imgs, img_metas):
-                    result = self.detector.forward([one_img], [one_meta],
+                    result = self.detector.forward([one_img], [[one_meta]],
                                                    return_loss=False)
                     batch_results.append(result)
                 outputs['batch_results'] = batch_results

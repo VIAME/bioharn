@@ -229,7 +229,7 @@ class DetectPredictor(object):
             outputs = {}
             for one_img, one_meta in zip(hack_imgs, img_metas):
                 result = self.model.module.detector.forward(
-                    [one_img], [one_meta], return_loss=False)
+                    [one_img], [[one_meta]], return_loss=False)
                 batch_results.append(result)
             outputs['batch_results'] = batch_results
         else:
