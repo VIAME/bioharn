@@ -15,7 +15,6 @@ import kwimage
 # import ubelt as ub
 import scriptconfig as scfg
 # from os.path import join
-from netharn.models.yolo2 import multiscale_batch_sampler  # NOQA
 from netharn.models.yolo2 import yolo2
 
 
@@ -41,12 +40,14 @@ class DetectFitConfig(scfg.Config):
 
         # Dataset options
         'multiscale': False,
-        'visible_thresh': scfg.Value(0.5, help='percentage of a box that must be visible to be included in truth'),
-        'input_dims': scfg.Value((256, 256), help='size to '),
-        'normalize_inputs': scfg.Value(False, help='if True, precompute training mean and std for data whitening'),
+        # 'visible_thresh': scfg.Value(0.5, help='percentage of a box that must be visible to be included in truth'),
+        'input_dims': scfg.Value('window', help='size of input to the system '),
+        'window_dims': scfg.Value((512, 512), help='size of window to place over the dataset'),
+        'window_overlap': scfg.Value(0.0, help='amount of overlap in the sliding windows'),
+        'normalize_inputs': scfg.Value(True, help='if True, precompute training mean and std for data whitening'),
 
         # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['medium', 'simple']),
-        'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'simple', None]),
+        'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'low', 'simple', 'complex', None]),
 
         'ovthresh': 0.5,
 
@@ -74,6 +75,12 @@ class DetectFitConfig(scfg.Config):
 
         # Loss Terms
         'focus': scfg.Value(0.0, help='focus for Focal Loss'),
+
+        # Hacked Dynamics
+        'warmup_iters': 800,
+        'warmup_ratio': 1.0 / 10.0,
+        'grad_norm_max': 35,
+        'grad_norm_type': 2,
     }
 
     def normalize(self):
@@ -97,264 +104,6 @@ class DetectFitConfig(scfg.Config):
             self['init'] = 'pretrained'
 
 
-class DetectDataset(torch.utils.data.Dataset):
-    """
-    Loads data with ndsampler.CocoSampler and formats it in a way suitable for
-    object detection.
-
-    Example:
-        >>> self = DetectDataset.demo()
-    """
-    def __init__(self, sampler, augment='simple', input_dims=[512, 512],
-                 scales=[-3, 6], factor=32):
-        super(DetectDataset, self).__init__()
-
-        self.sampler = sampler
-
-        self.factor = factor  # downsample factor of yolo grid
-        self.input_dims = np.array(input_dims, dtype=np.int)
-
-        assert np.all(self.input_dims % self.factor == 0)
-
-        # FIXME: multiscale training is currently not enabled
-        if not scales:
-            scales = [1]
-
-        self.multi_scale_inp_size = np.array([
-            self.input_dims + (self.factor * i) for i in range(*scales)])
-        print('self.multi_scale_inp_size = {!r}'.format(self.multi_scale_inp_size))
-
-        import imgaug.augmenters as iaa
-
-        self.augmenter = None
-        if not augment:
-            self.augmenter = None
-        elif augment == 'simple':
-            augmentors = [
-                # Order used in lightnet is hsv, rc, rf, lb
-                # lb is applied externally to augmenters
-                # iaa.Sometimes(.9, HSVShift(hue=0.1, sat=1.5, val=1.5)),
-                iaa.Crop(percent=(0, .2), keep_size=False),
-                iaa.Fliplr(p=.5),
-            ]
-            self.augmenter = iaa.Sequential(augmentors)
-        elif augment == 'medium':
-            augmentors = [
-                # Order used in lightnet is hsv, rc, rf, lb
-                # lb is applied externally to augmenters
-                # iaa.Sometimes(.9, HSVShift(hue=0.1, sat=1.5, val=1.5)),
-                iaa.Crop(percent=(0, .2), keep_size=False),
-                iaa.Fliplr(p=.5),
-                iaa.Rot90(k=[0, 1, 2, 3]),
-                iaa.Sometimes(.5, iaa.Grayscale(alpha=(0, 1))),
-                iaa.Sequential([
-                    iaa.Sometimes(.1, iaa.GammaContrast((0.5, 2.0))),
-                    iaa.Sometimes(.1, iaa.LinearContrast((0.5, 1.5))),
-                ], random_order=True),
-            ]
-            self.augmenter = iaa.Sequential(augmentors)
-        else:
-            raise KeyError(augment)
-
-        # Used to resize images to the appropriate inp_size without changing
-        # the aspect ratio.
-        self.letterbox = nh.data.transforms.Resize(None, mode='letterbox')
-
-        self.input_id = ub.hash_data([
-            self.sampler._depends()
-        ])
-
-    @classmethod
-    def demo(cls, key='habcam', **kw):
-        """
-        self = DetectDataset.demo()
-        """
-        import ndsampler
-        if key == 'habcam':
-            fpath = ub.expandpath('$HOME/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
-            dset = ndsampler.CocoDataset(fpath)
-            config = DetectFitConfig()
-            sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
-        else:
-            sampler = ndsampler.CocoSampler.demo(key, **kw)
-        self = cls(sampler)
-        return self
-
-    def __len__(self):
-        # TODO: Use sliding windows so detection can be run and trained on
-        # larger images
-        return len(self.sampler.image_ids)
-
-    def __getitem__(self, index):
-        """
-        Example:
-            >>> # DISABLE_DOCTSET
-            >>> self = DetectDataset.demo()
-            >>> index = 0
-            >>> item = self[(index, 4)]
-            >>> hwc01 = item['im'].numpy().transpose(1, 2, 0)
-            >>> print(hwc01.shape)
-            >>> cxywh = item['label']['cxywh'].numpy()
-            >>> # xdoc: +REQUIRES(--show)
-            >>> import kwplot
-            >>> kwplot.figure(doclf=True, fnum=1)
-            >>> kwplot.autompl()  # xdoc: +SKIP
-            >>> kwplot.imshow(hwc01)
-            >>> inp_boxes = kwimage.Boxes(cxywh, 'cxywh')
-            >>> inp_boxes.draw()
-            >>> kwplot.show_if_requested()
-        """
-        if isinstance(index, tuple):
-            # Get size index from the batch loader
-            index, size_index = index
-            if size_index is None:
-                inp_size = self.input_dims
-            else:
-                inp_size = self.multi_scale_inp_size[size_index]
-        else:
-            inp_size = self.input_dims
-        inp_size = np.array(inp_size)
-
-        classes = self.sampler.classes
-
-        gid = self.sampler.image_ids[index]
-        img = self.sampler.dset.imgs[gid]
-        imdata = self.sampler.load_image(gid, cache=False)
-
-        # Hack for stereo habcam data
-        if img.get('source', None) == 'habcam_2015_stereo':
-            width = imdata.shape[1]
-            imdata = imdata[:, 0:width // 2]
-
-        anns = self.sampler.load_annotations(gid)
-        boxes = kwimage.Boxes(np.array([ann['bbox'] for ann in anns]), 'xywh')
-        cids = [ann['category_id'] for ann in anns]
-        weights = [ann.get('weight', 1.0) for ann in anns]
-
-        dets = kwimage.Detections(
-            boxes=boxes,
-            class_idxs=np.array([classes.id_to_idx[cid] for cid in cids]),
-            weights=np.array(weights),
-        )
-
-        orig_size = np.array(imdata.shape[0:2][::-1])
-
-        if self.augmenter:
-            if len(dets):
-                # Ensure the same augmentor is used for bboxes and iamges
-                seq_det = self.augmenter.to_deterministic()
-
-                input_dims = imdata.shape[0:2]
-                imdata = seq_det.augment_image(imdata)
-                output_dims = imdata.shape[0:2]
-
-                dets = dets.warp(seq_det, input_dims=input_dims,
-                                 output_dims=output_dims)
-
-                # Clip any bounding boxes that went out of bounds
-                h, w = imdata.shape[0:2]
-                tlbr = dets.boxes.to_tlbr()
-                old_area = tlbr.area
-                tlbr = tlbr.clip(0, 0, w - 1, h - 1, inplace=True)
-                new_area = tlbr.area
-                dets.data['boxes'] = tlbr
-
-                # Remove any boxes that have gone significantly out of bounds.
-                remove_thresh = 0.1
-                flags = (new_area / old_area).ravel() > remove_thresh
-
-                dets = dets.compress(flags)
-
-        # Apply letterbox resize transform to train and test
-        self.letterbox.target_size = inp_size
-        input_dims = imdata.shape[0:2]
-        imdata = self.letterbox.augment_image(imdata)
-        output_dims = imdata.shape[0:2]
-        if len(dets):
-            dets = dets.warp(self.letterbox, input_dims=input_dims,
-                             output_dims=output_dims)
-
-        # Remove any boxes that are no longer visible or out of bounds
-        flags = (dets.boxes.area > 0).ravel()
-        dets = dets.compress(flags)
-
-        chw01 = torch.FloatTensor(imdata.transpose(2, 0, 1) / 255.0)
-
-        # Lightnet YOLO accepts truth tensors in the format:
-        # [class_id, center_x, center_y, w, h]
-        # where coordinates are noramlized between 0 and 1
-
-        cxwh = dets.boxes.toformat('cxywh')
-        # if False:
-        #     # ONLY SACALE FOR YOLO, DONT SCALE FOR MM-DET
-        #     cxywh_norm = cxwh.scale(1 / inp_size)
-
-        # Return index information in the label as well
-        orig_size = torch.LongTensor(orig_size)
-        index = torch.LongTensor([index])
-        bg_weight = torch.FloatTensor([1.0])
-        label = {
-            'cxywh': torch.FloatTensor(cxwh.data),
-            'class_idxs': torch.LongTensor(dets.class_idxs[:, None]),
-            'weight': torch.FloatTensor(dets.weights),
-
-            'indices': index,
-            'orig_sizes': orig_size,
-            'bg_weights': bg_weight
-        }
-        item = {
-            'im': chw01,
-            'label': label,
-        }
-        return item
-
-    def make_loader(self, batch_size=16, num_workers=0, shuffle=False,
-                    pin_memory=False, resize_rate=10, drop_last=False):
-        """
-        Example:
-            >>> # DISABLE_DOCTSET
-            >>> self = DetectDataset.demo()
-            >>> self.augmenter = None
-            >>> loader = self.make_loader(batch_size=1, shuffle=True)
-            >>> # training batches should have multiple shapes
-            >>> shapes = set()
-            >>> for raw_batch in ub.ProgIter(iter(loader), total=len(loader)):
-            >>>     inputs = raw_batch['im']
-            >>>     # test to see multiscale works
-            >>>     shapes.add(inputs.shape[-1])
-            >>>     if len(shapes) > 1:
-            >>>         break
-        """
-        import torch.utils.data.sampler as torch_sampler
-        assert len(self) > 0, 'must have some data'
-        if shuffle:
-            sampler = torch_sampler.RandomSampler(self)
-            resample_freq = resize_rate
-        else:
-            sampler = torch_sampler.SequentialSampler(self)
-            resample_freq = None
-
-        # use custom sampler that does multiscale training
-        batch_sampler = multiscale_batch_sampler.MultiScaleBatchSampler(
-            sampler, batch_size=batch_size, resample_freq=resample_freq,
-            drop_last=drop_last,
-        )
-        # torch.utils.data.sampler.WeightedRandomSampler
-        loader = torch.utils.data.DataLoader(
-            self, batch_sampler=batch_sampler,
-            collate_fn=nh.data.collate.padded_collate, num_workers=num_workers,
-            pin_memory=pin_memory)
-        if loader.batch_size != batch_size:
-            try:
-                # Hack: ensure dataloader has batch size attr
-                loader._DataLoader__initialized = False
-                loader.batch_size = batch_size
-                loader._DataLoader__initialized = True
-            except Exception:
-                pass
-        return loader
-
-
 class DetectHarn(nh.FitHarn):
     def __init__(harn, **kw):
         super(DetectHarn, harn).__init__(**kw)
@@ -373,6 +122,11 @@ class DetectHarn(nh.FitHarn):
             dmet._pred_aidbase = getattr(dmet, '_pred_aidbase', 1)
             dmet._true_aidbase = getattr(dmet, '_true_aidbase', 1)
             harn.dmets[tag] = dmet
+
+    def before_epochs(harn):
+        # Seed the global random state before each epoch
+        nh.util.seed_global(473282 + np.random.get_state()[1][0] + harn.epoch,
+                            offset=57904)
 
     def prepare_batch(harn, raw_batch):
         """
@@ -457,8 +211,8 @@ class DetectHarn(nh.FitHarn):
             >>> nh.util.imshow(stacked)
             >>> nh.util.show_if_requested()
         """
+        bx = harn.bxs[harn.current_tag]
         try:
-            bx = harn.bxs[harn.current_tag]
             if harn._hack_do_draw:
                 detections = harn.raw_model.coder.decode_batch(outputs)
                 harn._draw_timer.tic()
@@ -474,6 +228,10 @@ class DetectHarn(nh.FitHarn):
             harn.error('ERROR: FAILED TO POSTPROCESS OUTPUTS')
             harn.error('DETAILS: {!r}'.format(ex))
             raise
+
+        if bx % 10 == 0:
+            # If multiscale shuffle the input dims
+            pass
 
         metrics_dict = ub.odict()
         return metrics_dict
@@ -605,16 +363,19 @@ def setup_harn(cmdline=True, **kw):
     for tag, subset in subsets.items():
         print('subset = {!r}'.format(subset))
         sampler = ndsampler.CocoSampler(subset, workdir=config['workdir'])
+
+        sampler.frames.prepare(workers=config['workers'])
+
         samplers[tag] = sampler
 
-    assert config['multiscale'] is False, 'not implemented yet'
-
+    from bioharn.detect_dataset import DetectFitDataset
     torch_datasets = {
-        tag: DetectDataset(
+        tag: DetectFitDataset(
             sampler,
             input_dims=config['input_dims'],
+            window_dims=config['window_dims'],
+            window_overlap=config['window_overlap'] if (tag == 'train') else 0.0,
             augment=config['augment'] if (tag == 'train') else False,
-            scales=[-3, 6] if (tag == 'train' and config['multiscale']) else False,
         )
         for tag, sampler in samplers.items()
     }
@@ -625,14 +386,10 @@ def setup_harn(cmdline=True, **kw):
             batch_size=config['batch_size'],
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
-            # collate_fn=nh.data.collate.padded_collate,
+            multiscale=(tag == 'train') and config['multiscale'],
             pin_memory=True)
-        # torch.utils.data.DataLoader(
-        #     dset,
         for tag, dset in torch_datasets.items()
     }
-    # for x in ub.ProgIter(loaders_['train']):
-    #     pass
 
     if config['normalize_inputs']:
         # Get stats on the dataset (todo: turn off augmentation for this)
@@ -733,10 +490,11 @@ def setup_harn(cmdline=True, **kw):
     print('optimizer_ = {!r}'.format(optimizer_))
 
     dynamics_ = nh.Dynamics.coerce(config)
-    dynamics_['grad_norm_max'] = 35
-    dynamics_['grad_norm_type'] = 2
-    dynamics_['warmup_iters'] = 800
-    dynamics_['warmup_ratio'] = 1 / 10
+    if True:
+        dynamics_['warmup_iters'] = config['warmup_iters']
+        dynamics_['warmup_ratio'] = config['warmup_ratio']
+        dynamics_['grad_norm_max'] = config['grad_norm_max']
+        dynamics_['grad_norm_type'] = config['grad_norm_type']
     print('dynamics_ = {!r}'.format(dynamics_))
 
     xpu = nh.XPU.coerce(config['xpu'])
@@ -889,6 +647,34 @@ if __name__ == '__main__':
             --input_dims=1024,1024 \
             --workers=4 --xpu=1 --batch_size=1 --bstep=4
 
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v12-cascade \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p1-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=1e-4 \
+            --input_dims=512,512 \
+            --window_dims=512,512 \
+            --workers=4 --xpu=1 --batch_size=4 --bstep=4
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v13-cascade \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=1e-4 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=4 --xpu=1 --batch_size=4 --bstep=1
 
         # --pretrained='https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth' \
 

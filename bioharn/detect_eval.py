@@ -14,13 +14,13 @@ class DetectEvaluateConfig(scfg.Config):
             '/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip',
             help='deployed network filepath'),
 
-        'batch_size': scfg.Value(1, help=(
+        'batch_size': scfg.Value(4, help=(
             'number of images that run through the network at a time')),
 
         'input_dims': scfg.Value('native', help=(
             'size of input chip; or "native" which uses input_dims used in training')),
 
-        'window_dims': scfg.Value('full', help=(
+        'window_dims': scfg.Value('native', help=(
             'size of sliding window chip; or "full" which uses the entire frame; '
             'or "native", which uses window_dims specified in training')),
 
@@ -51,6 +51,14 @@ def evaluate_models(**kw):
     Ignore:
         from bioharn.detect_eval import *  # NOQA
         kw = {}
+
+        kw = {
+            'deployed': '~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/manual-snapshots/_epoch_00000006.pt',
+            'workers': 4,
+            'batch_size': 10,
+            'xpu': 0,
+        }
+        evaluate_models(**kw)
     """
     import itertools as it
     if 'config' in kw:
@@ -99,28 +107,22 @@ def evaluate_models(**kw):
             config = ub.dict_union(base_config, perm)
             config['deployed'] = model_fpath
 
-            if config['input_dims'] == 'native':
-                # hack, this info exists, but not in an easy form
-                deployed = nh.export.DeployedModel.coerce(config['deployed'])
-                train_config = eval(deployed.train_info()['extra']['config'], {})
-                config['input_dims'] = train_config['input_dims']
-
             print('config = {}'.format(ub.repr2(config)))
-            self = DetectEvaluator(config)
+            evaluator = DetectEvaluator(config)
+            self = evaluator
 
             # Reuse the dataset / predictor when possible
-            self.sampler = sampler
-            self.predictor = predictor
+            evaluator.predictor = predictor
             print('_init')
-            self._init()
+            evaluator._init()
             print('evaluate')
-            metrics_fpath = self.evaluate()
+            metrics_fpath = evaluator.evaluate()
             print('metrics_fpath = {!r}'.format(metrics_fpath))
             metric_fpaths.append(metrics_fpath)
 
             # Save loaded predictor/sampler for the next run of this model/dataset
-            predictor = self.predictor
-            sampler = self.sampler
+            predictor = evaluator.predictor
+            sampler = evaluator.sampler
 
 
 class DetectEvaluator(object):
@@ -174,10 +176,13 @@ class DetectEvaluator(object):
         pred_keys = set(detect_predict.DetectPredictConfig.default.keys()) - {'verbose'}
         pred_cfg = ub.dict_subset(self.config, pred_keys)
 
-        if self.config['input_dims'] == 'native':
-            # hack, this info exists, but not in an easy form
-            train_config = eval(deployed.train_info()['extra']['config'], {})
-            pred_cfg['input_dims'] = train_config['input_dims']
+        # if self.config['input_dims'] == 'native':
+        #     # hack, this info exists, but not in an easy form
+        #     train_config = eval(deployed.train_info()['extra']['config'], {})
+        #     pred_cfg['input_dims'] = train_config['input_dims']
+
+        native = detect_predict.DetectPredictor._infer_native(pred_cfg)
+        pred_cfg.update(native)
 
         if self.predictor is None:
             # Only create the predictor if needed
@@ -214,9 +219,22 @@ class DetectEvaluator(object):
         self.paths['metrics'] = ub.ensuredir((self.paths['base'], 'metrics'))
         self.paths['viz'] = ub.ensuredir((self.paths['base'], 'viz'))
 
+    def _run_predictions(self):
+        # self.predictor.config['verbose'] = 0
+        sampler = self.sampler
+        pred_gen = self.predictor.predict_sampler(sampler)
+        return pred_gen
+
     def evaluate(self):
         # TODO
-        gid_to_pred = self._run_predictions()
+        self.predictor.config['verbose'] = 3
+        pred_gen = self._run_predictions()
+
+        # This can take awhile to accumulate, perhaps cache intermediate
+        # results to disk, so we can restart efficiently?
+        gid_to_pred = {}
+        for i, (gid, pred) in enumerate(pred_gen):
+            gid_to_pred[gid] = pred
 
         sampler = self.sampler
 
@@ -244,11 +262,15 @@ class DetectEvaluator(object):
             dmet.add_predictions(pred_dets, gid=gid)
             dmet.add_truth(true_dets, gid=gid)
 
-        cfsn_vecs = dmet.confusion_vectors()
+        # cfsn_vecs = dmet.confusion_vectors()
 
-        print(dmet.score_coco(verbose=1))
-        print(dmet.score_voc())
-        dmet.score_netharn()
+        voc_info = dmet.score_voc()
+        print('voc_info = {}'.format(ub.repr2(voc_info, nl=1)))
+        print('mAP = {}'.format(voc_info['mAP']))
+
+        # print(dmet.score_voc())
+        # print(dmet.score_coco(verbose=1))
+        # dmet.score_netharn()
 
         print('self.predcfg_tag = {!r}'.format(self.predcfg_tag))
 
@@ -287,13 +309,6 @@ class DetectEvaluator(object):
         # metrics_fpath = join(self.paths['metrics'], 'metrics.json')
         # with open(metrics_fpath, 'w') as file:
         #     json.dump(nh.hyperparams._ensure_json_serializable(metrics), file)
-
-    def _run_predictions(self, only_draw=False):
-        self.predictor.config['verbose'] = 0
-
-        sampler = self.sampler
-        gid_to_pred = self.predictor.predict_sampler(sampler)
-        return gid_to_pred
 
 
 class CocoEvaluator(object):
@@ -387,3 +402,16 @@ def eval_coco(true_dataset, pred_dataset):
 # 5         0     0    -1 0.2764  1.0000 -1.0000   -1    5   61
 # 6         0     0    -1 0.1799  1.0000 -1.0000   -1    4   61
 # 7        -1    -1     0 0.0000  0.9000 -1.0000    1   -1   61
+
+if __name__ == '__main__':
+    """
+    python ~/code/bioharn/bioharn/detect_eval.py --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/manual-snapshots/_epoch_00000006.pt
+
+    python ~/code/bioharn/bioharn/detect_eval.py --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000013.pt --batch_size=30 --xpu=0
+
+
+    python ~/code/bioharn/bioharn/detect_eval.py --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000006.pt,~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000007.pt
+    ~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/
+    """
+
+    evaluate_models()

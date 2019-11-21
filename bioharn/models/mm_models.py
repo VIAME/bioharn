@@ -91,7 +91,7 @@ def _batch_to_mm_inputs(batch):
             if batch_cxywh is not None:
                 _boxes = kwimage.Boxes(batch_cxywh[bx][flags], 'cxywh')
                 gt_bboxes.append(_boxes.to_tlbr().data)
-            gt_labels.append(batch_cidxs[bx][flags].view(-1))
+            gt_labels.append(batch_cidxs[bx][flags].view(-1).long())
             # gt_bboxes_ignore = weight < 0.5
             # weight = label.get('weight', None)
 

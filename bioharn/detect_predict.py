@@ -64,6 +64,46 @@ class DetectPredictor(object):
         if self.config['verbose']:
             print(text)
 
+    @classmethod
+    def _infer_native(cls, config):
+        """
+        Preforms whatever hacks are necessary to introspect the correct
+        values of special "native" config options depending on the model.
+        """
+        # Set default fallback values
+        native_defaults = {
+            'input_dims': (512, 512),
+            'window_dims': 'full',
+        }
+        @ub.memoize
+        def _native_config():
+            deployed = nh.export.DeployedModel.coerce(config['deployed'])
+            # New models should have relevant params here, which is slightly
+            # less hacky than using the eval.
+            native_config = deployed.train_info()['other']
+            common = set(native_defaults) & set(native_config)
+            if len(common) != len(native_defaults):
+                # Fallback on the hacky string encoding of the configs
+                native_config.update(eval(
+                    deployed.train_info()['extra']['config'], {}))
+            return native_config
+        native = {}
+        for key in list(native_defaults.keys()):
+            if config[key] == 'native':
+                try:
+                    native_config = _native_config()
+                    native[key] = native_config[key]
+                except Exception:
+                    print((
+                        'WARNING: Unable to determine native {} from model. '
+                        'Defaulting to {}! Please ensure this is OK.').format(
+                            key, native_defaults[key]
+                    ))
+                    native[key] = native_defaults[key]
+            else:
+                native[key] = config[key]
+        return native
+
     def _ensure_model(self):
         if self.model is None:
             xpu = nh.XPU.coerce(self.config['xpu'])
@@ -203,7 +243,7 @@ class DetectPredictor(object):
         Yields:
             kwimage.Detections
         """
-        chips = batch['im']
+        # chips = batch['im']
         tf_chip_to_full = batch['tf_chip_to_full']
 
         scale_xy = tf_chip_to_full['scale_xy']
@@ -217,23 +257,9 @@ class DetectPredictor(object):
 
         # All GPU work happens in this line
         if hasattr(self.model.module, 'detector'):
-            # HACK FOR MMDET MODELS
-            from bioharn.models.mm_models import _batch_to_mm_inputs
-            mm_inputs = _batch_to_mm_inputs(batch)
-            imgs = mm_inputs.pop('imgs')
-            img_metas = mm_inputs.pop('img_metas')
-            hack_imgs = [g[None, :] for g in imgs]
-            # For whaver reason we cant run more than one test image at the
-            # same time.
-            batch_results = []
-            outputs = {}
-            for one_img, one_meta in zip(hack_imgs, img_metas):
-                result = self.model.module.detector.forward(
-                    [one_img], [[one_meta]], return_loss=False)
-                batch_results.append(result)
-            outputs['batch_results'] = batch_results
+            outputs = self.model.forward(batch, return_loss=False)
         else:
-            outputs = self.model.forward(chips, return_loss=False)
+            raise NotImplementedError('only works on mmdet models')
 
         # Postprocess GPU outputs
         batch_dets = self.coder.decode_batch(outputs)
