@@ -158,7 +158,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         sample = self.sampler.load_sample(tr, visible_thresh=0.05,
                                           with_annots=True, pad=pad)
 
-        imdata = sample['im']
+        imdata = kwimage.atleast_3channels(sample['im'])[..., 0:3]
+
         boxes = sample['annots']['rel_boxes']
         cids = sample['annots']['cids']
         aids = sample['annots']['aids']
