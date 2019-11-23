@@ -38,6 +38,8 @@ class DetectFitConfig(scfg.Config):
         'vali_dataset': scfg.Value(None, help='override vali with a custom coco dataset'),
         'test_dataset': scfg.Value(None, help='override test with a custom coco dataset'),
 
+        'sampler_backend': scfg.Value('auto', help='backend for ndsampler'),
+
         # Dataset options
         'multiscale': False,
         # 'visible_thresh': scfg.Value(0.5, help='percentage of a box that must be visible to be included in truth'),
@@ -362,7 +364,8 @@ def setup_harn(cmdline=True, **kw):
     samplers = {}
     for tag, subset in subsets.items():
         print('subset = {!r}'.format(subset))
-        sampler = ndsampler.CocoSampler(subset, workdir=config['workdir'])
+        sampler = ndsampler.CocoSampler(subset, workdir=config['workdir'],
+                                        backend=config['sampler_backend'])
 
         sampler.frames.prepare(workers=config['workers'])
 
