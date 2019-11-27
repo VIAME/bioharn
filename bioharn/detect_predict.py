@@ -1,5 +1,7 @@
 """
 """
+from os.path import basename
+from os.path import join
 import ubelt as ub
 import torch.utils.data as torch_data
 import netharn as nh
@@ -273,18 +275,20 @@ class DetectPredictor(object):
             det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
             yield det
 
-    def predict_sampler(self, sampler):
+    def predict_sampler(self, sampler, gids=None):
         """
         Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
 
         Args:
             sampler (ndsampler.CocoDataset): dset wrapped in a sampler
+            gids (List[int], default=None): if specified, then only predict
+                on these images.
         """
         input_dims = self.config['input_dims']
         window_dims = self.config['window_dims']
 
         torch_dset = WindowedSamplerDataset(sampler, window_dims=window_dims,
-                                            input_dims=input_dims)
+                                            input_dims=input_dims, gids=gids)
         slider_loader = torch.utils.data.DataLoader(
             torch_dset, shuffle=False, num_workers=self.config['workers'],
             batch_size=self.config['batch_size'])
@@ -309,6 +313,8 @@ class DetectPredictor(object):
                 yield (gid, dets)
 
         xpu = self.xpu
+
+        # raw_batch = ub.peek(prog)
         with torch.set_grad_enabled(False):
 
             # ----
@@ -433,15 +439,22 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
     TODO: Use as a base class for training detectors. This should ideally be
     used as an input to another dataset which handles augmentation.
+
+    Args:
+        window_dims: size of a sliding window
+        input_dims: size to resize sampled windows to
+        window_overlap: amount of overlap between windows
+        gids : images to sample from, if None use all of them
     """
 
     def __init__(self, sampler, window_dims='full', input_dims='native',
-                 input_overlap=0.0):
+                 window_overlap=0.0, gids=None):
         self.sampler = sampler
         self.input_dims = input_dims
         self.window_dims = window_dims
-        self.input_overlap = input_overlap
+        self.window_overlap = window_overlap
         self.subindex = None
+        self.gids = gids
         self._build_sliders()
 
     @classmethod
@@ -465,15 +478,20 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         Ignore:
             window_dims = (512, 512)
             input_dims = 'native'
-            input_overlap = 0
+            window_overlap = 0
         """
         import netharn as nh
-        input_overlap = self.input_overlap
+        window_overlap = self.window_overlap
         window_dims = self.window_dims
         sampler = self.sampler
 
+        gids = self.gids
+        if gids is None:
+            gids = list(sampler.dset.imgs.keys())
+
         gid_to_slider = {}
-        for img in sampler.dset.imgs.values():
+        for gid in gids:
+            img = sampler.dset.imgs[gid]
             if img.get('source', '') == 'habcam_2015_stereo':
                 # Hack: todo, cannoncial way to get this effect
                 full_dims = [img['height'], img['width'] // 2]
@@ -482,7 +500,8 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
             window_dims_ = full_dims if window_dims == 'full' else window_dims
             slider = nh.util.SlidingWindow(full_dims, window_dims_,
-                                           overlap=input_overlap,
+                                           overlap=window_overlap,
+                                           keepbound=True,
                                            allow_overshoot=True)
             gid_to_slider[img['id']] = slider
 
@@ -574,6 +593,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 ################################################################################
 # CLI
 
+
 import queue  # NOQA
 from threading import Thread  # NOQA
 
@@ -582,18 +602,19 @@ class _AsyncConsumerThread(Thread):
     """
     Will fill the queue with content of the source in a separate thread.
 
-    >>> import queue
-    >>> q = queue.Queue()
-    >>> c = _background_consumer(q, range(3))
-    >>> c.start()
-    >>> q.get(True, 1)
-    0
-    >>> q.get(True, 1)
-    1
-    >>> q.get(True, 1)
-    2
-    >>> q.get(True, 1) is ub.NoParam
-    True
+    Example:
+        >>> import queue
+        >>> q = queue.Queue()
+        >>> c = _background_consumer(q, range(3))
+        >>> c.start()
+        >>> q.get(True, 1)
+        0
+        >>> q.get(True, 1)
+        1
+        >>> q.get(True, 1)
+        2
+        >>> q.get(True, 1) is ub.NoParam
+        True
     """
     def __init__(self, queue, source):
         Thread.__init__(self)
@@ -646,6 +667,178 @@ class DetectPredictCLIConfig(scfg.Config):
         },
         DetectPredictConfig.default
     )
+
+
+def atomic_move(src, dst):
+    """
+    Rename a file from ``src`` to ``dst``, atomically if possible.
+
+    Args:
+        src (str | PathLike): file path to an existing file
+        dst (str | PathLike): file path to a destination file
+
+    References:
+        .. [1] https://alexwlchan.net/2019/03/atomic-cross-filesystem-moves-in-python/
+
+    Notes:
+        *   Moves must be atomic.  ``shutil.move()`` is not atomic.
+            Note that multiple threads may try to write to the cache at once,
+            so atomicity is required to ensure the serving on one thread doesn't
+            pick up a partially saved image from another thread.
+
+        *   Moves must work across filesystems.  Often temp directories and the
+            cache directories live on different filesystems.  ``os.rename()`` can
+            throw errors if run across filesystems.
+
+        So we try ``os.rename()``, but if we detect a cross-filesystem copy, we
+        switch to ``shutil.move()`` with some wrappers to make it atomic.
+
+    Example:
+        >>> import ubelt as ub
+        >>> dpath = ub.ensure_app_cache_dir('ubelt')
+        >>> fpath1 = join(dpath, 'foo')
+        >>> fpath2 = join(dpath, 'bar')
+        >>> ub.touch(fpath1)
+        >>> atomic_move(fpath1, fpath2)
+        >>> assert not exists(fpath1)
+        >>> assert exists(fpath2)
+    """
+    import os
+    try:
+        os.rename(src, dst)
+    except OSError as err:
+        import errno
+        import shutil
+        if err.errno == errno.EXDEV:
+            import uuid
+            # Generate a unique ID, and copy `<src>` to the target directory
+            # with a temporary name `<dst>.<ID>.tmp`.  Because we're copying
+            # across a filesystem boundary, this initial copy may not be
+            # atomic.  We intersperse a random UUID so if different processes
+            # are copying into `<dst>`, they don't overlap in their tmp copies.
+            copy_id = uuid.uuid4()
+            tmp_dst = "%s.%s.tmp" % (dst, copy_id)
+            shutil.copyfile(src, tmp_dst)
+
+            # Then do an atomic rename onto the new name, and clean up the
+            # source image.
+            os.rename(tmp_dst, dst)
+            os.unlink(src)
+        else:
+            raise
+
+
+def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
+                    draw=False, enable_cache=True, async_buffer=True):
+    """
+    Helper to only do predictions that havent been done yet.
+
+    Note that this currently requires you to ensure that the dest folder is
+    unique to this particular dataset.
+
+    Ignore:
+        pass
+
+        >>> import ndsampler
+        >>> config = {}
+        >>> config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000042.pt')
+        >>> predictor = DetectPredictor(config)
+        >>> predictor._ensure_model()
+
+        >>> out_dpath = './cached_out'
+
+        >>> gids = None
+        >>> coco_dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
+        >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
+        >>>                                 backend=None)
+
+    """
+    import kwarray
+    import ndsampler
+    coco_dset = sampler.dset
+    # predictor.config['verbose'] = 1
+
+    det_outdir = ub.ensuredir((out_dpath, 'pred'))
+
+    if enable_cache:
+        # Figure out what gids have already been computed
+        import glob
+        cached_fpaths = list(glob.glob(join(det_outdir, '*.json')))
+        have_gids = [int(basename(fpath).split('_')[2].split('.')[0])
+                     for fpath in cached_fpaths]
+    else:
+        have_gids = []
+
+    print('Found {} existing predictions'.format(len(have_gids)))
+
+    if gids is None:
+        gids = list(coco_dset.imgs.keys())
+
+    gids = ub.oset(gids) - have_gids
+
+    pred_gen = predictor.predict_sampler(sampler, gids=gids)
+
+    if async_buffer:
+        buffered_gen = AsyncBufferedGenerator(pred_gen, size=coco_dset.n_images)
+        gen = buffered_gen
+    else:
+        gen = pred_gen
+
+    gid_to_pred = {}
+    prog = ub.ProgIter(gen, total=coco_dset.n_images,
+                       desc='buffered detect')
+    for img_idx, (gid, dets) in enumerate(prog):
+        gid_to_pred[gid] = dets
+
+        img = coco_dset.imgs[gid]
+
+        single_img_coco = ndsampler.CocoDataset()
+        gid = single_img_coco.add_image(**img)
+        for cat in coco_dset.cats.values():
+            single_img_coco.add_category(**cat)
+
+        for ann in dets.to_coco():
+            ann['image_id'] = gid
+            try:
+                catname = ann['category_name']
+                ann['category_id'] = single_img_coco._resolve_to_cid(catname)
+            except KeyError:
+                if 'category_id' not in ann:
+                    cid = single_img_coco.add_category(catname)
+                    ann['category_id'] = cid
+            single_img_coco.add_annotation(**ann)
+
+        single_pred_fpath = join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+        # print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
+        import tempfile
+        tmp_fpath = tempfile.mktemp()
+        single_img_coco.dump(tmp_fpath, newlines=True)
+        atomic_move(tmp_fpath, single_pred_fpath)
+
+        if draw is True or (draw and img_idx < draw):
+            draw_outdir = ub.ensuredir((out_dpath, 'draw'))
+            img_fpath = coco_dset.load_image_fpath(gid)
+            gname = basename(img_fpath)
+            viz_fname = ub.augpath(gname, prefix='detect_', ext='.jpg')
+            viz_fpath = join(draw_outdir, viz_fname)
+
+            image = kwimage.imread(img_fpath)
+
+            flags = dets.scores > .2
+            flags[kwarray.argmaxima(dets.scores, num=10)] = True
+            top_dets = dets.compress(flags)
+            toshow = top_dets.draw_on(image, alpha=None)
+            # kwplot.imshow(toshow)
+            kwimage.imwrite(viz_fpath, toshow, space='rgb')
+
+    if enable_cache:
+        for gid in ub.ProgIter(have_gids, desc='loading cached pred gids'):
+            single_pred_fpath = join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+            single_img_coco = ndsampler.CocoDataset(single_pred_fpath)
+            dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
+                                                       dset=single_img_coco)
+            gid_to_pred[gid] = dets
+    return gid_to_pred
 
 
 def detect_cli(config={}):

@@ -129,14 +129,19 @@ class DetectEvaluator(object):
     """
     Ignore:
         from bioharn.detect_eval import *  # NOQA
-        config = {'xpu': 0, 'batch_size': 1}
-        config['deployed'] = '/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/ovphtcvk/torch_snapshots/_epoch_00000030.pt'
-        config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v10-test-retinanet/deploy_MM_RetinaNet_daodqsmy_010_QRNNNW.zip'
-        config = {'xpu': 0, 'batch_size': 4}
-        config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v11-test-cascade/deploy_MM_CascadeRCNN_ovphtcvk_037_HZUJKO.zip'
+        config = {'xpu': 0, 'batch_size': 6}
+        config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000044.pt')
+        # config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v10-test-retinanet/deploy_MM_RetinaNet_daodqsmy_010_QRNNNW.zip'
+        # config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v11-test-cascade/deploy_MM_CascadeRCNN_ovphtcvk_037_HZUJKO.zip'
         self = DetectEvaluator(config)
         self._init()
+
         self.evaluate()
+
+        evaluator = self
+        predictor = self.predictor
+        self = predictor
+        sampler = evaluator.sampler
     """
 
     def __init__(self, config=None):
@@ -214,27 +219,30 @@ class DetectEvaluator(object):
         out_dpath = ub.ensuredir(self.config['out_dpath'])
 
         self.paths['base'] = ub.ensuredir((out_dpath, self.dset_tag, self.model_tag, self.pred_cfg))
-        self.paths['probs'] = ub.ensuredir((self.paths['base'], 'probs'))
-        self.paths['preds'] = ub.ensuredir((self.paths['base'], 'preds'))
         self.paths['metrics'] = ub.ensuredir((self.paths['base'], 'metrics'))
         self.paths['viz'] = ub.ensuredir((self.paths['base'], 'viz'))
 
     def _run_predictions(self):
-        # self.predictor.config['verbose'] = 0
+        self.predictor.config['verbose'] = 1
         sampler = self.sampler
-        pred_gen = self.predictor.predict_sampler(sampler)
-        return pred_gen
+        # pred_gen = self.predictor.predict_sampler(sampler)
+
+        gid_to_pred = detect_predict._cached_predict(
+            self.predictor, sampler, self.paths['base'], gids=None, draw=10,
+            enable_cache=True)
+
+        return gid_to_pred
 
     def evaluate(self):
         # TODO
         self.predictor.config['verbose'] = 3
-        pred_gen = self._run_predictions()
+        gid_to_pred = self._run_predictions()
 
         # This can take awhile to accumulate, perhaps cache intermediate
         # results to disk, so we can restart efficiently?
-        gid_to_pred = {}
-        for i, (gid, pred) in enumerate(pred_gen):
-            gid_to_pred[gid] = pred
+        # gid_to_pred = {}
+        # for i, (gid, pred) in enumerate(pred_gen):
+        #     gid_to_pred[gid] = pred
 
         sampler = self.sampler
 
@@ -410,7 +418,7 @@ if __name__ == '__main__':
     python ~/code/bioharn/bioharn/detect_eval.py --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000013.pt --batch_size=30 --xpu=0
 
 
-    python ~/code/bioharn/bioharn/detect_eval.py --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000006.pt,~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000007.pt
+    python ~/code/bioharn/bioharn/detect_eval.py --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000044.pt
     ~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/
     """
 
