@@ -155,6 +155,13 @@ class DetectFitDataset(torch.utils.data.Dataset):
         # appropriate scale. Then we apply the intensity based augmentors
         # after.
         pad = int((slices[0].stop - slices[0].start) * 0.3)
+
+        img = self.sampler.dset.imgs[gid]
+        if img.get('source', '') == 'habcam_2015_stereo':
+            # Hack: dont pad next to the habcam border
+            maxpad = ((img['width'] // 2) - slices[1].stop)
+            pad = min(maxpad, pad)
+
         sample = self.sampler.load_sample(tr, visible_thresh=0.05,
                                           with_annots=True, pad=pad)
 

@@ -67,8 +67,8 @@ class DetectFitConfig(scfg.Config):
         'decay': scfg.Value(1e-4, help='weight decay'),
 
         'schedule': scfg.Value('ReduceLROnPlateau', help='learning rate / momentum scheduler'),
-        'max_epoch': scfg.Value(100, help='Maximum number of epochs'),
-        'patience': scfg.Value(20, help='Maximum number of bad epochs on validation before stopping'),
+        'max_epoch': scfg.Value(200, help='Maximum number of epochs'),
+        'patience': scfg.Value(10, help='Maximum number of bad epochs on validation before stopping'),
 
         # Initialization
         'init': scfg.Value('imagenet', help='initialization strategy'),
@@ -678,6 +678,22 @@ if __name__ == '__main__':
             --multiscale=True \
             --normalize_inputs=True \
             --workers=4 --xpu=1 --batch_size=4 --bstep=1
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v14-cascade \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=3e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.3 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=4 --xpu=1 --batch_size=8 --bstep=4
 
         # --pretrained='https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth' \
 
