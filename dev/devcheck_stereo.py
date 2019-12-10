@@ -1,11 +1,14 @@
-
+import numpy as np
+import ubelt as ub
+import kwimage
+import kwplot
 
 def _devcheck_stereo():
     """
     pip install opencv-contrib-python
     """
     import ndsampler
-    fpath = ub.expandpath('$HOME/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json')
+    fpath = ub.expandpath('~/remote/namek/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json')
     dset = ndsampler.CocoDataset(fpath)
 
     import cv2
@@ -21,12 +24,12 @@ def _devcheck_stereo():
     imgR = kwimage.imresize(imgR, scale=0.5)
 
     if 1:
-        import vtool as vt
+        import vtool_ibeis as vt
         annot1 = {'rchip': imgR}
         annot2 = {'rchip': imgL}
         match = vt.PairwiseMatch(annot1, annot2)
         if 0:
-            import guitool as gt
+            import guitool_ibeis as gt
             gt.ensure_qapp()
             match.ishow()
         match.apply_all({'refine_method': 'affine', 'affine_invariance': False, 'rotation_invariance': False})
@@ -34,7 +37,6 @@ def _devcheck_stereo():
         imgR_warp = vt.warpHomog(imgR, match.H_12, dsize)
 
         if 0:
-            import kwplot
             kwplot.imshow(imgL, pnum=(2, 1, 1))
             kwplot.imshow(imgR_warp, pnum=(2, 1, 2))
         imgR = imgR_warp
@@ -92,4 +94,3 @@ def _devcheck_stereo():
     kwplot.imshow(disparity, pnum=(2, 1, 1), title='SGBM Disparity', fnum=2)
     kwplot.imshow(imgL, pnum=(2, 2, 3), fnum=2)
     kwplot.imshow(imgR, pnum=(2, 2, 4), fnum=2)
-
