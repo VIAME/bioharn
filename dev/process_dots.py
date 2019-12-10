@@ -1,3 +1,4 @@
+from os.path import dirname
 from os.path import exists
 from os.path import splitext
 from os.path import isfile
@@ -486,9 +487,90 @@ def _dev_verify():
         xdev.InteractiveIter.draw()
 
 
+def _prepare_master_coco():
+    import glob
+    import ndsampler
+    dpath = '/home/joncrall/data/raid/noaa/sealions/BLACKEDOUT/extracted/coco-wip'
+    fpaths = sorted(glob.glob(join(dpath, '*.json')))
+
+    datasets = []
+    for fpath in ub.ProgIter(fpaths):
+        dset = ndsampler.CocoDataset(fpath)
+        datasets.append(dset)
+
+    merged_dots = ndsampler.CocoDataset.union(*datasets)
+
+    fpath = '/home/joncrall/data/noaa/sealions/sealions_photoshop_annots_v1.mscoco.json'
+    ps_dset = ndsampler.CocoDataset(fpath)
+    ps_img_root = '/home/joncrall/data/noaa/sealions/BLACKEDOUT/extracted'
+    for img in ps_dset.imgs.values():
+        gpath = join(ps_img_root, img['file_name'])
+        assert exists(gpath)
+        img['file_name'] = gpath
+
+    merged = ndsampler.CocoDataset.union(merged_dots, ps_dset)
+
+    for img in merged.imgs.values():
+        dpath = dirname(img['file_name'])
+        base_folder = basename(dpath)
+        if base_folder == 'Original':
+            base_folder = basename(dirname(dpath))
+        print('base_folder = {!r}'.format(base_folder))
+        img['year_code'] = base_folder
+
+    # Remove all categories
+    merged.remove_categories(merged.cats, keep_annots=True)
+    # add one category
+    cid = merged.add_category('sealion')
+    for ann in merged.anns.values():
+        ann['category_id'] = cid
+    merged.index.clear()
+    merged._build_index()
+
+    merged._ensure_imgsize()
+    merged.fpath = '/home/joncrall/data/noaa/sealions/sealions_all_v1.mscoco.json'
+    merged.dump(merged.fpath, newlines=True)
+
+    year_to_imgs = ub.group_items(merged.imgs.values(), lambda x: x['year_code'])
+    print(ub.map_vals(len, year_to_imgs))
+
+    vali_years = ['2010', '2016']
+
+    split_gids = {}
+
+    split_gids['vali'] = [img['id'] for img in ub.flatten(ub.dict_subset(year_to_imgs, vali_years).values())]
+    split_gids['train'] = [img['id'] for img in ub.flatten(ub.dict_diff(year_to_imgs, vali_years).values())]
+
+    print(ub.map_vals(len, split_gids))
+
+    for tag, gids in split_gids.items():
+        subset = merged.subset(gids)
+        subset.fpath = ub.augpath(merged.fpath, base='sealions_{}_v1'.format(tag), multidot=1)
+        print('subset.fpath = {!r}'.format(subset.fpath))
+        subset.dump(subset.fpath, newlines=True)
+
+
 if __name__ == '__main__':
     """
     CommandLine:
         python ~/code/bioharn/dev/process_dots.py
+
+
+        python -m bioharn.detect_fit \
+            --nice=detect-singleclass-cascade-v1 \
+            --workdir=$HOME/work/sealions \
+            --train_dataset=/home/joncrall/data/noaa/sealions/sealions_train_v1.mscoco.json \
+            --vali_dataset=/home/joncrall/data/noaa/sealions/sealions_vali_v1.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=3e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.3 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=4 --xpu=1 --batch_size=8 --bstep=4
     """
     gather_raw_biologist_data()

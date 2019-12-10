@@ -120,7 +120,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         """
         Example:
             >>> # DISABLE_DOCTSET
-            >>> self = DetectFitDataset.demo(key='shapes8', augment='complex', window_dims=(256, 256), gsize=(1920, 1080))
+            >>> from bioharn.detect_dataset import *  # NOQA
+            >>> self = DetectFitDataset.demo(key='shapes8', augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
             >>> index = 1
             >>> item = self[{'index': index, 'input_dims': (300, 300)}]
             >>> hwc01 = item['im'].numpy().transpose(1, 2, 0)
@@ -132,6 +133,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> kwplot.autompl()  # xdoc: +SKIP
             >>> kwplot.imshow(hwc01)
             >>> boxes.draw()
+            >>> for mask in item['label']['class_masks']:
+            ...     kwimage.Mask(mask.data.cpu().numpy(), 'c_mask').draw()
             >>> kwplot.show_if_requested()
         """
         if isinstance(spec, dict):
@@ -162,20 +165,23 @@ class DetectFitDataset(torch.utils.data.Dataset):
             maxpad = ((img['width'] // 2) - slices[1].stop)
             pad = min(maxpad, pad)
 
-        sample = self.sampler.load_sample(tr, visible_thresh=0.05,
-                                          with_annots=True, pad=pad)
+        sample = self.sampler.load_sample(
+            tr, visible_thresh=0.05,
+            with_annots=['boxes', 'segmentation'], pad=pad)
 
         imdata = kwimage.atleast_3channels(sample['im'])[..., 0:3]
 
         boxes = sample['annots']['rel_boxes']
         cids = sample['annots']['cids']
         aids = sample['annots']['aids']
+        ssegs = sample['annots']['rel_ssegs']
         anns = list(ub.take(self.sampler.dset.anns, aids))
         weights = [ann.get('weight', 1.0) for ann in anns]
 
         classes = self.sampler.classes
         dets = kwimage.Detections(
             boxes=boxes,
+            segmentations=ssegs,
             class_idxs=np.array([classes.id_to_idx[cid] for cid in cids]),
             weights=np.array(weights),
             classes=classes,
@@ -229,6 +235,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         orig_size = torch.LongTensor(orig_size)
         index = torch.LongTensor([index])
         bg_weight = torch.FloatTensor([1.0])
+
         label = {
             'cxywh': torch.FloatTensor(cxwh.data),
             'class_idxs': torch.LongTensor(dets.class_idxs[:, None]),
@@ -238,6 +245,30 @@ class DetectFitDataset(torch.utils.data.Dataset):
             'orig_sizes': orig_size,
             'bg_weights': bg_weight
         }
+
+        if 'segmentations' in dets.data:
+            has_mask_list = []
+            class_mask_list = []
+            for sseg in dets.data['segmentations']:
+                if sseg is not None:
+                    mask = sseg.to_mask(dims=chw01.shape[1:])
+                    c_mask = mask.to_c_mask().data
+                    mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
+                    class_mask_list.append(mask_tensor[None, :])
+                    has_mask_list.append(1)
+                else:
+                    class_mask_list.append(None)
+                    has_mask_list.append(-1)
+
+            has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+            if len(class_mask_list) == 0:
+                h, w = chw01.shape[1:]
+                class_masks = torch.empty((0, h, w), dtype=torch.uint8)
+            else:
+                class_masks = torch.cat(class_mask_list, dim=0)
+            label['class_masks'] = class_masks
+            label['has_mask'] = has_mask
+
         item = {
             'im': chw01,
             'label': label,

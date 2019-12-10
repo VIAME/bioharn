@@ -44,7 +44,7 @@ def _batch_to_mm_inputs(batch):
 
     Example:
         >>> # Test empty batch
-        >>> bsize = [0, 0, 0, 0]
+        >>> bsize = [2, 0, 1, 1]
         >>> batch = _demo_batch(bsize)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
@@ -72,16 +72,23 @@ def _batch_to_mm_inputs(batch):
     if 'label' in batch:
         gt_bboxes = []
         gt_labels = []
+        gt_masks = []
 
         label = batch['label']
         batch_cidxs = label['class_idxs'].view(B, -1)
         batch_flags = batch_cidxs > -1
         batch_tlbr = None
         batch_cxywh = None
+        batch_has_mask = None
+        batch_mask = None
         if 'tlbr' in label:
             batch_tlbr = label['tlbr'].view(B, -1, 4)
         if 'cxywh' in label:
             batch_cxywh = label['cxywh'].view(B, -1, 4)
+
+        if 'has_mask' in label:
+            batch_has_mask = label['has_mask'].view(B, -1)
+            batch_mask = label['class_masks']
 
         for bx in range(B):
             flags = batch_flags[bx]
@@ -91,6 +98,10 @@ def _batch_to_mm_inputs(batch):
             if batch_cxywh is not None:
                 _boxes = kwimage.Boxes(batch_cxywh[bx][flags], 'cxywh')
                 gt_bboxes.append(_boxes.to_tlbr().data)
+            if batch_has_mask is not None:
+                flags = (batch_has_mask[bx] > 0)
+                _masks = batch_mask[bx][flags]
+                gt_masks.append(_masks)
             gt_labels.append(batch_cidxs[bx][flags].view(-1).long())
             # gt_bboxes_ignore = weight < 0.5
             # weight = label.get('weight', None)
@@ -101,17 +112,21 @@ def _batch_to_mm_inputs(batch):
             'gt_bboxes_ignore': None,
         })
 
+        if gt_masks:
+            mm_inputs['gt_masks'] = gt_masks
+
     return mm_inputs
 
 
-def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3):
+def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3,
+                with_mask=True):
     """
     Input data for testing this detector
 
     Example:
         >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
         >>> globals().update(**xdev.get_func_kwargs(_demo_batch))
-        >>> batch = _demo_batch()
+        >>> batch = _demo_batch(with_mask=False)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
 
     """
@@ -154,14 +169,47 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3):
 
         batch_items = []
         for bx in range(B):
-            dets = kwimage.Detections.random(num=item_sizes[bx],
-                                             classes=classes)
-            dets = dets.scale((W, H)).tensor()
 
+            item_sizes[bx]
+
+            dets = kwimage.Detections.random(num=item_sizes[bx],
+                                             classes=classes,
+                                             segmentations=True)
+            dets = dets.scale((W, H))
+
+            # Extract segmentations if they exist
+            if with_mask:
+                has_mask_list = []
+                class_mask_list = []
+                for sseg in dets.data['segmentations']:
+                    if sseg is not None:
+                        mask = sseg.to_mask(dims=(H, W))
+                        c_mask = mask.to_c_mask().data
+                        mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
+                        class_mask_list.append(mask_tensor[None, :])
+                        has_mask_list.append(1)
+                    else:
+                        class_mask_list.append(None)
+                        has_mask_list.append(-1)
+
+                has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+                if len(class_mask_list) == 0:
+                    class_masks = torch.empty((0, H, W), dtype=torch.uint8)
+                else:
+                    class_masks = torch.cat(class_mask_list, dim=0)
+            else:
+                class_masks = None
+
+            dets = dets.tensor()
             label = {
                 'tlbr': dets.boxes.to_tlbr().data.float(),
                 'class_idxs': dets.class_idxs,
             }
+
+            if with_mask:
+                label['class_masks'] = class_masks
+                label['has_mask'] = has_mask
+
             item = {
                 'im': imgs[bx],
                 'label': label,
@@ -230,6 +278,7 @@ class MM_Detector(nh.layers.Module):
         if input_stats is None:
             input_stats = {}
 
+        # FIXME: unused
         self.input_norm = nh.layers.InputNorm(**input_stats)
 
         self.classes = classes
@@ -245,7 +294,8 @@ class MM_Detector(nh.layers.Module):
 
         self.coder = MM_Coder(self.classes)
 
-    def demo_batch(self, bsize=3, in_channels=3, h=256, w=256):
+    def demo_batch(self, bsize=3, in_channels=None, h=256, w=256,
+                   with_mask=None):
         """
         Input data for testing this detector
 
@@ -254,7 +304,13 @@ class MM_Detector(nh.layers.Module):
         >>> globals().update(**xdev.get_func_kwargs(MM_Detector.demo_batch))
         >>> self.demo_batch()
         """
-        batch = _demo_batch(bsize, in_channels, h, w)
+        if in_channels is None:
+            # use native in_channels if possible
+            in_channels = getattr(self, 'in_channels', 3)
+        if with_mask is None:
+            with_mask = getattr(self.detector, 'with_mask', False)
+
+        batch = _demo_batch(bsize, in_channels, h, w, with_mask=with_mask)
         return batch
 
     def forward(self, batch, return_loss=True, return_result=True):
@@ -288,11 +344,16 @@ class MM_Detector(nh.layers.Module):
             gt_bboxes = mm_inputs['gt_bboxes']
             gt_labels = mm_inputs['gt_labels']
             gt_bboxes_ignore = mm_inputs['gt_bboxes_ignore']
+
+            trainkw = {}
+            if 'gt_masks' in mm_inputs:
+                gt_masks = trainkw['gt_masks'] = mm_inputs['gt_masks']
+
             losses = self.detector.forward(imgs, img_metas,
                                            gt_bboxes=gt_bboxes,
                                            gt_labels=gt_labels,
                                            gt_bboxes_ignore=gt_bboxes_ignore,
-                                           return_loss=True)
+                                           return_loss=True, **trainkw)
             loss_parts = OrderedDict()
             for loss_name, loss_value in losses.items():
                 if 'loss' in loss_name:
@@ -514,6 +575,19 @@ class MM_CascadeRCNN(MM_Detector):
         >>> self = self.detector
         >>> img = mm_inputs['imgs']
         >>> img_meta = mm_inputs['img_metas']
+
+
+    Example:
+        >>> # Test multiple channels
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> import torch
+        >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+        >>> xpu = nh.XPU('cpu')
+        >>> self = MM_CascadeRCNN(classes, in_channels=4).to(xpu.main_device)
+        >>> batch = self.demo_batch(bsize=1, h=256, w=256)
+        >>> batch = xpu.move(batch)
+        >>> outputs = self.forward(batch)
+        >>> batch_dets = self.coder.decode_batch(outputs)
     """
     def __init__(self, classes, in_channels=3, input_stats=None):
         import ndsampler
@@ -527,6 +601,8 @@ class MM_CascadeRCNN(MM_Detector):
         pretrained = 'open-mmlab://resnext101_32x4d'
         # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_64x4d_fpn_1x_20181218-e2dc376a.pth'
         # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_32x4d_fpn_1x_20190501-af628be5.pth'
+
+        self.in_channels = in_channels
 
         num_classes = len(classes)
         mm_config =  dict(
@@ -706,3 +782,151 @@ class MM_CascadeRCNN(MM_Detector):
                                              test_cfg=test_cfg,
                                              classes=classes,
                                              input_stats=input_stats)
+
+
+class MM_MaskRCNN(MM_Detector):
+    """
+    Example:
+        >>> # Test multiple channels
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> import torch
+        >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+        >>> xpu = nh.XPU(0)
+        >>> self = MM_MaskRCNN(classes, in_channels=4).to(xpu.main_device)
+        >>> batch = self.demo_batch(bsize=1, h=256, w=256)
+        >>> batch = xpu.move(batch)
+        >>> outputs = self.forward(batch)
+        >>> batch_dets = self.coder.decode_batch(outputs)
+    """
+    def __init__(self, classes, in_channels=3, input_stats=None):
+        import ndsampler
+        classes = ndsampler.CategoryTree.coerce(classes)
+        if 'background' in classes:
+            assert classes.node_to_idx['background'] == 0
+            num_classes = len(classes)
+        else:
+            num_classes = len(classes) + 1
+
+        pretrained = 'torchvision://resnet50'
+        self.in_channels = in_channels
+
+        # model settings
+        mm_config = dict(
+            type='MaskRCNN',
+            pretrained=pretrained,
+            backbone=dict(
+                type='ResNet',
+                depth=50,
+                num_stages=4,
+                in_channels=in_channels,
+                out_indices=(0, 1, 2, 3),
+                frozen_stages=1,
+                style='pytorch'),
+            neck=dict(
+                type='FPN',
+                in_channels=[256, 512, 1024, 2048],
+                out_channels=256,
+                num_outs=5),
+            rpn_head=dict(
+                type='RPNHead',
+                in_channels=256,
+                feat_channels=256,
+                anchor_scales=[8],
+                anchor_ratios=[0.5, 1.0, 2.0],
+                anchor_strides=[4, 8, 16, 32, 64],
+                target_means=[.0, .0, .0, .0],
+                target_stds=[1.0, 1.0, 1.0, 1.0],
+                loss_cls=dict(
+                    type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+                loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)),
+            bbox_roi_extractor=dict(
+                type='SingleRoIExtractor',
+                roi_layer=dict(type='RoIAlign', out_size=7, sample_num=2),
+                out_channels=256,
+                featmap_strides=[4, 8, 16, 32]),
+            bbox_head=dict(
+                type='SharedFCBBoxHead',
+                num_fcs=2,
+                in_channels=256,
+                fc_out_channels=1024,
+                roi_feat_size=7,
+                num_classes=num_classes,
+                target_means=[0., 0., 0., 0.],
+                target_stds=[0.1, 0.1, 0.2, 0.2],
+                reg_class_agnostic=False,
+                loss_cls=dict(
+                    type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
+                loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
+            mask_roi_extractor=dict(
+                type='SingleRoIExtractor',
+                roi_layer=dict(type='RoIAlign', out_size=14, sample_num=2),
+                out_channels=256,
+                featmap_strides=[4, 8, 16, 32]),
+            mask_head=dict(
+                type='FCNMaskHead',
+                num_convs=4,
+                in_channels=256,
+                conv_out_channels=256,
+                num_classes=num_classes,
+                loss_mask=dict(
+                    type='CrossEntropyLoss', use_mask=True, loss_weight=1.0)))
+        # model training and testing settings
+        train_cfg = dict(
+            rpn=dict(
+                assigner=dict(
+                    type='MaxIoUAssigner',
+                    pos_iou_thr=0.7,
+                    neg_iou_thr=0.3,
+                    min_pos_iou=0.3,
+                    ignore_iof_thr=-1),
+                sampler=dict(
+                    type='RandomSampler',
+                    num=256,
+                    pos_fraction=0.5,
+                    neg_pos_ub=-1,
+                    add_gt_as_proposals=False),
+                allowed_border=0,
+                pos_weight=-1,
+                debug=False),
+            rpn_proposal=dict(
+                nms_across_levels=False,
+                nms_pre=2000,
+                nms_post=2000,
+                max_num=2000,
+                nms_thr=0.7,
+                min_bbox_size=0),
+            rcnn=dict(
+                assigner=dict(
+                    type='MaxIoUAssigner',
+                    pos_iou_thr=0.5,
+                    neg_iou_thr=0.5,
+                    min_pos_iou=0.5,
+                    ignore_iof_thr=-1),
+                sampler=dict(
+                    type='RandomSampler',
+                    num=512,
+                    pos_fraction=0.25,
+                    neg_pos_ub=-1,
+                    add_gt_as_proposals=True),
+                mask_size=28,
+                pos_weight=-1,
+                debug=False))
+        test_cfg = dict(
+            rpn=dict(
+                nms_across_levels=False,
+                nms_pre=1000,
+                nms_post=1000,
+                max_num=1000,
+                nms_thr=0.7,
+                min_bbox_size=0),
+            rcnn=dict(
+                score_thr=0.05,
+                nms=dict(type='nms', iou_thr=0.5),
+                max_per_img=100,
+                mask_thr_binary=0.5))
+
+        backbone_cfg = mm_config['backbone']
+        _hack_mm_backbone_in_channels(backbone_cfg)
+        super(MM_MaskRCNN, self).__init__(mm_config, train_cfg=train_cfg,
+                                          test_cfg=test_cfg, classes=classes,
+                                          input_stats=input_stats)

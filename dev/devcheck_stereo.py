@@ -3,6 +3,7 @@ import ubelt as ub
 import kwimage
 import kwplot
 
+
 def _devcheck_stereo():
     """
     pip install opencv-contrib-python
@@ -23,7 +24,8 @@ def _devcheck_stereo():
     imgL = kwimage.imresize(imgL, scale=0.5)
     imgR = kwimage.imresize(imgR, scale=0.5)
 
-    if 1:
+    DEBUG_MATCHES = 0
+    if DEBUG_MATCHES:
         import vtool_ibeis as vt
         annot1 = {'rchip': imgR}
         annot2 = {'rchip': imgL}
@@ -37,6 +39,8 @@ def _devcheck_stereo():
         imgR_warp = vt.warpHomog(imgR, match.H_12, dsize)
 
         if 0:
+            kwplot.imshow(imgL, pnum=(2, 1, 1))
+            kwplot.imshow(imgR_warp, pnum=(2, 1, 2))
             kwplot.imshow(imgL, pnum=(2, 1, 1))
             kwplot.imshow(imgR_warp, pnum=(2, 1, 2))
         imgR = imgR_warp
@@ -75,9 +79,9 @@ def _devcheck_stereo():
         numDisparities=num_disp,
         blockSize=16, P1=8 * 3 * window_size**2, P2=32 * 3 * window_size**2,
         disp12MaxDiff=10000,
-        uniquenessRatio = 10,
-        speckleWindowSize = 100,
-        speckleRange = 32
+        uniquenessRatio=10,
+        speckleWindowSize=100,
+        speckleRange=32
     )
 
     disp_alg = cv2.StereoSGBM_create(numDisparities=256, blockSize=5, disp12MaxDiff=512)
