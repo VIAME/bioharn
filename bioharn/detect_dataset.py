@@ -1,3 +1,5 @@
+from os.path import exists
+from os.path import join
 import netharn as nh
 import numpy as np
 import torch
@@ -136,7 +138,13 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> for mask in item['label']['class_masks']:
             ...     kwimage.Mask(mask.data.cpu().numpy(), 'c_mask').draw()
             >>> kwplot.show_if_requested()
+
+        Ignore:
+            >>> from bioharn.detect_dataset import *  # NOQA
+            >>> self = DetectFitDataset.demo(key='habcam')
+            >>> spec = {'index': 1, 'input_dims': (300, 300)}
         """
+        import ndsampler
         if isinstance(spec, dict):
             index = spec['index']
             input_dims = spec['input_dims']
@@ -165,6 +173,33 @@ class DetectFitDataset(torch.utils.data.Dataset):
             maxpad = ((img['width'] // 2) - slices[1].stop)
             pad = min(maxpad, pad)
 
+            DO_HABCAM_DISPARITY = True
+            if DO_HABCAM_DISPARITY:
+                img_hashid = self.sampler.frames._lookup_hashid(gid)
+                disp_cache_dpath = ub.ensuredir((self.sampler.frames.workdir, '_cache', '_disp_v1'))
+                disp_cache_fpath = join(disp_cache_dpath, img_hashid + '_disp_v1.cog.tif')
+                if not exists(disp_cache_fpath):
+                    # Note: probably should be atomic
+                    img3 = self.sampler.dset.load_image(gid)
+                    imgL = img3[:, 0:img3.shape[1] // 2]
+                    imgR = img3[:, img3.shape[1] // 2:]
+                    disparity = compute_disparity(imgL, imgR, scale=0.5)
+                    disparity = disparity.astype(np.float32)
+
+                    ndsampler.utils.util_gdal._imwrite_cloud_optimized_geotiff(
+                        disp_cache_fpath, disparity, compress='DEFLATE')
+                disp_frame = ndsampler.utils.util_gdal.LazyGDalFrameFile(disp_cache_fpath)
+
+                data_dims = ((img['width'] // 2), img['height'])
+                data_slice, extra_padding, st_dims = self.sampler._rectify_tr(
+                    tr, data_dims, window_dims=None, pad=pad)
+                # Load the image data
+                disp_im = disp_frame[data_slice]
+                if extra_padding:
+                    if disp_im.ndim != len(extra_padding):
+                        extra_padding = extra_padding + [(0, 0)]  # Handle channels
+                    disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
+
         sample = self.sampler.load_sample(
             tr, visible_thresh=0.05,
             with_annots=['boxes', 'segmentation'], pad=pad)
@@ -189,7 +224,16 @@ class DetectFitDataset(torch.utils.data.Dataset):
         orig_size = np.array(imdata.shape[0:2][::-1])
 
         if self.augmenter:
-            imdata, dets = self.augmenter.augment_detections(imdata, dets)
+            inte_aug_det = self._intensity.to_deterministic()
+            geom_aug_det = self._geometric.to_deterministic()
+
+            input_dims = imdata.shape[0:2]
+            imdata = seq_det.augment_image(imdata)
+            output_dims = imdata.shape[0:2]
+
+            if len(dets):
+                dets = dets.warp(seq_det, input_dims=input_dims,
+                                 output_dims=output_dims)
 
         pad = sample['params']['pad']
         if np.any(pad):
@@ -553,13 +597,17 @@ class DetectionAugmentor(object):
         import imgaug as ia
         from imgaug import augmenters as iaa
         self.rng = kwarray.ensure_rng(rng)
+
+        self._intensity = None
+        self._geometric = None
+
         if mode == 'simple':
-            augmentors = [
+            self._geometric = iaa.Sequential([
                 iaa.Fliplr(p=.5),
                 iaa.Flipud(p=.5),
                 iaa.CropAndPad(px=(0, 4)),
-            ]
-            self._augmenter = iaa.Sequential(augmentors)
+            ])
+            self._intensity = None
         elif mode == 'low':
             scale = .25
             rot = 30
@@ -570,7 +618,7 @@ class DetectionAugmentor(object):
             scale_rv = ia.parameters.Choice([scale_base, 1], p=[.6, .4])
             rot_rv = ia.parameters.Choice([rot_base, 0], p=[.6, .4])
 
-            augmentors = [
+            self._geometric = iaa.Sequential([
                 iaa.Affine(
                     scale=scale_rv,
                     rotate=rot_rv,
@@ -582,11 +630,11 @@ class DetectionAugmentor(object):
                 iaa.Flipud(p=.5),
                 iaa.Rot90(k=[0, 1, 2, 3]),
                 iaa.CropAndPad(px=(-3, 3)),
-            ]
-            self._augmenter = iaa.Sequential(augmentors)
+            ])
+            self._intensity = None
         elif mode == 'medium':
             # The weather augmenters are very expensive, so we ditch them
-            augmentors = [
+            self._geometric = iaa.Sequential([
                 iaa.Sometimes(0.55, iaa.Affine(
                     scale={"x": (1.0, 1.2), "y": (1.0, 1.2)},
                     rotate=(-40, 40),  # rotate by -45 to +45 degrees
@@ -598,6 +646,13 @@ class DetectionAugmentor(object):
                     # use any of scikit-image's warping modes (see 2nd image from the top for examples)
                     backend='cv2',
                 )),
+                iaa.Fliplr(p=.5),
+                iaa.Flipud(p=.5),
+                iaa.Rot90(k=[0, 1, 2, 3]),
+                iaa.Sometimes(.9, iaa.CropAndPad(px=(-4, 4))),
+            ], random_order=False)
+
+            self._intensity = iaa.Sequential([
                 iaa.Sequential([
                     iaa.Sometimes(.1, iaa.GammaContrast((0.5, 2.0))),
                     iaa.Sometimes(.1, iaa.LinearContrast((0.5, 1.5))),
@@ -605,61 +660,56 @@ class DetectionAugmentor(object):
                 iaa.Sometimes(.5, iaa.Grayscale(alpha=(0, 1))),
                 iaa.Sometimes(.1, iaa.CoarseDropout(p=(.1, .3), size_percent=(0.02, 0.5))),
                 iaa.Sometimes(.1, iaa.AddElementwise((-40, 40))),
-                iaa.Fliplr(p=.5),
-                iaa.Flipud(p=.5),
-                iaa.Rot90(k=[0, 1, 2, 3]),
-                iaa.Sometimes(.9, iaa.CropAndPad(px=(-4, 4))),
             ]
-            self._augmenter = iaa.Sequential(augmentors, random_order=False)
         elif mode == 'heavy':
             scale = .25
             rot = 45
-            augmentors = [
-                iaa.Sequential([
-                    # Geometric
-                    iaa.Sometimes(0.55, iaa.Affine(
-                        scale=ia.parameters.TruncatedNormal(1.0, (scale * 2) / 6, low=1 - scale, high=1 + scale),
-                        rotate=ia.parameters.TruncatedNormal(0.0, (rot * 2) / 6, low=-rot, high=rot),
-                        shear=ia.parameters.TruncatedNormal(0.0, 2.5, low=-16, high=16),
-                        order=1,
-                        # if mode is constant, use a cval between 0 and 255
-                        cval=(0, 255),
-                        # use any of scikit-image's warping modes (see 2nd image from the top for examples)
-                        backend='cv2',
-                    )),
-                    # Color, brightness, saturation, and contrast
-                    iaa.Sometimes(.10, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
-                    iaa.Sometimes(.10, iaa.GammaContrast((0.5, 2.0))),
-                    iaa.Sometimes(.10, iaa.LinearContrast((0.5, 1.5))),
-                    iaa.Sometimes(.10, iaa.Multiply((0.5, 1.5), per_channel=0.5)),
-                    iaa.Sometimes(.10, iaa.Add((-10, 10), per_channel=0.5)),
-                    iaa.Sometimes(.10, iaa.Grayscale(alpha=(0, 1))),
-
-                    # Speckle noise
-                    iaa.Sometimes(.05, iaa.AddElementwise((-40, 40))),
-                    iaa.Sometimes(.05, iaa.AdditiveGaussianNoise(
-                        loc=0, scale=(0.0, 0.05 * 255), per_channel=0.5
-                    )),
-                    iaa.Sometimes(.05, iaa.OneOf([
-                        iaa.Dropout((0.01, 0.1), per_channel=0.5),
-                        iaa.CoarseDropout(
-                            (.09, .31), size_percent=(0.19, 0.055),
-                            per_channel=0.15
-                        ),
-                    ])),
-                    # Blurring
-                    iaa.Sometimes(.05, iaa.OneOf([
-                        iaa.GaussianBlur((0, 2.5)),
-                        iaa.AverageBlur(k=(2, 7)),
-                        iaa.MedianBlur(k=(3, 11)),
-                    ])),
-                ], random_order=True),
+            self._geometric = iaa.Sequential([
+                # Geometric
+                iaa.Sometimes(0.55, iaa.Affine(
+                    scale=ia.parameters.TruncatedNormal(1.0, (scale * 2) / 6, low=1 - scale, high=1 + scale),
+                    rotate=ia.parameters.TruncatedNormal(0.0, (rot * 2) / 6, low=-rot, high=rot),
+                    shear=ia.parameters.TruncatedNormal(0.0, 2.5, low=-16, high=16),
+                    order=1,
+                    # if mode is constant, use a cval between 0 and 255
+                    cval=(0, 255),
+                    # use any of scikit-image's warping modes (see 2nd image from the top for examples)
+                    backend='cv2',
+                )),
                 iaa.Fliplr(p=.5),
                 iaa.Flipud(p=.5),
                 iaa.Rot90(k=[0, 1, 2, 3]),
                 iaa.Sometimes(.9, iaa.CropAndPad(px=(-16, 16))),
-            ]
-            self._augmenter = iaa.Sequential(augmentors, random_order=False)
+            ])
+
+            self._intensity = iaa.Sequential([
+                # Color, brightness, saturation, and contrast
+                iaa.Sometimes(.10, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
+                iaa.Sometimes(.10, iaa.GammaContrast((0.5, 2.0))),
+                iaa.Sometimes(.10, iaa.LinearContrast((0.5, 1.5))),
+                iaa.Sometimes(.10, iaa.Multiply((0.5, 1.5), per_channel=0.5)),
+                iaa.Sometimes(.10, iaa.Add((-10, 10), per_channel=0.5)),
+                iaa.Sometimes(.10, iaa.Grayscale(alpha=(0, 1))),
+
+                # Speckle noise
+                iaa.Sometimes(.05, iaa.AddElementwise((-40, 40))),
+                iaa.Sometimes(.05, iaa.AdditiveGaussianNoise(
+                    loc=0, scale=(0.0, 0.05 * 255), per_channel=0.5
+                )),
+                iaa.Sometimes(.05, iaa.OneOf([
+                    iaa.Dropout((0.01, 0.1), per_channel=0.5),
+                    iaa.CoarseDropout(
+                        (.09, .31), size_percent=(0.19, 0.055),
+                        per_channel=0.15
+                    ),
+                ])),
+                # Blurring
+                iaa.Sometimes(.05, iaa.OneOf([
+                    iaa.GaussianBlur((0, 2.5)),
+                    iaa.AverageBlur(k=(2, 7)),
+                    iaa.MedianBlur(k=(3, 11)),
+                ])),
+            ], random_order=True)
 
         elif mode == 'complex':
             """
@@ -694,7 +744,7 @@ class DetectionAugmentor(object):
                 >>> print('P(we use 7 augmentors) = {:.4f}'.format(dist.cdf(x=7) - dist.cdf(x=6)))
                 >>> print('P(we use 8 augmentors) = {:.4f}'.format(dist.cdf(x=8) - dist.cdf(x=7)))
             """
-            augmentors = [
+            self._geometric = iaa.Sequential([
                 iaa.Sometimes(0.55, iaa.Affine(
                     scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
                     rotate=(-45, 45),  # rotate by -45 to +45 degrees
@@ -705,55 +755,55 @@ class DetectionAugmentor(object):
                     # use any of scikit-image's warping modes (see 2nd image from the top for examples)
                     backend='cv2',
                 )),
-                iaa.Sequential([
-                    # Color, brightness, saturation, and contrast
-                    iaa.Sometimes(0.1, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
-                    iaa.Sometimes(.10, iaa.GammaContrast((0.5, 2.0))),
-                    iaa.Sometimes(.10, iaa.LinearContrast((0.5, 1.5))),
-                    iaa.Sometimes(.10, iaa.Multiply((0.5, 1.5), per_channel=0.5)),
-                    iaa.Sometimes(.10, iaa.Add((-10, 10), per_channel=0.5)),
-                    iaa.Sometimes(.1, iaa.Grayscale(alpha=(0, 1))),
-
-                    # Speckle noise
-                    iaa.Sometimes(.1, iaa.AddElementwise((-40, 40))),
-                    iaa.Sometimes(.1, iaa.AdditiveGaussianNoise(
-                        loc=0, scale=(0.0, 0.05 * 255), per_channel=0.5
-                    )),
-                    iaa.Sometimes(.1, iaa.OneOf([
-                        iaa.Dropout((0.01, 0.1), per_channel=0.5),
-                        iaa.CoarseDropout(
-                            (.09, .31), size_percent=(0.19, 0.055),
-                            per_channel=0.15
-                        ),
-                    ])),
-
-                    # Blurring
-                    iaa.Sometimes(.05, iaa.OneOf([
-                        iaa.GaussianBlur((0, 2.5)),
-                        iaa.AverageBlur(k=(2, 7)),
-                        iaa.MedianBlur(k=(3, 11)),
-                    ])),
-
-                    # Sharpening
-                    iaa.Sometimes(.1, iaa.OneOf([
-                        iaa.Sometimes(.1, iaa.Sharpen(alpha=(0, 1.0), lightness=(0.75, 1.5))),
-                        iaa.Sometimes(.1, iaa.Emboss(alpha=(0, 1.0), strength=(0, 2.0))),
-                    ])),
-
-                    # Misc
-                    iaa.Sometimes(.1, iaa.OneOf([
-                        iaa.EdgeDetect(alpha=(0, 0.7)),
-                        iaa.DirectedEdgeDetect(
-                            alpha=(0, 0.7), direction=(0.0, 1.0)
-                        ),
-                    ])),
-                ], random_order=True),
                 iaa.Fliplr(p=.5),
                 iaa.Flipud(p=.5),
                 iaa.Rot90(k=[0, 1, 2, 3]),
                 iaa.Sometimes(.9, iaa.CropAndPad(px=(-16, 16))),
-            ]
-            self._augmenter = iaa.Sequential(augmentors, random_order=False)
+
+            ])
+            self._intensity = iaa.Sequential([
+                # Color, brightness, saturation, and contrast
+                iaa.Sometimes(0.1, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
+                iaa.Sometimes(.10, iaa.GammaContrast((0.5, 2.0))),
+                iaa.Sometimes(.10, iaa.LinearContrast((0.5, 1.5))),
+                iaa.Sometimes(.10, iaa.Multiply((0.5, 1.5), per_channel=0.5)),
+                iaa.Sometimes(.10, iaa.Add((-10, 10), per_channel=0.5)),
+                iaa.Sometimes(.1, iaa.Grayscale(alpha=(0, 1))),
+
+                # Speckle noise
+                iaa.Sometimes(.1, iaa.AddElementwise((-40, 40))),
+                iaa.Sometimes(.1, iaa.AdditiveGaussianNoise(
+                    loc=0, scale=(0.0, 0.05 * 255), per_channel=0.5
+                )),
+                iaa.Sometimes(.1, iaa.OneOf([
+                    iaa.Dropout((0.01, 0.1), per_channel=0.5),
+                    iaa.CoarseDropout(
+                        (.09, .31), size_percent=(0.19, 0.055),
+                        per_channel=0.15
+                    ),
+                ])),
+
+                # Blurring
+                iaa.Sometimes(.05, iaa.OneOf([
+                    iaa.GaussianBlur((0, 2.5)),
+                    iaa.AverageBlur(k=(2, 7)),
+                    iaa.MedianBlur(k=(3, 11)),
+                ])),
+
+                # Sharpening
+                iaa.Sometimes(.1, iaa.OneOf([
+                    iaa.Sometimes(.1, iaa.Sharpen(alpha=(0, 1.0), lightness=(0.75, 1.5))),
+                    iaa.Sometimes(.1, iaa.Emboss(alpha=(0, 1.0), strength=(0, 2.0))),
+                ])),
+
+                # Misc
+                iaa.Sometimes(.1, iaa.OneOf([
+                    iaa.EdgeDetect(alpha=(0, 0.7)),
+                    iaa.DirectedEdgeDetect(
+                        alpha=(0, 0.7), direction=(0.0, 1.0)
+                    ),
+                ])),
+            ], random_order=True)
         else:
             raise KeyError(mode)
         self.mode = mode
@@ -784,20 +834,37 @@ class DetectionAugmentor(object):
                 except Exception:
                     # imgaug is weird and buggy
                     return str(aug)
-        return imgaug_json_id(self._augmenter)
+
+        params = {
+            'intensity': imgaug_json_id(self._intensity),
+            'geometric': imgaug_json_id(self._geometric),
+        }
+        return params
 
     def reseed(self, rng):
-        return self._augmenter.reseed(rng)
+        return self._intensity.reseed(rng)
 
     def augment_detections(self, imdata, dets):
-        seq_det = self._augmenter.to_deterministic()
-
-        input_dims = imdata.shape[0:2]
-        imdata = seq_det.augment_image(imdata)
-        output_dims = imdata.shape[0:2]
-
-        if len(dets):
-            dets = dets.warp(seq_det, input_dims=input_dims,
-                             output_dims=output_dims)
 
         return imdata, dets
+
+
+def compute_disparity(imgL, imgR, scale=0.5):
+    import cv2
+    imgL1 = kwimage.imresize(imgL, scale=scale)
+    imgR1 = kwimage.imresize(imgR, scale=scale)
+    disp_alg = cv2.StereoSGBM_create(numDisparities=16, minDisparity=0,
+                                     uniquenessRatio=5, blockSize=15,
+                                     speckleWindowSize=50, speckleRange=2,
+                                     P1=500, P2=2000, disp12MaxDiff=1000,
+                                     mode=cv2.STEREO_SGBM_MODE_HH)
+    disparity = disp_alg.compute(
+        kwimage.convert_colorspace(imgL1, 'rgb', 'gray'),
+        kwimage.convert_colorspace(imgR1, 'rgb', 'gray')
+    )
+    disparity = disparity - disparity.min()
+    disparity = disparity / disparity.max()
+
+    full_dsize = tuple(map(int, imgL1.shape[0:2][::-1]))
+    disparity = kwimage.imresize(disparity, dsize=full_dsize)
+    return disparity
