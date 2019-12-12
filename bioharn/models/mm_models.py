@@ -43,8 +43,14 @@ def _batch_to_mm_inputs(batch):
     Convert our netharn style batch to mmdet style
 
     Example:
-        >>> # Test empty batch
+        >>> # Test batch with empty item
         >>> bsize = [2, 0, 1, 1]
+        >>> batch = _demo_batch(bsize)
+        >>> mm_inputs = _batch_to_mm_inputs(batch)
+
+        >>> # Test empty batch
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> bsize = [0, 0, 0, 0]
         >>> batch = _demo_batch(bsize)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
@@ -88,7 +94,7 @@ def _batch_to_mm_inputs(batch):
 
         if 'has_mask' in label:
             batch_has_mask = label['has_mask'].view(B, -1)
-            batch_mask = label['class_masks']
+            batch_mask = label['class_masks'].view(B, -1, H, W)
 
         for bx in range(B):
             flags = batch_flags[bx]
@@ -102,6 +108,7 @@ def _batch_to_mm_inputs(batch):
                 flags = (batch_has_mask[bx] > 0)
                 _masks = batch_mask[bx][flags]
                 gt_masks.append(_masks)
+
             gt_labels.append(batch_cidxs[bx][flags].view(-1).long())
             # gt_bboxes_ignore = weight < 0.5
             # weight = label.get('weight', None)
@@ -111,7 +118,6 @@ def _batch_to_mm_inputs(batch):
             'gt_labels': gt_labels,
             'gt_bboxes_ignore': None,
         })
-
         if gt_masks:
             mm_inputs['gt_masks'] = gt_masks
 
@@ -278,7 +284,6 @@ class MM_Detector(nh.layers.Module):
         if input_stats is None:
             input_stats = {}
 
-        # FIXME: unused
         self.input_norm = nh.layers.InputNorm(**input_stats)
 
         self.classes = classes
@@ -346,10 +351,14 @@ class MM_Detector(nh.layers.Module):
             gt_bboxes_ignore = mm_inputs['gt_bboxes_ignore']
 
             trainkw = {}
-            if 'gt_masks' in mm_inputs:
-                gt_masks = trainkw['gt_masks'] = mm_inputs['gt_masks']
+            if self.detector.with_mask:
+                if 'gt_masks' in mm_inputs:
+                    # gt_masks = mm_inputs['gt_masks']
+                    trainkw['gt_masks'] = mm_inputs['gt_masks']
 
-            losses = self.detector.forward(imgs, img_metas,
+            # Compute input normalization
+            imgs_norm = self.input_norm(imgs)
+            losses = self.detector.forward(imgs_norm, img_metas,
                                            gt_bboxes=gt_bboxes,
                                            gt_labels=gt_labels,
                                            gt_bboxes_ignore=gt_bboxes_ignore,
@@ -369,7 +378,8 @@ class MM_Detector(nh.layers.Module):
 
         if return_result:
             with torch.no_grad():
-                hack_imgs = [g[None, :] for g in imgs]
+                imgs_norm = self.input_norm(imgs)
+                hack_imgs = [g[None, :] for g in imgs_norm]
                 # For whaver reason we cant run more than one test image at the
                 # same time.
                 batch_results = []
@@ -449,6 +459,8 @@ class MM_RetinaNet(MM_Detector):
             num_classes = len(classes)
         else:
             num_classes = len(classes) + 1
+
+        self.in_channels = in_channels
 
         # model settings
         mm_config = dict(

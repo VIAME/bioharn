@@ -46,10 +46,12 @@ class DetectFitConfig(scfg.Config):
         'input_dims': scfg.Value('window', help='size of input to the system '),
         'window_dims': scfg.Value((512, 512), help='size of window to place over the dataset'),
         'window_overlap': scfg.Value(0.0, help='amount of overlap in the sliding windows'),
-        'normalize_inputs': scfg.Value(True, help='if True, precompute training mean and std for data whitening'),
+        'normalize_inputs': scfg.Value(False, help='if True, precompute training mean and std for data whitening'),
 
         # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['medium', 'simple']),
         'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'low', 'simple', 'complex', None]),
+
+        'use_disparity': False,
 
         'ovthresh': 0.5,
 
@@ -127,7 +129,7 @@ class DetectHarn(nh.FitHarn):
 
     def before_epochs(harn):
         # Seed the global random state before each epoch
-        nh.util.seed_global(473282 + np.random.get_state()[1][0] + harn.epoch,
+        kwarray.seed_global(473282 + np.random.get_state()[1][0] + harn.epoch,
                             offset=57904)
 
     def prepare_batch(harn, raw_batch):
@@ -151,7 +153,7 @@ class DetectHarn(nh.FitHarn):
 
         Example:
             >>> # DISABLE_DOCTSET
-            >>> harn = setup_harn(bsize=2, datasets='special:habcam', arch='retinanet', init='noop')
+            >>> harn = setup_harn(bsize=2, datasets='special:habcam', arch='cascade', init='noop', xpu=None, use_disparity=True, workers=0, normalize_inputs=False)
             >>> harn.initialize()
             >>> batch = harn._demo_batch(0, 'vali')
             >>> outputs, loss = harn.run_batch(batch)
@@ -171,6 +173,17 @@ class DetectHarn(nh.FitHarn):
             harn._hack_do_draw |= (harn._draw_timer.toc() > 60 * 1)
 
             return_result = harn._hack_do_draw
+
+            if harn.fit_config['use_disparity']:
+                batch = batch.copy()
+                # hack in 4th channel
+                orig_im = batch['im']
+                if len(batch['disparity'].shape) == 3:
+                    disparity = batch['disparity'].unsqueeze(1)
+                else:
+                    disparity = batch['disparity']
+                batch['im'] = torch.cat([orig_im, disparity], dim=1)
+
             outputs = harn.model.forward(batch, return_loss=True,
                                          return_result=return_result)
 
@@ -178,6 +191,8 @@ class DetectHarn(nh.FitHarn):
             loss = outputs['loss_parts']
 
         else:
+
+            assert False, 'out of date'
             bsize = harn.loaders['train'].batch_sampler.batch_size
             nitems = (len(harn.datasets['train']) // bsize) * bsize
             bx = harn.bxs['train']
@@ -208,10 +223,10 @@ class DetectHarn(nh.FitHarn):
             >>> harn.on_batch(batch, outputs, losses)
             >>> # xdoc: +REQUIRES(--show)
             >>> batch_dets = harn.raw_model.coder.decode_batch(outputs)
-            >>> nh.util.autompl()  # xdoc: +SKIP
+            >>> kwplot.autompl()  # xdoc: +SKIP
             >>> stacked = harn.draw_batch(batch, outputs, batch_dets, thresh=0.01)
-            >>> nh.util.imshow(stacked)
-            >>> nh.util.show_if_requested()
+            >>> kwplot.imshow(stacked)
+            >>> kwplot.show_if_requested()
         """
         bx = harn.bxs[harn.current_tag]
         try:
@@ -219,12 +234,11 @@ class DetectHarn(nh.FitHarn):
                 detections = harn.raw_model.coder.decode_batch(outputs)
                 harn._draw_timer.tic()
                 stacked = harn.draw_batch(batch, outputs, detections, thresh=0.0)
-                # img = nh.util.render_figure_to_image(fig)
                 dump_dpath = ub.ensuredir((harn.train_dpath, 'monitor', harn.current_tag, 'batch'))
                 dump_fname = 'pred_bx{:04d}_epoch{:08d}.png'.format(bx, harn.epoch)
                 fpath = os.path.join(dump_dpath, dump_fname)
                 harn.debug('dump viz fpath = {}'.format(fpath))
-                nh.util.imwrite(fpath, stacked)
+                kwimage.imwrite(fpath, stacked)
         except Exception as ex:
             harn.error('\n\n\n')
             harn.error('ERROR: FAILED TO POSTPROCESS OUTPUTS')
@@ -239,14 +253,15 @@ class DetectHarn(nh.FitHarn):
         return metrics_dict
 
     def draw_batch(harn, batch, outputs, batch_dets, idx=None, thresh=None,
-                   orig_img=None, num_extra=3):
+                   num_extra=3):
         """
         Returns:
             np.ndarray: numpy image
 
         Example:
             >>> # DISABLE_DOCTSET
-            >>> harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
+            >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
+            >>> harn = setup_harn(bsize=1, datasets='special:habcam', arch='cascade', pretrained='/home/joncrall/work/bioharn/fit/nice/bioharn-det-v14-cascade/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip', normalize_inputs=False, use_disparity=True)
             >>> harn.initialize()
             >>> batch = harn._demo_batch(0, 'train')
 
@@ -256,18 +271,25 @@ class DetectHarn(nh.FitHarn):
             >>> stacked = harn.draw_batch(batch, outputs, batch_dets)
 
             >>> # xdoc: +REQUIRES(--show)
-            >>> nh.util.autompl()  # xdoc: +SKIP
-            >>> nh.util.imshow(stacked)
-            >>> nh.util.show_if_requested()
+            >>> import kwplot
+            >>> kwplot.autompl()  # xdoc: +SKIP
+            >>> kwplot.imshow(stacked)
+            >>> kwplot.show_if_requested()
         """
-        inputs = batch['im']
-        labels = batch['label']
-        orig_sizes = labels['orig_sizes']
+        im_batch = batch['im']
+        labels = nh.XPU('cpu').move(batch['label'])
+
+        # TODO: FIX YOLO SO SCALE IS NOT NEEDED
+
+        if harn.fit_config['use_disparity'] and 'disparity' in batch:
+            batch_disparity = kwarray.ArrayAPI.numpy(batch['disparity'])
+        else:
+            batch_disparity = None
 
         classes = harn.datasets['train'].sampler.classes
 
         if idx is None:
-            idxs = range(len(inputs))
+            idxs = range(len(im_batch))
         else:
             idxs = [idx]
 
@@ -275,22 +297,33 @@ class DetectHarn(nh.FitHarn):
 
         imgs = []
         for idx in idxs:
-            chw01 = inputs[idx]
-            pred_dets = batch_dets[idx]
-            # pred_dets.meta['classes'] = classes
+            chw01 = im_batch[idx]
 
+            # Convert true batch item to detections object
+            _true_cidxs = labels['class_idxs'][idx].view(-1)
+            flags = _true_cidxs > -1
             true_dets = kwimage.Detections(
-                boxes=kwimage.Boxes(labels['cxywh'][idx], 'cxywh'),
-                class_idxs=labels['class_idxs'][idx].view(-1),
-                weights=labels['weight'][idx],
+                boxes=kwimage.Boxes(labels['cxywh'][idx][flags], 'cxywh'),
+                class_idxs=_true_cidxs[flags],
+                weights=labels['weight'][idx][flags],
                 classes=classes,
             )
-
-            pred_dets = pred_dets.numpy()
+            if 'has_mask' in labels:
+                # Add in truth segmentation masks
+                mask_flags = labels['has_mask'][idx][flags] > 0
+                item_masks = labels['class_masks'][idx][flags]
+                ssegs = []
+                for mask, flag in zip(item_masks, mask_flags):
+                    if flag:
+                        ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
+                    else:
+                        ssegs.append(None)
+                true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
             true_dets = true_dets.numpy()
 
-            true_dets = true_dets.compress(true_dets.class_idxs != -1)
-
+            # Read out the predicted detections
+            pred_dets = batch_dets[idx]
+            pred_dets = pred_dets.numpy()
             if thresh is not None:
                 pred_dets = pred_dets.compress(pred_dets.scores > thresh)
 
@@ -300,37 +333,21 @@ class DetectHarn(nh.FitHarn):
             pred_dets = pred_dets.take(sortx[0:num_max])
 
             hwc01 = chw01.cpu().numpy().transpose(1, 2, 0)
-            inp_size = np.array(hwc01.shape[0:2][::-1])
+            if batch_disparity is None:
+                canvas = hwc01.copy()
+            else:
+                # Show disparity in the canvas
+                disparity = batch_disparity[idx].transpose(1, 2, 0)
+                canvas = kwimage.stack_images([hwc01, disparity], axis=1)
 
-            # TODO: FIX YOLO SO SCALE IS NOT NEEDED
-            # true_dets.boxes.scale(inp_size, inplace=True)
-            # pred_dets.boxes.scale(inp_size, inplace=True)
-
-            letterbox = harn.datasets[harn.current_tag].letterbox
-            orig_size = orig_sizes[idx].cpu().numpy()
-            target_size = inp_size
-            img = letterbox._img_letterbox_invert(hwc01, orig_size, target_size)
-            img = np.clip(img, 0, 1)
-            # we are given the original image, to avoid artifacts from
-            # inverting a downscale
-            assert orig_img is None or orig_img.shape == img.shape
-
-            true_dets.data['boxes'] = letterbox._boxes_letterbox_invert(
-                true_dets.boxes, orig_size, target_size)
-            pred_dets.data['boxes'] = letterbox._boxes_letterbox_invert(
-                pred_dets.boxes, orig_size, target_size)
-
-            # shift, scale, embed_size = letterbox._letterbox_transform(orig_size, target_size)
-            # fig = nh.util.figure(doclf=True, fnum=1)
-            # nh.util.imshow(img, colorspace='rgb')
-            canvas = (img * 255).astype(np.uint8)
+            canvas = kwimage.ensure_uint255(canvas)
             canvas = true_dets.draw_on(canvas, color='green')
             canvas = pred_dets.draw_on(canvas, color='blue')
 
             # canvas = cv2.resize(canvas, (300, 300))
             imgs.append(canvas)
 
-        stacked = imgs[0] if len(imgs) == 1 else nh.util.stack_images_grid(imgs)
+        stacked = imgs[0] if len(imgs) == 1 else kwimage.stack_images_grid(imgs)
         return stacked
 
 
@@ -430,11 +447,17 @@ def setup_harn(cmdline=True, **kw):
     arch = config['arch']
     classes = samplers['train'].classes
 
+    if config['use_disparity']:
+        in_channels = 4
+    else:
+        in_channels = 4
+
     criterion_ = None
     if arch == 'retinanet':
         from bioharn.models import mm_models
         initkw = dict(
             classes=classes,
+            in_channels=in_channels,
         )
         model = mm_models.MM_RetinaNet(**initkw)
         model._initkw = initkw
@@ -442,6 +465,7 @@ def setup_harn(cmdline=True, **kw):
         from bioharn.models import mm_models
         initkw = dict(
             classes=classes,
+            in_channels=in_channels,
         )
         model = mm_models.MM_CascadeRCNN(**initkw)
         model._initkw = initkw
@@ -693,6 +717,24 @@ if __name__ == '__main__':
             --window_overlap=0.3 \
             --multiscale=True \
             --normalize_inputs=True \
+            --workers=4 --xpu=1 --batch_size=8 --bstep=4
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v15-cascade \
+            --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
+            --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --use_disparity=True \
+            --optim=sgd --lr=3e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.3 \
+            --multiscale=True \
+            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-v15-cascade/lkeanuyn/explit_checkpoints/_epoch_00000000_2019-12-12T162921+5.pt \
+            --normalize_inputs=False \
             --workers=4 --xpu=1 --batch_size=8 --bstep=4
 
         # --pretrained='https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth' \
