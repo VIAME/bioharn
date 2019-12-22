@@ -134,7 +134,6 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3,
         >>> globals().update(**xdev.get_func_kwargs(_demo_batch))
         >>> batch = _demo_batch(with_mask=False)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
-
     """
     USE_PHOTOS = False
     import kwarray
@@ -238,6 +237,46 @@ class MM_Coder(object):
     def decode_batch(self, outputs):
         """
         Transform mmdet outputs into a list of detections objects
+
+        Args:
+            outputs (Dict): dict containing loss_parts and batch_results
+
+                b = 0  # indexes over batches
+                k = 0  # indexes over the different classes
+
+                # batch_results are an mmdet based list format
+                batch_results = outputs['batch_results']
+                result = batch_results[b]
+
+                # result - can be a list with
+                result[k] is an (N, 5) tensor encoding bboxes for class k
+
+                # result - can be a 2-tuple with
+                result[0][k] is a (N, 5) tensor encoding bboxes for class k
+                result[1][k] is a N-len list of coco sseg dicts for class k
+
+        Example:
+            >>> from bioharn.models.mm_models import *  # NOQA
+            >>> import torch
+            >>> classes = ['a', 'b', 'c']
+            >>> xpu = nh.XPU('cpu')
+            >>> model = MM_CascadeRCNN(classes).to(xpu.main_device)
+            >>> batch = model.demo_batch(bsize=1, h=256, w=256)
+            >>> batch = xpu.move(batch)
+            >>> outputs = model.forward(batch)
+            >>> self = model.coder
+            >>> batch_dets = model.coder.decode_batch(outputs)
+
+        Example:
+            >>> from bioharn.models.mm_models import *  # NOQA
+            >>> classes = ['a', 'b', 'c']
+            >>> xpu = nh.XPU(0)
+            >>> model = MM_MaskRCNN(classes, in_channels=4).to(xpu.main_device)
+            >>> batch = model.demo_batch(bsize=1, h=256, w=256)
+            >>> batch = xpu.move(batch)
+            >>> outputs = model.forward(batch)
+            >>> self = model.coder
+            >>> batch_dets = model.coder.decode_batch(outputs)
         """
         batch_results = outputs['batch_results']
         batch_dets = []
@@ -249,17 +288,45 @@ class MM_Coder(object):
             start = 0
 
         for result in batch_results:
-            # Stack the results into a detections object
-            pred_cidxs = []
-            for cidx, cls_results in enumerate(result, start=start):
-                pred_cidxs.extend([cidx + 1] * len(cls_results))
+            if isinstance(result, tuple) and len(result) == 2:
+                # bbox and segmentation result
+                mm_bbox_results = result[0]
+                mm_sseg_results = result[1]
+            elif isinstance(result, list):
+                # bbox only result
+                mm_bbox_results = result
+                mm_sseg_results = None
+            else:
+                raise NotImplementedError(
+                    'unknown mmdet result format. '
+                    'type(result) = {}'.format(type(result))
+                )
 
-            pred_tlbr = np.vstack([r[:, 0:4] for r in result])
-            pred_score = np.hstack([r[:, 4] for r in result])
+            if mm_bbox_results is not None:
+                # Stack the results into a detections object
+                pred_cidxs = []
+                for cidx, cls_results in enumerate(mm_bbox_results, start=start):
+                    pred_cidxs.extend([cidx + 1] * len(cls_results))
+                pred_tlbr = np.vstack([r[:, 0:4] for r in mm_bbox_results])
+                pred_score = np.hstack([r[:, 4] for r in mm_bbox_results])
+            else:
+                raise AssertionError('should always have bboxes')
+
+            if mm_sseg_results is not None:
+                import kwimage
+                pred_ssegs = []
+                for cidx, cls_ssegs in enumerate(mm_sseg_results, start=start):
+                    pred_ssegs.extend([
+                        kwimage.Mask(sseg, 'bytes_rle') for sseg in cls_ssegs])
+                pred_ssegs = kwimage.MaskList(pred_ssegs)
+            else:
+                pred_ssegs = kwimage.MaskList([None] * len(pred_cidxs))
+
             det = kwimage.Detections(
                 boxes=kwimage.Boxes(pred_tlbr, 'tlbr'),
                 scores=pred_score,
                 class_idxs=np.array(pred_cidxs, dtype=np.int),
+                segmentations=pred_ssegs,
                 classes=self.classes
             )
             batch_dets.append(det)
@@ -353,8 +420,11 @@ class MM_Detector(nh.layers.Module):
             trainkw = {}
             if self.detector.with_mask:
                 if 'gt_masks' in mm_inputs:
-                    # gt_masks = mm_inputs['gt_masks']
-                    trainkw['gt_masks'] = mm_inputs['gt_masks']
+                    # mmdet only allows numpy inputs
+                    import kwarray
+                    numpy_masks = [kwarray.ArrayAPI.numpy(mask)
+                                   for mask in mm_inputs['gt_masks']]
+                    trainkw['gt_masks'] = numpy_masks
 
             # Compute input normalization
             imgs_norm = self.input_norm(imgs)
@@ -809,6 +879,7 @@ class MM_MaskRCNN(MM_Detector):
         >>> batch = xpu.move(batch)
         >>> outputs = self.forward(batch)
         >>> batch_dets = self.coder.decode_batch(outputs)
+        >>> batch_dets[0].data['segmentations'][0]
     """
     def __init__(self, classes, in_channels=3, input_stats=None):
         import ndsampler

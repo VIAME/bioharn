@@ -310,15 +310,18 @@ class DetectHarn(nh.FitHarn):
             )
             if 'has_mask' in labels:
                 # Add in truth segmentation masks
-                mask_flags = labels['has_mask'][idx][flags] > 0
-                item_masks = labels['class_masks'][idx][flags]
-                ssegs = []
-                for mask, flag in zip(item_masks, mask_flags):
-                    if flag:
-                        ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
-                    else:
-                        ssegs.append(None)
-                true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
+                try:
+                    mask_flags = labels['has_mask'][idx][flags] > 0
+                    item_masks = labels['class_masks'][idx][flags]
+                    ssegs = []
+                    for mask, flag in zip(item_masks, mask_flags):
+                        if flag:
+                            ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
+                        else:
+                            ssegs.append(None)
+                    true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
+                except Exception as ex:
+                    harn.warn('issue building sseg viz due to {!r}'.format(ex))
             true_dets = true_dets.numpy()
 
             # Read out the predicted detections
@@ -450,7 +453,7 @@ def setup_harn(cmdline=True, **kw):
     if config['use_disparity']:
         in_channels = 4
     else:
-        in_channels = 4
+        in_channels = 3
 
     criterion_ = None
     if arch == 'retinanet':
@@ -458,14 +461,25 @@ def setup_harn(cmdline=True, **kw):
         initkw = dict(
             classes=classes,
             in_channels=in_channels,
+            input_stats=input_stats,
         )
         model = mm_models.MM_RetinaNet(**initkw)
+        model._initkw = initkw
+    elif arch == 'maskrcnn':
+        from xviewharn.models import mm_models
+        initkw = dict(
+            classes=classes,
+            in_channels=in_channels,
+            input_stats=input_stats,
+        )
+        model = mm_models.MM_MaskRCNN(**initkw)
         model._initkw = initkw
     elif arch == 'cascade':
         from bioharn.models import mm_models
         initkw = dict(
             classes=classes,
             in_channels=in_channels,
+            input_stats=input_stats,
         )
         model = mm_models.MM_CascadeRCNN(**initkw)
         model._initkw = initkw
@@ -720,7 +734,7 @@ if __name__ == '__main__':
             --workers=4 --xpu=1 --batch_size=8 --bstep=4
 
         python -m bioharn.detect_fit \
-            --nice=bioharn-det-v15-cascade \
+            --nice=bioharn-det-v16-cascade \
             --train_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json \
             --vali_dataset=~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json \
             --schedule=ReduceLROnPlateau-p2-c2 \
@@ -733,7 +747,7 @@ if __name__ == '__main__':
             --window_dims=512,512 \
             --window_overlap=0.3 \
             --multiscale=True \
-            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-v15-cascade/lkeanuyn/explit_checkpoints/_epoch_00000000_2019-12-12T162921+5.pt \
+            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-v16-cascade/ozeaiwmm/explit_checkpoints/_epoch_00000000_2019-12-12T185656+5.pt \
             --normalize_inputs=False \
             --workers=4 --xpu=1 --batch_size=8 --bstep=4
 
