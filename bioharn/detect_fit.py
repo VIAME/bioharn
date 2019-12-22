@@ -357,11 +357,16 @@ class DetectHarn(nh.FitHarn):
 def setup_harn(cmdline=True, **kw):
     """
     Ignore:
-        >>> from object_detection import *  # NOQA
+        >>> from bioharn.detect_fit import *  # NOQA
         >>> cmdline = False
         >>> kw = {
         >>>     'train_dataset': '~/data/VOC/voc-trainval.mscoco.json',
         >>>     'vali_dataset': '~/data/VOC/voc-test-2007.mscoco.json',
+        >>> }
+        >>> kw = {
+        >>>     'nice': 'lemon_cascade_test',
+        >>>     'train_dataset': '~/raid/data/vigilant/lemon/lemon_v0.6.0.mscoco_train.json',
+        >>>     'vali_dataset': '~/raid/data/vigilant/lemon/lemon_v0.6.0.mscoco_vali.json',
         >>> }
         >>> harn = setup_harn(**kw)
     """
@@ -377,14 +382,20 @@ def setup_harn(cmdline=True, **kw):
 
     # HACK: ENSURE BACKGROUND IS CLASS IDX 0 for mmdet
     classes = subsets['train'].object_categories()
+    for k, subset in subsets.items():
+        # TODO: better handling
+        special_catnames = ['negative', 'ignore', 'test']
+        for k in special_catnames:
+            try:
+                subset.remove_categories([k], keep_annots=False, verbose=1)
+            except KeyError:
+                pass
+    classes = subsets['train'].object_categories()
+    print('classes = {!r}'.format(classes))
+
     if 'background' not in classes:
         for k, subset in subsets.items():
             subset.add_category('background', id=0)
-
-            subset.remove_categories([
-                'negative',
-                'ignore',
-            ], keep_annots=False, verbose=1)
 
     samplers = {}
     for tag, subset in subsets.items():
