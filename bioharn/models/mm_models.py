@@ -313,7 +313,6 @@ class MM_Coder(object):
                 raise AssertionError('should always have bboxes')
 
             if mm_sseg_results is not None:
-                import kwimage
                 pred_ssegs = []
                 for cidx, cls_ssegs in enumerate(mm_sseg_results, start=start):
                     pred_ssegs.extend([

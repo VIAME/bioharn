@@ -776,6 +776,23 @@ if __name__ == '__main__':
             --normalize_inputs=True \
             --workers=0 --xpu=1 --batch_size=8 --bstep=4
 
+        python -m bioharn.detect_fit \
+            --nice=demo_shapes \
+            --datasets=shapes256 \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=3e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.2 \
+            --workdir=~/work/mc_harn3 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=0 --xpu=1 --batch_size=8 --bstep=4
+
+
 
     """
     import warnings
