@@ -259,7 +259,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         if self.augmenter:
             imdata, dets, disp_im = self.augmenter.augment_data(
                 imdata, dets, disp_im)
-            disp_im.dtype
+            # disp_im.dtype
 
         pad = sample['params']['pad']
         if np.any(pad):
