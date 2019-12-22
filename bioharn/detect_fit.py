@@ -363,11 +363,6 @@ def setup_harn(cmdline=True, **kw):
         >>>     'train_dataset': '~/data/VOC/voc-trainval.mscoco.json',
         >>>     'vali_dataset': '~/data/VOC/voc-test-2007.mscoco.json',
         >>> }
-        >>> kw = {
-        >>>     'nice': 'lemon_cascade_test',
-        >>>     'train_dataset': '~/raid/data/vigilant/lemon/lemon_v0.6.0.mscoco_train.json',
-        >>>     'vali_dataset': '~/raid/data/vigilant/lemon/lemon_v0.6.0.mscoco_vali.json',
-        >>> }
         >>> harn = setup_harn(**kw)
     """
     import ndsampler
@@ -770,23 +765,6 @@ if __name__ == '__main__':
 
         # --pretrained='https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth' \
 
-
-        python -m bioharn.detect_fit \
-            --nice=lemon_cascade_v1 \
-            --train_dataset=~/raid/data/vigilant/lemon/lemon_v0.6.0.mscoco_train.json \
-            --vali_dataset=~/raid/data/vigilant/lemon/lemon_v0.6.0.mscoco_vali.json \
-            --schedule=ReduceLROnPlateau-p2-c2 \
-            --augment=complex \
-            --init=noop \
-            --arch=cascade \
-            --optim=sgd --lr=3e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.2 \
-            --workdir=~/work/mc_harn3 \
-            --multiscale=True \
-            --normalize_inputs=True \
-            --workers=0 --xpu=1 --batch_size=8 --bstep=4
 
         python -m bioharn.detect_fit \
             --nice=demo_shapes \
