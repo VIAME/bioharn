@@ -332,7 +332,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             'bg_weights': bg_weight
         }
 
-        if 'segmentations' in dets.data:
+        if 'segmentations' in dets.data and self.use_segmentation:
             # Convert segmentations to masks
             has_mask_list = []
             class_mask_list = []
