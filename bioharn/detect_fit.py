@@ -400,6 +400,7 @@ def setup_harn(cmdline=True, **kw):
     torch_datasets = {
         tag: DetectFitDataset(
             sampler,
+            use_segmentation='mask' in config['arch'].lower(),
             input_dims=config['input_dims'],
             window_dims=config['window_dims'],
             window_overlap=config['window_overlap'] if (tag == 'train') else 0.0,
@@ -778,7 +779,7 @@ if __name__ == '__main__':
 
         python -m bioharn.detect_fit \
             --nice=demo_shapes \
-            --datasets=shapes256 \
+            --datasets=special:shapes256 \
             --schedule=ReduceLROnPlateau-p2-c2 \
             --augment=complex \
             --init=noop \
