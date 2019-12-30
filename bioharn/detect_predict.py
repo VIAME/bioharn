@@ -245,7 +245,6 @@ class DetectPredictor(object):
         Yields:
             kwimage.Detections
         """
-        # chips = batch['im']
         tf_chip_to_full = batch['tf_chip_to_full']
 
         scale_xy = tf_chip_to_full['scale_xy']
@@ -259,9 +258,11 @@ class DetectPredictor(object):
 
         # All GPU work happens in this line
         if hasattr(self.model.module, 'detector'):
+            # HACK FOR MMDET MODELS
             outputs = self.model.forward(batch, return_loss=False)
         else:
-            raise NotImplementedError('only works on mmdet models')
+            outputs = self.model.forward(batch['im'])
+            # raise NotImplementedError('only works on mmdet models')
 
         # Postprocess GPU outputs
         batch_dets = self.coder.decode_batch(outputs)
@@ -269,6 +270,13 @@ class DetectPredictor(object):
             item_scale_xy = scale_xy[idx].numpy()
             item_shift_xy = shift_xy_[idx].numpy()
             det = det.numpy()
+
+            if True and len(det) and np.all(det.boxes.width <= 1):
+                # HACK FOR YOLO
+                # TODO: decode should return detections in batch input space
+                inp_size = np.array(batch['im'].shape[-2:][::-1])
+                det = det.scale(inp_size)
+
             det = det.scale(item_scale_xy)
             det = det.translate(item_shift_xy)
             # Fix type issue
@@ -539,7 +547,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
         tr = {'gid': gid, 'slices': slices}
         sample = self.sampler.load_sample(tr, with_annots=False)
-        chip_hwc = sample['im']
+        chip_hwc = kwimage.atleast_3channels(sample['im'])
 
         chip_dims = tuple(chip_hwc.shape[0:2])
 
@@ -548,8 +556,8 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             letterbox = nh.data.transforms.Resize(None, mode='letterbox')
             letterbox.target_size = self.input_dims[::-1]
             # Record the inverse transformation
-            chip_size = chip_dims[::-1]
-            input_size = self.input_dims[::-1]
+            chip_size = np.array(chip_dims[::-1])
+            input_size = np.array(self.input_dims[::-1])
             shift, scale, embed_size = letterbox._letterbox_transform(chip_size, input_size)
             # Resize the image
             chip_hwc = letterbox.augment_image(chip_hwc)
