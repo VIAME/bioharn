@@ -136,12 +136,15 @@ class DetectHarn(nh.FitHarn):
         """
         ensure batch is in a standardized structure
         """
-        batch = harn.xpu.move(raw_batch)
-        # Fix batch shape
-        bsize = batch['im'].shape[0]
-        batch['label']['cxywh'] = batch['label']['cxywh'].view(bsize, -1, 4)
-        batch['label']['class_idxs'] = batch['label']['class_idxs'].view(bsize, -1)
-        batch['label']['weight'] = batch['label']['weight'].view(bsize, -1)
+        if 0:
+            batch = harn.xpu.move(raw_batch)
+            # Fix batch shape
+            bsize = batch['im'].shape[0]
+            batch['label']['cxywh'] = batch['label']['cxywh'].view(bsize, -1, 4)
+            batch['label']['class_idxs'] = batch['label']['class_idxs'].view(bsize, -1)
+            batch['label']['weight'] = batch['label']['weight'].view(bsize, -1)
+        else:
+            batch = raw_batch
         return batch
 
     def run_batch(harn, batch):
@@ -183,6 +186,112 @@ class DetectHarn(nh.FitHarn):
                 else:
                     disparity = batch['disparity']
                 batch['im'] = torch.cat([orig_im, disparity], dim=1)
+
+            batch = batch.copy()
+            batch.pop('tr')
+
+            if 0:
+                # debug data parallel for mmdet models
+                self = harn.model
+                inputs = (batch,)
+                kwargs = {'return_loss': True, 'return_result': True}
+
+                inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
+                if len(self.device_ids) == 1:
+                    return self.module(*inputs[0], **kwargs[0])
+                replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
+                outputs = self.parallel_apply(replicas, inputs, kwargs)
+
+                len(outputs)
+                for item in outputs:
+                    print(ub.repr2(item['loss_parts']))
+                    print(len(item['batch_results']))
+                    for cls_idx, cls_res in enumerate(item['batch_results'], start=1):
+                        print('cls_idx = {!r}'.format(cls_idx))
+                        for res in cls_res:
+                            print(res.shape)
+
+                from torch.nn.parallel._functions import Gather
+
+                def gather2(outputs, target_device, dim=0):
+                    r"""
+                    Gathers tensors from different GPUs on a specified device
+                      (-1 means the CPU).
+                    """
+                    def gather_map2(outputs):
+                        out = outputs[0]
+                        if isinstance(out, torch.Tensor):
+                            print('GATHER TENSOR')
+                            return Gather.apply(target_device, dim, *outputs)
+                        if isinstance(out, np.ndarray):
+                            print('GATHER NDARRAY')
+                            return np.concatenate(outputs, axis=dim)
+                        if out is None:
+                            print('GATHER NONE')
+                            return None
+                        if isinstance(out, dict):
+                            if not all((len(out) == len(d) for d in outputs)):
+                                raise ValueError('All dicts must have the same number of keys')
+
+                            dict_cls = type(out)
+                            gathered = []
+                            for k in out:
+                                print('GATHERING k = {!r}'.format(k))
+                                next_outputs = [d[k] for d in outputs]
+                                got = gather_map2(next_outputs)
+                                gathered.append((k, got))
+                            return dict_cls(gathered)
+                            # return dict_cls(((k, gather_map2([d[k] for d in outputs]))
+                            #                   for k in out))
+                        else:
+                            print('GATHER OTHER')
+                            cls = type(out)
+                            print('cls = {!r}'.format(cls))
+                            zipped = list(zip(*outputs))
+                            gathered = []
+                            for next_output in zipped:
+                                got = gather_map2(next_output)
+                                gathered.append(got)
+                            to_return = cls(gathered)
+                            # to_return = cls(map(gather_map2, zip(*outputs)))
+                            return to_return
+
+                    # Recursive function calls like this create reference cycles.
+                    # Setting the function to None clears the refcycle.
+                    try:
+                        res = gather_map2(outputs)
+                    finally:
+                        gather_map2 = None
+                    return res
+
+                final_results = gather2(outputs, self.output_device)
+                import xdev
+                xdev.embed()
+
+                item = final_results
+                print(ub.repr2(item['loss_parts']))
+                print(len(item['batch_results']))
+                for cls_idx, cls_res in enumerate(item['batch_results'], start=1):
+                    print('cls_idx = {!r}'.format(cls_idx))
+                    for res in cls_res:
+                        print(res.shape)
+
+            import xdev
+            xdev.embed()
+
+            if False:
+
+                from bioharn.models import mm_models
+                mm_inputs = mm_models._batch_to_mm_inputs(batch)
+                self = harn.model
+                _inputs, _kwargs = self.scatter(batch, dict(return_loss=True, return_result=True), self.device_ids)
+                a = _inputs[0]
+                b = _inputs[1]
+
+                _inputs, _kwargs = self.scatter(mm_inputs, dict(return_loss=True, return_result=True), self.device_ids)
+
+                outputs = harn.model.forward(mm_inputs, return_loss=True,
+                                             return_result=return_result)
 
             outputs = harn.model.forward(batch, return_loss=True,
                                          return_result=return_result)
@@ -429,22 +538,26 @@ def setup_harn(cmdline=True, **kw):
     if config['normalize_inputs']:
         # Get stats on the dataset (todo: turn off augmentation for this)
         _dset = torch_datasets['train']
-        stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(1000, len(_dset))]
+        stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(100, len(_dset))]
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
         cacher = ub.Cacher('dset_mean', cfgstr=_dset.input_id + 'v2')
         input_stats = cacher.tryload()
         if input_stats is None:
             # Use parallel workers to load data faster
+            from bioharn._hacked_distributed import container_collate
+            collate_fn = container_collate
+
             loader = torch.utils.data.DataLoader(
                 stats_subset,
-                collate_fn=nh.data.collate.padded_collate,
+                collate_fn=collate_fn,
                 num_workers=config['workers'],
                 shuffle=True, batch_size=config['batch_size'])
             # Track moving average
             running = nh.util.RunningStats()
             for batch in ub.ProgIter(loader, desc='estimate mean/std'):
                 try:
-                    running.update(batch['im'].numpy())
+                    for im in batch['im'].data:
+                        running.update(im.numpy())
                 except ValueError:  # final batch broadcast error
                     pass
             input_stats = {
@@ -550,7 +663,8 @@ def setup_harn(cmdline=True, **kw):
         dynamics_['grad_norm_type'] = config['grad_norm_type']
     print('dynamics_ = {!r}'.format(dynamics_))
 
-    xpu = nh.XPU.coerce(config['xpu'])
+    from bioharn._hacked_distributed import Hacked_XPU
+    xpu = Hacked_XPU.coerce(config['xpu'])
     print('xpu = {!r}'.format(xpu))
 
     import sys
@@ -633,6 +747,22 @@ if __name__ == '__main__':
         python ~/code/netharn/examples/grab_voc.py
 
         python ~/code/netharn/examples/object_detection.py --datasets=special:voc
+
+        python -m bioharn.detect_fit \
+            --nice=demo_shapes \
+            --datasets=special:shapes256 \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.2 \
+            --workdir=~/work/mc_harn3 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=0 --xpu=1,0 --batch_size=8 --bstep=4
 
         python -m bioharn.detect_fit \
             --nice=bioharn-test-yolo \
@@ -773,7 +903,7 @@ if __name__ == '__main__':
             --augment=complex \
             --init=noop \
             --arch=cascade \
-            --optim=sgd --lr=3e-3 \
+            --optim=sgd --lr=1e-3 \
             --input_dims=window \
             --window_dims=512,512 \
             --window_overlap=0.2 \

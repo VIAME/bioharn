@@ -794,7 +794,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
     gid_to_pred = {}
     prog = ub.ProgIter(gen, total=coco_dset.n_images,
-                       desc='buffered detect')
+                       desc='buffered detect (caching)')
     for img_idx, (gid, dets) in enumerate(prog):
         gid_to_pred[gid] = dets
 
@@ -933,13 +933,18 @@ def detect_cli(config={}):
     pred_dset = ndsampler.CocoDataset(pred_dataset)
 
     # self = predictor
-    predictor.config['verbose'] = 1
+    predictor.config['verbose'] = config['verbose']
     pred_gen = predictor.predict_sampler(sampler)
-    buffered_gen = AsyncBufferedGenerator(pred_gen, size=coco_dset.n_images)
+
+    if not ub.argval('--serial'):
+        buffered_gen = AsyncBufferedGenerator(pred_gen, size=coco_dset.n_images)
+    else:
+        buffered_gen = pred_gen
+    conf_thresh = config['conf_thresh']
 
     gid_to_pred = {}
     prog = ub.ProgIter(buffered_gen, total=coco_dset.n_images,
-                       desc='buffered detect')
+                       desc='buffered detect (cli)')
     for img_idx, (gid, dets) in enumerate(prog):
         gid_to_pred[gid] = dets
 
@@ -968,7 +973,7 @@ def detect_cli(config={}):
 
             image = kwimage.imread(img_fpath)
 
-            flags = dets.scores > .2
+            flags = dets.scores > conf_thresh
             flags[kwarray.argmaxima(dets.scores, num=10)] = True
             top_dets = dets.compress(flags)
             toshow = top_dets.draw_on(image, alpha=None)

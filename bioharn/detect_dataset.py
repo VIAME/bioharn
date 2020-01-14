@@ -322,14 +322,16 @@ class DetectFitDataset(torch.utils.data.Dataset):
         index = torch.LongTensor([index])
         bg_weight = torch.FloatTensor([1.0])
 
-        label = {
-            'cxywh': torch.FloatTensor(cxwh.data),
-            'class_idxs': torch.LongTensor(dets.class_idxs[:, None]),
-            'weight': torch.FloatTensor(dets.weights),
+        from ._hacked_distributed import DataContainer
 
-            'indices': index,
-            'orig_sizes': orig_size,
-            'bg_weights': bg_weight
+        label = {
+            'cxywh': DataContainer(torch.FloatTensor(cxwh.data), stack=False),
+            'class_idxs': DataContainer(torch.LongTensor(dets.class_idxs[:, None]), stack=False),
+            'weight': DataContainer(torch.FloatTensor(dets.weights), stack=False),
+
+            'indices': DataContainer(index, stack=False),
+            'orig_sizes': DataContainer(orig_size, stack=False),
+            'bg_weights': DataContainer(bg_weight, stack=False),
         }
 
         if 'segmentations' in dets.data and self.use_segmentation:
@@ -354,11 +356,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 class_masks = torch.empty((0, h, w), dtype=torch.uint8)
             else:
                 class_masks = torch.cat(class_mask_list, dim=0)
-            label['class_masks'] = class_masks
-            label['has_mask'] = has_mask
+            label['class_masks'] = DataContainer(class_masks, stack=False)
+            label['has_mask'] = DataContainer(has_mask, stack=False)
 
         item = {
-            'im': chw01,
+            'im': DataContainer(chw01, stack=True),
             'label': label,
             'tr': sample['tr'],
         }
@@ -405,9 +407,13 @@ class DetectFitDataset(torch.utils.data.Dataset):
             kwarray.seed_global(np.random.get_state()[1][0] + worker_id)
 
         # torch.utils.data.sampler.WeightedRandomSampler
+        from bioharn._hacked_distributed import container_collate
+        collate_fn = container_collate
+        # collate_fn = nh.data.collate.padded_collate
+
         loader = torch.utils.data.DataLoader(
             self, batch_sampler=batch_sampler,
-            collate_fn=nh.data.collate.padded_collate, num_workers=num_workers,
+            collate_fn=collate_fn, num_workers=num_workers,
             pin_memory=pin_memory, worker_init_fn=worker_init_fn)
         return loader
 
