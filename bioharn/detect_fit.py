@@ -276,28 +276,49 @@ class DetectHarn(nh.FitHarn):
                     for res in cls_res:
                         print(res.shape)
 
-            import xdev
-            xdev.embed()
-
             if False:
 
+                from bioharn._hacked_distributed import _report_data_shape
                 from bioharn.models import mm_models
                 mm_inputs = mm_models._batch_to_mm_inputs(batch)
+                _report_data_shape(mm_inputs)
+
+                _report_data_shape(batch)
+
                 self = harn.model
+                _inputs, _kwargs = self.scatter([mm_inputs], dict(return_loss=True, return_result=True), self.device_ids)
+                _report_data_shape(_inputs)
+                replicas = self.replicate(self.module, self.device_ids[:len(_inputs)])
+
+                if 0:
+                    _single_out = self.module(_inputs[0][0], **_kwargs[0])
+                    _report_data_shape(_single_out)
+
+                _outputs = self.parallel_apply(replicas, _inputs, _kwargs)
+                _gathered = self.gather(_outputs, self.output_device)
+                _report_data_shape(_gathered)
+
+                _report_data_shape(_outputs)
+
+                self.module(*_inputs[0], **_kwargs[0])
+                batch = _inputs[0][0]
+
+                _report_data_shape(_inputs)
+
                 _inputs, _kwargs = self.scatter(batch, dict(return_loss=True, return_result=True), self.device_ids)
-                a = _inputs[0]
-                b = _inputs[1]
+                _report_data_shape(_inputs)
 
                 _inputs, _kwargs = self.scatter(mm_inputs, dict(return_loss=True, return_result=True), self.device_ids)
 
                 outputs = harn.model.forward(mm_inputs, return_loss=True,
                                              return_result=return_result)
+                _report_data_shape(outputs)
 
             outputs = harn.model.forward(batch, return_loss=True,
                                          return_result=return_result)
 
             # Criterion was computed in the forward pass
-            loss = outputs['loss_parts']
+            loss_parts = {k: v.sum() for k, v in outputs['loss_parts'].items()}
 
         else:
 
@@ -310,8 +331,8 @@ class DetectHarn(nh.FitHarn):
             inputs = batch['im']
             target = batch['label']
             outputs = harn.model(inputs)
-            loss = harn.criterion(outputs, target, seen=n_seen)
-        return outputs, loss
+            loss_parts = harn.criterion(outputs, target, seen=n_seen)
+        return outputs, loss_parts
 
     def on_batch(harn, batch, outputs, losses):
         """
@@ -369,13 +390,19 @@ class DetectHarn(nh.FitHarn):
 
         Example:
             >>> # DISABLE_DOCTSET
+            >>> from bioharn.detect_fit import *  # NOQA
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
-            >>> harn = setup_harn(bsize=1, datasets='special:habcam', arch='cascade', pretrained='/home/joncrall/work/bioharn/fit/nice/bioharn-det-v14-cascade/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip', normalize_inputs=False, use_disparity=True)
+            >>> #harn = setup_harn(bsize=1, datasets='special:habcam', arch='cascade', pretrained='/home/joncrall/work/bioharn/fit/nice/bioharn-det-v14-cascade/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip', normalize_inputs=False, use_disparity=True)
+            >>> harn = setup_harn(bsize=1, datasets='special:shapes8', arch='cascade', xpu=[1, 0])
             >>> harn.initialize()
             >>> batch = harn._demo_batch(0, 'train')
 
             >>> outputs, loss = harn.run_batch(batch)
             >>> batch_dets = harn.raw_model.coder.decode_batch(outputs)
+
+            >>> idx = None
+            >>> thresh = None
+            >>> num_extra = 3
 
             >>> stacked = harn.draw_batch(batch, outputs, batch_dets)
 
@@ -385,8 +412,15 @@ class DetectHarn(nh.FitHarn):
             >>> kwplot.imshow(stacked)
             >>> kwplot.show_if_requested()
         """
-        im_batch = batch['im']
-        labels = nh.XPU('cpu').move(batch['label'])
+
+        # hack for data container
+        im_batch = batch['im'].data
+        im_batch = torch.cat(im_batch, dim=0)
+
+        labels = {
+            k: v.data for k, v in batch['label'].items()
+        }
+        labels = nh.XPU('cpu').move(labels)
 
         # TODO: FIX YOLO SO SCALE IS NOT NEEDED
 
@@ -398,39 +432,71 @@ class DetectHarn(nh.FitHarn):
         classes = harn.datasets['train'].sampler.classes
 
         if idx is None:
-            idxs = range(len(im_batch))
+            bsize = len(im_batch)
+            # Get a varied sample of the batch
+            # (the idea is ensure that we show things on the non-dominat gpu)
+            num_want = 4
+            num_want = min(num_want, bsize)
+            # This will never produce duplicates (difference between
+            # consecutive numbers will always be > 1 there fore they will
+            # always round to a different number)
+            idxs = np.linspace(bsize - 1, 0, num_want).round().astype(np.int).tolist()
+            idxs = sorted(idxs)
+            # assert len(set(idxs)) == len(idxs)
+            # idxs = idxs[0:4]
         else:
             idxs = [idx]
-
-        idxs = idxs[0:4]
 
         imgs = []
         for idx in idxs:
             chw01 = im_batch[idx]
 
-            # Convert true batch item to detections object
-            _true_cidxs = labels['class_idxs'][idx].view(-1)
-            flags = _true_cidxs > -1
-            true_dets = kwimage.Detections(
-                boxes=kwimage.Boxes(labels['cxywh'][idx][flags], 'cxywh'),
-                class_idxs=_true_cidxs[flags],
-                weights=labels['weight'][idx][flags],
-                classes=classes,
-            )
-            if 'has_mask' in labels:
-                # Add in truth segmentation masks
-                try:
-                    mask_flags = labels['has_mask'][idx][flags] > 0
-                    item_masks = labels['class_masks'][idx][flags]
-                    ssegs = []
-                    for mask, flag in zip(item_masks, mask_flags):
-                        if flag:
+            if 1:
+                class_idxs = list(ub.flatten(labels['class_idxs']))
+                cxywh = list(ub.flatten(labels['cxywh']))
+                weights = list(ub.flatten(labels['weight']))
+                # Convert true batch item to detections object
+                true_dets = kwimage.Detections(
+                    boxes=kwimage.Boxes(cxywh[idx], 'cxywh'),
+                    class_idxs=class_idxs[idx],
+                    weights=weights[idx],
+                    classes=classes,
+                )
+                if 'class_masks' in labels:
+                    # Add in truth segmentation masks
+                    try:
+                        masks = list(ub.flatten(labels['class_masks']))
+                        item_masks = masks[idx]
+                        ssegs = []
+                        for mask in item_masks:
                             ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
-                        else:
-                            ssegs.append(None)
-                    true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
-                except Exception as ex:
-                    harn.warn('issue building sseg viz due to {!r}'.format(ex))
+                        true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
+                    except Exception as ex:
+                        harn.warn('issue building sseg viz due to {!r}'.format(ex))
+            else:
+                # Convert true batch item to detections object
+                _true_cidxs = labels['class_idxs'][idx].view(-1)
+                flags = _true_cidxs > -1
+                true_dets = kwimage.Detections(
+                    boxes=kwimage.Boxes(labels['cxywh'][idx][flags], 'cxywh'),
+                    class_idxs=_true_cidxs[flags],
+                    weights=labels['weight'][idx][flags],
+                    classes=classes,
+                )
+                if 'has_mask' in labels:
+                    # Add in truth segmentation masks
+                    try:
+                        mask_flags = labels['has_mask'][idx][flags] > 0
+                        item_masks = labels['class_masks'][idx][flags]
+                        ssegs = []
+                        for mask, flag in zip(item_masks, mask_flags):
+                            if flag:
+                                ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
+                            else:
+                                ssegs.append(None)
+                        true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
+                    except Exception as ex:
+                        harn.warn('issue building sseg viz due to {!r}'.format(ex))
             true_dets = true_dets.numpy()
 
             # Read out the predicted detections
@@ -524,6 +590,10 @@ def setup_harn(cmdline=True, **kw):
         for tag, sampler in samplers.items()
     }
 
+    from bioharn._hacked_distributed import Hacked_XPU
+    xpu = Hacked_XPU.coerce(config['xpu'])
+    print('xpu = {!r}'.format(xpu))
+
     print('make loaders')
     loaders_ = {
         tag: dset.make_loader(
@@ -531,7 +601,7 @@ def setup_harn(cmdline=True, **kw):
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
             multiscale=(tag == 'train') and config['multiscale'],
-            pin_memory=True)
+            pin_memory=True, xpu=xpu)
         for tag, dset in torch_datasets.items()
     }
 
@@ -551,7 +621,7 @@ def setup_harn(cmdline=True, **kw):
                 stats_subset,
                 collate_fn=collate_fn,
                 num_workers=config['workers'],
-                shuffle=True, batch_size=config['batch_size'])
+                shuffle=True, batch_size=config['batch_size'], xpu=xpu)
             # Track moving average
             running = nh.util.RunningStats()
             for batch in ub.ProgIter(loader, desc='estimate mean/std'):
@@ -662,10 +732,6 @@ def setup_harn(cmdline=True, **kw):
         dynamics_['grad_norm_max'] = config['grad_norm_max']
         dynamics_['grad_norm_type'] = config['grad_norm_type']
     print('dynamics_ = {!r}'.format(dynamics_))
-
-    from bioharn._hacked_distributed import Hacked_XPU
-    xpu = Hacked_XPU.coerce(config['xpu'])
-    print('xpu = {!r}'.format(xpu))
 
     import sys
 

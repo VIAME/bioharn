@@ -57,6 +57,10 @@ def _batch_to_mm_inputs(batch):
 
     if type(batch['im']).__name__ == 'DataContainer':
         # Things are already in data containers
+
+        # Get the number of batch items for each GPU / group
+        groupsizes = [item.shape[0] for item in batch['im'].data]
+
         B = len(batch['im'].data)
         C, H, W = batch['im'].data[0].shape[1:]
 
@@ -64,15 +68,18 @@ def _batch_to_mm_inputs(batch):
 
         # hack in img meta
         img_metas = DC([
-            [{
-                'img_shape': (H, W, C),
-                'ori_shape': (H, W, C),
-                'pad_shape': (H, W, C),
-                'filename': '<memory>.png',
-                'scale_factor': 1.0,
-                'flip': False,
-            }]
-            for _ in range(B)
+            [
+                {
+                    'img_shape': (H, W, C),
+                    'ori_shape': (H, W, C),
+                    'pad_shape': (H, W, C),
+                    'filename': '<memory>.png',
+                    'scale_factor': 1.0,
+                    'flip': False,
+                }
+                for _ in range(num)
+            ]
+            for num in groupsizes
         ], stack=False, cpu_only=True)
 
         mm_inputs = {
@@ -87,7 +94,7 @@ def _batch_to_mm_inputs(batch):
             gt_masks = []
 
             label = batch['label']
-            mm_inputs['gt_labels'] = label['class_idxs'],
+            mm_inputs['gt_labels'] = label['class_idxs']
 
             if 'cxywh' in label:
                 mm_inputs['gt_bboxes'] = DC(
@@ -109,7 +116,7 @@ def _batch_to_mm_inputs(batch):
                 if gt_masks:
                     mm_inputs['gt_masks'] = gt_masks
 
-            mm_inputs['gt_bboxes_ignore'] = None
+            # mm_inputs['gt_bboxes_ignore'] = None
 
     else:
         B, C, H, W = batch['im'].shape
@@ -134,50 +141,73 @@ def _batch_to_mm_inputs(batch):
 
         # Handled pad collated batches. Ensure shapes are correct.
         if 'label' in batch:
-            gt_bboxes = []
-            gt_labels = []
-            gt_masks = []
 
             label = batch['label']
-            batch_cidxs = label['class_idxs'].view(B, -1)
-            batch_flags = batch_cidxs > -1
-            batch_tlbr = None
-            batch_cxywh = None
-            batch_has_mask = None
-            batch_mask = None
-            if 'tlbr' in label:
-                batch_tlbr = label['tlbr'].view(B, -1, 4)
-            if 'cxywh' in label:
-                batch_cxywh = label['cxywh'].view(B, -1, 4)
 
-            if 'has_mask' in label:
-                batch_has_mask = label['has_mask'].view(B, -1)
-                batch_mask = label['class_masks'].view(B, -1, H, W)
+            if isinstance(label['class_idxs'], list):
+                # Data was already collated as a list
 
-            for bx in range(B):
-                flags = batch_flags[bx]
-                flags = flags.view(-1)
-                if batch_tlbr is not None:
-                    gt_bboxes.append(batch_tlbr[bx][flags])
-                if batch_cxywh is not None:
-                    _boxes = kwimage.Boxes(batch_cxywh[bx][flags], 'cxywh')
-                    gt_bboxes.append(_boxes.to_tlbr().data)
-                if batch_has_mask is not None:
-                    mask_flags = (batch_has_mask[bx] > 0)
-                    _masks = batch_mask[bx][mask_flags]
-                    gt_masks.append(_masks)
+                mm_inputs['gt_labels'] = label['class_idxs']
 
-                gt_labels.append(batch_cidxs[bx][flags].view(-1).long())
-                # gt_bboxes_ignore = weight < 0.5
-                # weight = label.get('weight', None)
+                if 'cxywh' in label:
+                    mm_inputs['gt_bboxes'] = [
+                        kwimage.Boxes(b, 'cxywh').to_tlbr().data
+                        for b in label['cxywh']
+                    ]
+                if 'tlbr' in label:
+                    assert 'gt_bboxes' not in mm_inputs, 'already have boxes'
+                    mm_inputs['gt_bboxes'] = label['tlbr']
 
-            mm_inputs.update({
-                'gt_bboxes': gt_bboxes,
-                'gt_labels': gt_labels,
-                'gt_bboxes_ignore': None,
-            })
-            if gt_masks:
-                mm_inputs['gt_masks'] = gt_masks
+                if 'class_masks' in label:
+                    mm_inputs['gt_masks'] = label['class_masks']
+
+            else:
+
+                # Old padded way
+                gt_bboxes = []
+                gt_labels = []
+                gt_masks = []
+                batch_tlbr = None
+                batch_cxywh = None
+                batch_has_mask = None
+                batch_mask = None
+
+                batch_cidxs = label['class_idxs'].view(B, -1)
+                batch_flags = batch_cidxs > -1
+                if 'tlbr' in label:
+                    batch_tlbr = label['tlbr'].view(B, -1, 4)
+                if 'cxywh' in label:
+                    batch_cxywh = label['cxywh'].view(B, -1, 4)
+
+                if 'class_masks' in label:
+                    batch_has_mask = label['has_mask'].view(B, -1)
+                    batch_mask = label['class_masks'].view(B, -1, H, W)
+
+                for bx in range(B):
+                    flags = batch_flags[bx]
+                    flags = flags.view(-1)
+                    if batch_tlbr is not None:
+                        gt_bboxes.append(batch_tlbr[bx][flags])
+                    if batch_cxywh is not None:
+                        assert len(gt_bboxes) == 0, 'already have boxes'
+                        _boxes = kwimage.Boxes(batch_cxywh[bx][flags], 'cxywh')
+                        gt_bboxes.append(_boxes.to_tlbr().data)
+                    if batch_has_mask is not None:
+                        mask_flags = (batch_has_mask[bx] > 0)
+                        _masks = batch_mask[bx][mask_flags]
+                        gt_masks.append(_masks)
+
+                    gt_labels.append(batch_cidxs[bx][flags].view(-1).long())
+                    # gt_bboxes_ignore = weight < 0.5
+                    # weight = label.get('weight', None)
+
+                mm_inputs.update({
+                    'gt_bboxes': gt_bboxes,
+                    'gt_labels': gt_labels,
+                    'gt_bboxes_ignore': None,
+                })
+                if gt_masks:
+                    mm_inputs['gt_masks'] = gt_masks
 
     return mm_inputs
 
@@ -455,6 +485,14 @@ class MM_Detector(nh.layers.Module):
                     class_idxs: bounding box class indices
                     weight: bounding box class weights (only used to set ignore
                         flags)
+
+                OR an mmdet style batch containing:
+                    imgs
+                    img_metas
+                    gt_bboxes
+                    gt_labels
+                    etc...
+
             return_loss (bool): compute the loss
             return_result (bool): compute the result
                 TODO: make this more efficient if loss was computed as well
@@ -465,10 +503,11 @@ class MM_Detector(nh.layers.Module):
         """
         if 'img_metas' in batch and 'imgs' in batch:
             # already in mm_inputs format
-            mm_inputs = batch
+            orig_mm_inputs = batch
         else:
-            mm_inputs = _batch_to_mm_inputs(batch)
+            orig_mm_inputs = _batch_to_mm_inputs(batch)
 
+        mm_inputs = orig_mm_inputs.copy()
         imgs = mm_inputs.pop('imgs')
         img_metas = mm_inputs.pop('img_metas')
 
@@ -476,7 +515,9 @@ class MM_Detector(nh.layers.Module):
         if return_loss:
             gt_bboxes = mm_inputs['gt_bboxes']
             gt_labels = mm_inputs['gt_labels']
-            gt_bboxes_ignore = mm_inputs['gt_bboxes_ignore']
+
+            # _report_data_shape(mm_inputs)
+            gt_bboxes_ignore = mm_inputs.get('gt_bboxes_ignore', None)
 
             trainkw = {}
             if self.detector.with_mask:
@@ -508,6 +549,7 @@ class MM_Detector(nh.layers.Module):
             outputs['loss_parts'] = loss_parts
 
         if return_result:
+            from bioharn._hacked_distributed import DataContainer
             with torch.no_grad():
                 imgs_norm = self.input_norm(imgs)
                 hack_imgs = [g[None, :] for g in imgs_norm]
@@ -518,7 +560,8 @@ class MM_Detector(nh.layers.Module):
                     result = self.detector.forward([one_img], [[one_meta]],
                                                    return_loss=False)
                     batch_results.append(result)
-                outputs['batch_results'] = batch_results
+                outputs['batch_results'] = DataContainer(
+                    batch_results, stack=False, cpu_only=True)
         return outputs
 
 

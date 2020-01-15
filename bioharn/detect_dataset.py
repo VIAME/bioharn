@@ -326,7 +326,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         label = {
             'cxywh': DataContainer(torch.FloatTensor(cxwh.data), stack=False),
-            'class_idxs': DataContainer(torch.LongTensor(dets.class_idxs[:, None]), stack=False),
+            'class_idxs': DataContainer(torch.LongTensor(dets.class_idxs), stack=False),
             'weight': DataContainer(torch.FloatTensor(dets.weights), stack=False),
 
             'indices': DataContainer(index, stack=False),
@@ -371,7 +371,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         return item
 
     def make_loader(self, batch_size=16, num_workers=0, shuffle=False,
-                    pin_memory=False, drop_last=False, multiscale=False):
+                    pin_memory=False, drop_last=False, multiscale=False,
+                    xpu=None):
         """
         Example:
             >>> # DISABLE_DOCTSET
@@ -408,7 +409,15 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         # torch.utils.data.sampler.WeightedRandomSampler
         from bioharn._hacked_distributed import container_collate
-        collate_fn = container_collate
+        from functools import partial
+
+        if xpu is None:
+            n_devices = 1
+        else:
+            n_devices = len(xpu.devices)
+
+        samples_per_gpu = batch_size // n_devices
+        collate_fn = partial(container_collate, samples_per_gpu=samples_per_gpu)
         # collate_fn = nh.data.collate.padded_collate
 
         loader = torch.utils.data.DataLoader(

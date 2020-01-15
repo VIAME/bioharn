@@ -21,6 +21,7 @@ import torch.nn.functional as F
 from netharn.device import DataParallel, XPU, DataSerial
 from torch.nn.parallel._functions import _get_stream
 from torch.nn.parallel._functions import Scatter as OrigScatter
+from torch.nn.parallel._functions import Gather as OrigGather
 
 # if six.PY2:
 #     import collections
@@ -75,7 +76,7 @@ class DataContainer(object):
     def __init__(self,
                  data,
                  stack=False,
-                 padding_value=0,
+                 padding_value=-1,
                  cpu_only=False,
                  pad_dims=2):
         self._data = data
@@ -573,6 +574,10 @@ class Hacked_DataParallel(DataParallel):
     def scatter(self, inputs, kwargs, device_ids):
         return hack_scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
 
+    def gather(self, outputs, output_device):
+        # not part of mmcv's original impl
+        return hack_gather(outputs, output_device, dim=self.dim)
+
 # ----
 
 
@@ -627,6 +632,82 @@ def hack_scatter_kwargs(inputs, kwargs, target_gpus, dim=0):
     return inputs, kwargs
 
 
+def hack_gather(outputs, target_device, dim=0):
+    r"""
+    Gathers tensors from different GPUs on a specified device
+      (-1 means the CPU).
+
+    The only difference from original :func:`gather` is to add support for
+    :type:`DataContainer`.
+
+    Ignore:
+        >>> from bioharn._hacked_distributed import *  # NOQA
+        >>> import kwarray
+        >>> rng = kwarray.ensure_rng(0)
+        >>> outputs = [
+        >>>     {
+        >>>         'batch_results': DataContainer([
+        >>>             torch.rand(rng.randint(0, 10), 5).to(0)
+        >>>             for _ in range(4)
+        >>>         ], stack=False),
+        >>>         'loss_parts': {
+        >>>             'part1': torch.rand(2).sum().to(0),
+        >>>             'part2': torch.rand(3).sum().to(0),
+        >>>         },
+        >>>     },
+        >>>     {
+        >>>         'batch_results': DataContainer([
+        >>>             torch.rand(rng.randint(0, 10), 5).to(1)
+        >>>             for _ in range(4)
+        >>>         ], stack=False),
+        >>>         'loss_parts': {
+        >>>             'part1': torch.rand(2).sum().to(1),
+        >>>             'part2': torch.rand(3).sum().to(1),
+        >>>         }
+        >>>     }
+        >>> ]
+        >>> _report_data_shape(outputs)
+        >>> target_device = 0
+        >>> dim = 0
+        >>> gathered = hack_gather(outputs, target_device, dim)
+        >>> _report_data_shape(gathered)
+    """
+    def gather_map(outputs):
+        out = outputs[0]
+        if isinstance(out, torch.Tensor):
+            return OrigGather.apply(target_device, dim, *outputs)
+        if isinstance(out, DataContainer):
+            if out.datatype is list:
+                newdata = [d for dc in outputs
+                           for d in dc.data]
+                if not out.cpu_only:
+                    import netharn as nh
+                    target_xpu = nh.XPU(target_device)
+                    newdata = target_xpu.move(newdata)
+                return newdata
+            else:
+                raise NotImplementedError(repr(out.datatype))
+        if out is None:
+            return None
+        if isinstance(out, dict):
+            if not all((len(out) == len(d) for d in outputs)):
+                raise ValueError('All dicts must have the same number of keys')
+            return type(out)(((k, gather_map([d[k] for d in outputs]))
+                              for k in out))
+        return type(out)(map(gather_map, zip(*outputs)))
+
+    # Recursive function calls like this create reference cycles.
+    # Setting the function to None clears the refcycle.
+    try:
+        res = gather_map(outputs)
+    finally:
+        gather_map = None
+    return res
+
+
+# ---
+
+
 class Hacked_XPU(XPU):
 
     def mount(xpu, model):
@@ -655,3 +736,41 @@ class Hacked_XPU(XPU):
         else:
             model = DataSerial(model)
         return model
+
+
+def _report_data_shape(data):
+    import ubelt as ub
+
+    def _recurse(d):
+        import torch
+        import numpy as np
+        if isinstance(d, dict):
+            return ub.odict(sorted([(k, _recurse(v)) for k, v in d.items()]))
+        elif type(d).__name__.endswith('DataContainer'):
+            meta = ub.odict(sorted([
+                ('stack', d.stack),
+                ('padding_value', d.padding_value),
+                ('pad_dims', d.pad_dims),
+                ('datatype', d.datatype),
+                ('cpu_only', d.cpu_only),
+            ]))
+            meta = ub.repr2(meta, nl=0)
+            return {'DataContainer' + meta: _recurse(d.data)}
+        elif isinstance(d, list):
+            return [_recurse(v) for v in d]
+        elif isinstance(d, tuple):
+            return tuple([_recurse(v) for v in d])
+        elif isinstance(d, torch.Tensor):
+            return d.shape
+        elif isinstance(d, np.ndarray):
+            return d.shape
+        elif isinstance(d, str):
+            return d
+        elif isinstance(d, (int, float)):
+            return d
+        else:
+            raise TypeError(type(d))
+
+    globals()['_recurse'] = _recurse
+    d = _recurse(data)
+    print('d = {}'.format(ub.repr2(d, nl=-2)))
