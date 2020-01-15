@@ -752,7 +752,6 @@ if __name__ == '__main__':
             --input_dims=window \
             --window_dims=512,512 \
             --window_overlap=0.2 \
-            --workdir=~/work/mc_harn3 \
             --multiscale=True \
             --normalize_inputs=True \
             --workers=0 --xpu=1,0 --batch_size=8 --bstep=4
@@ -900,7 +899,6 @@ if __name__ == '__main__':
             --input_dims=window \
             --window_dims=512,512 \
             --window_overlap=0.2 \
-            --workdir=~/work/mc_harn3 \
             --multiscale=True \
             --normalize_inputs=True \
             --workers=0 --xpu=1,0 --batch_size=4 --bstep=1
@@ -916,7 +914,6 @@ if __name__ == '__main__':
             --input_dims=window \
             --window_dims=512,512 \
             --window_overlap=0.2 \
-            --workdir=~/work/mc_harn3 \
             --multiscale=True \
             --normalize_inputs=True \
             --workers=0 --xpu=1 --batch_size=4 --bstep=1
