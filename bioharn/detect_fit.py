@@ -85,6 +85,10 @@ class DetectFitConfig(scfg.Config):
         'warmup_ratio': 1.0 / 10.0,
         'grad_norm_max': 35,
         'grad_norm_type': 2,
+
+        # preference
+        'num_draw': scfg.Value(4, help='Number of initial batchs to draw per epoch'),
+        'draw_interval': scfg.Value(1, help='Minutes to wait between drawing'),
     }
 
     def normalize(self):
@@ -172,12 +176,13 @@ class DetectHarn(nh.FitHarn):
                 harn._draw_timer = ub.Timer().tic()
             # need to hack do draw here, because we need to call
             # mmdet forward in a special way
-            harn._hack_do_draw = (harn.batch_index <= 4)
-            harn._hack_do_draw |= (harn._draw_timer.toc() > 60 * 1)
+
+            harn._hack_do_draw = (harn.batch_index <= harn.script_config['num_draw'])
+            harn._hack_do_draw |= (harn._draw_timer.toc() > 60 * harn.script_config['draw_interval'])
 
             return_result = harn._hack_do_draw
 
-            if harn.fit_config['use_disparity']:
+            if harn.script_config['use_disparity']:
                 batch = batch.copy()
                 # hack in 4th channel
                 orig_im = batch['im']
@@ -190,95 +195,11 @@ class DetectHarn(nh.FitHarn):
             batch = batch.copy()
             batch.pop('tr')
 
-            if 0:
-                # debug data parallel for mmdet models
-                self = harn.model
-                inputs = (batch,)
-                kwargs = {'return_loss': True, 'return_result': True}
-
-                inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
-                if len(self.device_ids) == 1:
-                    return self.module(*inputs[0], **kwargs[0])
-                replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
-                outputs = self.parallel_apply(replicas, inputs, kwargs)
-
-                len(outputs)
-                for item in outputs:
-                    print(ub.repr2(item['loss_parts']))
-                    print(len(item['batch_results']))
-                    for cls_idx, cls_res in enumerate(item['batch_results'], start=1):
-                        print('cls_idx = {!r}'.format(cls_idx))
-                        for res in cls_res:
-                            print(res.shape)
-
-                from torch.nn.parallel._functions import Gather
-
-                def gather2(outputs, target_device, dim=0):
-                    r"""
-                    Gathers tensors from different GPUs on a specified device
-                      (-1 means the CPU).
-                    """
-                    def gather_map2(outputs):
-                        out = outputs[0]
-                        if isinstance(out, torch.Tensor):
-                            print('GATHER TENSOR')
-                            return Gather.apply(target_device, dim, *outputs)
-                        if isinstance(out, np.ndarray):
-                            print('GATHER NDARRAY')
-                            return np.concatenate(outputs, axis=dim)
-                        if out is None:
-                            print('GATHER NONE')
-                            return None
-                        if isinstance(out, dict):
-                            if not all((len(out) == len(d) for d in outputs)):
-                                raise ValueError('All dicts must have the same number of keys')
-
-                            dict_cls = type(out)
-                            gathered = []
-                            for k in out:
-                                print('GATHERING k = {!r}'.format(k))
-                                next_outputs = [d[k] for d in outputs]
-                                got = gather_map2(next_outputs)
-                                gathered.append((k, got))
-                            return dict_cls(gathered)
-                            # return dict_cls(((k, gather_map2([d[k] for d in outputs]))
-                            #                   for k in out))
-                        else:
-                            print('GATHER OTHER')
-                            cls = type(out)
-                            print('cls = {!r}'.format(cls))
-                            zipped = list(zip(*outputs))
-                            gathered = []
-                            for next_output in zipped:
-                                got = gather_map2(next_output)
-                                gathered.append(got)
-                            to_return = cls(gathered)
-                            # to_return = cls(map(gather_map2, zip(*outputs)))
-                            return to_return
-
-                    # Recursive function calls like this create reference cycles.
-                    # Setting the function to None clears the refcycle.
-                    try:
-                        res = gather_map2(outputs)
-                    finally:
-                        gather_map2 = None
-                    return res
-
-                final_results = gather2(outputs, self.output_device)
-                import xdev
-                xdev.embed()
-
-                item = final_results
-                print(ub.repr2(item['loss_parts']))
-                print(len(item['batch_results']))
-                for cls_idx, cls_res in enumerate(item['batch_results'], start=1):
-                    print('cls_idx = {!r}'.format(cls_idx))
-                    for res in cls_res:
-                        print(res.shape)
-
             if False:
 
                 from bioharn._hacked_distributed import _report_data_shape
+                _report_data_shape(batch)
+
                 from bioharn.models import mm_models
                 mm_inputs = mm_models._batch_to_mm_inputs(batch)
                 _report_data_shape(mm_inputs)
@@ -317,6 +238,11 @@ class DetectHarn(nh.FitHarn):
             outputs = harn.model.forward(batch, return_loss=True,
                                          return_result=return_result)
 
+            # Hack away the DataContainer in the DataSerial case
+            from bioharn._hacked_distributed import DataContainer
+            if 'batch_results' in outputs:
+                if isinstance(outputs['batch_results'], DataContainer):
+                    outputs['batch_results'] = outputs['batch_results'].data
             # Criterion was computed in the forward pass
             loss_parts = {k: v.sum() for k, v in outputs['loss_parts'].items()}
 
@@ -393,6 +319,7 @@ class DetectHarn(nh.FitHarn):
             >>> from bioharn.detect_fit import *  # NOQA
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
             >>> #harn = setup_harn(bsize=1, datasets='special:habcam', arch='cascade', pretrained='/home/joncrall/work/bioharn/fit/nice/bioharn-det-v14-cascade/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip', normalize_inputs=False, use_disparity=True)
+            >>> #harn = setup_harn(bsize=1, datasets='special:shapes8', arch='cascade', xpu=[1])
             >>> harn = setup_harn(bsize=1, datasets='special:shapes8', arch='cascade', xpu=[1, 0])
             >>> harn.initialize()
             >>> batch = harn._demo_batch(0, 'train')
@@ -424,7 +351,7 @@ class DetectHarn(nh.FitHarn):
 
         # TODO: FIX YOLO SO SCALE IS NOT NEEDED
 
-        if harn.fit_config['use_disparity'] and 'disparity' in batch:
+        if harn.script_config['use_disparity'] and 'disparity' in batch:
             batch_disparity = kwarray.ArrayAPI.numpy(batch['disparity'])
         else:
             batch_disparity = None
@@ -789,7 +716,7 @@ def setup_harn(cmdline=True, **kw):
     harn.intervals.update({
         'log_iter_train': 50,
     })
-    harn.fit_config = config
+    harn.script_config = config
 
     print('harn = {!r}'.format(harn))
     print('samplers = {!r}'.format(samplers))
@@ -963,7 +890,7 @@ if __name__ == '__main__':
 
 
         python -m bioharn.detect_fit \
-            --nice=demo_shapes \
+            --nice=demo_shapes_gpu10 \
             --datasets=special:shapes256 \
             --schedule=ReduceLROnPlateau-p2-c2 \
             --augment=complex \
@@ -976,8 +903,23 @@ if __name__ == '__main__':
             --workdir=~/work/mc_harn3 \
             --multiscale=True \
             --normalize_inputs=True \
-            --workers=0 --xpu=1 --batch_size=8 --bstep=4
+            --workers=0 --xpu=1,0 --batch_size=4 --bstep=1
 
+        python -m bioharn.detect_fit \
+            --nice=demo_shapes_gpu1 \
+            --datasets=special:shapes256 \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.2 \
+            --workdir=~/work/mc_harn3 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=0 --xpu=1 --batch_size=4 --bstep=1
 
 
     """

@@ -406,6 +406,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
         def worker_init_fn(worker_id):
             # Make loaders more random
             kwarray.seed_global(np.random.get_state()[1][0] + worker_id)
+            if self.augmenter:
+                rng = kwarray.ensure_rng(None)
+                self.augmenter.reseed(rng)
 
         # torch.utils.data.sampler.WeightedRandomSampler
         from bioharn._hacked_distributed import container_collate

@@ -501,6 +501,7 @@ class MM_Detector(nh.layers.Module):
             Dict: containing results and losses depending on if return_loss and
                 return_result were specified.
         """
+        from bioharn._hacked_distributed import DataContainer
         if 'img_metas' in batch and 'imgs' in batch:
             # already in mm_inputs format
             orig_mm_inputs = batch
@@ -508,6 +509,21 @@ class MM_Detector(nh.layers.Module):
             orig_mm_inputs = _batch_to_mm_inputs(batch)
 
         mm_inputs = orig_mm_inputs.copy()
+
+        # Hack: remove data containers if it hasn't been done already
+        import netharn as nh
+        xpu = nh.XPU.from_data(self)
+        for key in mm_inputs.keys():
+            value = mm_inputs[key]
+            if isinstance(value, DataContainer):
+                if len(value.data) != 1:
+                    raise ValueError('data not scattered correctly')
+                if value.cpu_only:
+                    value = value.data[0]
+                else:
+                    value = xpu.move(value.data[0])
+                mm_inputs[key] = value
+
         imgs = mm_inputs.pop('imgs')
         img_metas = mm_inputs.pop('img_metas')
 
@@ -549,7 +565,6 @@ class MM_Detector(nh.layers.Module):
             outputs['loss_parts'] = loss_parts
 
         if return_result:
-            from bioharn._hacked_distributed import DataContainer
             with torch.no_grad():
                 imgs_norm = self.input_norm(imgs)
                 hack_imgs = [g[None, :] for g in imgs_norm]
