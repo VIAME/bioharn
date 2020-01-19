@@ -943,8 +943,8 @@ if __name__ == '__main__':
         python -m bioharn.detect_fit \
             --nice=detect-singleclass-cascade-v2 \
             --workdir=$HOME/work/sealions \
-            --train_dataset=/home/joncrall/data/noaa/sealions/sealions_train_v2.mscoco.json \
-            --vali_dataset=/home/joncrall/data/noaa/sealions/sealions_vali_v2.mscoco.json \
+            --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_train_v2.mscoco.json \
+            --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_vali_v2.mscoco.json \
             --schedule=ReduceLROnPlateau-p2-c2 \
             --pretrained=/home/joncrall/work/sealions/fit/runs/detect-singleclass-cascade-v2/nkdvpjss/explit_checkpoints/_epoch_00000000_2020-01-16T182834+5.pt \
             --augment=complex \
@@ -957,6 +957,24 @@ if __name__ == '__main__':
             --multiscale=True \
             --normalize_inputs=True \
             --workers=4 --xpu=1 --batch_size=8 --bstep=1
+
+
+        python -m bioharn.detect_fit \
+            --nice=detect-singleclass-cascade-v3 \
+            --workdir=$HOME/work/sealions \
+            --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_train_v2.mscoco.json \
+            --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_vali_v2.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=1e-2 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=4 --xpu=0 --batch_size=12 --bstep=1
 
 
     """
