@@ -962,8 +962,8 @@ if __name__ == '__main__':
         python -m bioharn.detect_fit \
             --nice=detect-singleclass-cascade-v3 \
             --workdir=$HOME/work/sealions \
-            --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_train_v2.mscoco.json \
-            --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_vali_v2.mscoco.json \
+            --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_train_v3.mscoco.json \
+            --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_vali_v3.mscoco.json \
             --schedule=ReduceLROnPlateau-p2-c2 \
             --augment=complex \
             --init=noop \
