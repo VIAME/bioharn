@@ -89,6 +89,9 @@ class DetectFitConfig(scfg.Config):
         # preference
         'num_draw': scfg.Value(4, help='Number of initial batchs to draw per epoch'),
         'draw_interval': scfg.Value(1, help='Minutes to wait between drawing'),
+        'draw_per_batch': scfg.Value(8, help='Number of items to draw within each batch'),
+
+        'collapse_classes': scfg.Value(False, help='force one-class detector'),
     }
 
     def normalize(self):
@@ -362,7 +365,7 @@ class DetectHarn(nh.FitHarn):
             bsize = len(im_batch)
             # Get a varied sample of the batch
             # (the idea is ensure that we show things on the non-dominat gpu)
-            num_want = 4
+            num_want = harn.script_config['draw_per_batch']
             num_want = min(num_want, bsize)
             # This will never produce duplicates (difference between
             # consecutive numbers will always be > 1 there fore they will
@@ -487,12 +490,28 @@ def setup_harn(cmdline=True, **kw):
                 subset.remove_categories([k], keep_annots=False, verbose=1)
             except KeyError:
                 pass
+
+    if config['collapse_classes']:
+        print('Collapsing all category labels')
+        import six
+        if isinstance(config['collapse_classes'], six.string_types):
+            hacklbl = config['collapse_classes']
+        else:
+            hacklbl = 'object'
+        print('Hacking all labels to ' + hacklbl)
+        for tag, subset in subsets.items():
+            mapper = {c['name']: hacklbl for c in subset.cats.values()
+                      if c['name'] != 'background'}
+            subset.rename_categories(mapper)
+
     classes = subsets['train'].object_categories()
     print('classes = {!r}'.format(classes))
-
     if 'background' not in classes:
         for k, subset in subsets.items():
             subset.add_category('background', id=0)
+
+    classes = subsets['train'].object_categories()
+    print('classes = {!r}'.format(classes))
 
     samplers = {}
     for tag, subset in subsets.items():
@@ -542,13 +561,15 @@ def setup_harn(cmdline=True, **kw):
         if input_stats is None:
             # Use parallel workers to load data faster
             from bioharn._hacked_distributed import container_collate
-            collate_fn = container_collate
+            # collate_fn = container_collate
+            from functools import partial
+            collate_fn = partial(container_collate, samples_per_gpu=1)
 
             loader = torch.utils.data.DataLoader(
                 stats_subset,
                 collate_fn=collate_fn,
                 num_workers=config['workers'],
-                shuffle=True, batch_size=config['batch_size'], xpu=xpu)
+                shuffle=True, batch_size=config['batch_size'])
             # Track moving average
             running = nh.util.RunningStats()
             for batch in ub.ProgIter(loader, desc='estimate mean/std'):
@@ -917,6 +938,25 @@ if __name__ == '__main__':
             --multiscale=True \
             --normalize_inputs=True \
             --workers=0 --xpu=1 --batch_size=4 --bstep=1
+
+
+        python -m bioharn.detect_fit \
+            --nice=detect-singleclass-cascade-v2 \
+            --workdir=$HOME/work/sealions \
+            --train_dataset=/home/joncrall/data/noaa/sealions/sealions_train_v2.mscoco.json \
+            --vali_dataset=/home/joncrall/data/noaa/sealions/sealions_vali_v2.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --pretrained=/home/joncrall/work/sealions/fit/runs/detect-singleclass-cascade-v2/nkdvpjss/explit_checkpoints/_epoch_00000000_2020-01-16T182834+5.pt \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=3e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=4 --xpu=1 --batch_size=8 --bstep=1
 
 
     """

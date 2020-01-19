@@ -54,6 +54,7 @@ def _batch_to_mm_inputs(batch):
         >>> batch = _demo_batch(bsize)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
+    ignore_thresh = 0.1
 
     if type(batch['im']).__name__ == 'DataContainer':
         # Things are already in data containers
@@ -116,7 +117,25 @@ def _batch_to_mm_inputs(batch):
                 if gt_masks:
                     mm_inputs['gt_masks'] = gt_masks
 
-            # mm_inputs['gt_bboxes_ignore'] = None
+            if 'weight' in label:
+                ignore_flags = DC(
+                    [[w < ignore_thresh for w in ws]
+                     for ws in label['weight'].data], label['weight'].stack)
+
+                # filter ignore boxes
+                outer_bboxes_ignore = []
+                for outer_bx in range(len(ignore_flags.data)):
+                    inner_bboxes_ignore = []
+                    for inner_bx in range(len(ignore_flags.data[outer_bx])):
+                        flags = ignore_flags.data[outer_bx][inner_bx]
+                        ignore_bboxes = mm_inputs['gt_bboxes'].data[outer_bx][inner_bx][flags]
+                        mm_inputs['gt_labels'].data[outer_bx][inner_bx] = mm_inputs['gt_labels'].data[outer_bx][inner_bx][~flags]
+                        mm_inputs['gt_bboxes'].data[outer_bx][inner_bx] = mm_inputs['gt_bboxes'].data[outer_bx][inner_bx][~flags]
+                        inner_bboxes_ignore.append(ignore_bboxes)
+                    outer_bboxes_ignore.append(inner_bboxes_ignore)
+
+                mm_inputs['gt_bboxes_ignore'] = DC(outer_bboxes_ignore,
+                                                   label['weight'].stack)
 
     else:
         B, C, H, W = batch['im'].shape
@@ -160,6 +179,11 @@ def _batch_to_mm_inputs(batch):
 
                 if 'class_masks' in label:
                     mm_inputs['gt_masks'] = label['class_masks']
+
+                if 'weight' in label:
+                    gt_bboxes_ignore = [[w < ignore_thresh for w in ws]
+                                        for ws in label['weight']]
+                    mm_inputs['gt_bboxes_ignore'] = gt_bboxes_ignore
 
             else:
 
@@ -509,6 +533,13 @@ class MM_Detector(nh.layers.Module):
             orig_mm_inputs = _batch_to_mm_inputs(batch)
 
         mm_inputs = orig_mm_inputs.copy()
+
+        # from bioharn._hacked_distributed import _report_data_shape
+        # print('--------------')
+        # print('--------------')
+        # _report_data_shape(mm_inputs)
+        # print('--------------')
+        # print('--------------')
 
         # Hack: remove data containers if it hasn't been done already
         import netharn as nh

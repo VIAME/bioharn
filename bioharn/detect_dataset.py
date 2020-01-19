@@ -89,7 +89,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         positives = kwarray.shuffle(positives, rng=971493943902)
         negatives = kwarray.shuffle(negatives, rng=119714940901)
 
-        ratio = 2.0
+        ratio = 0.1
 
         num_neg = int(len(positives) * ratio)
         chosen_neg = negatives[0:num_neg]
@@ -240,6 +240,14 @@ class DetectFitDataset(torch.utils.data.Dataset):
         ssegs = sample['annots']['rel_ssegs']
         anns = list(ub.take(self.sampler.dset.anns, aids))
         weights = [ann.get('weight', 1.0) for ann in anns]
+
+        for idx, cid in enumerate(cids):
+            # set weights of uncertain varaibles to zero
+            catname = self.sampler.dset._resolve_to_cat(cid)['name']
+            if catname in {'unknown', 'ignore'}:
+                weights[idx] = 0
+
+        # TODO: remove anything marked as "negative"
 
         HACK_SSEG = True
         if HACK_SSEG:

@@ -1,3 +1,5 @@
+from os.path import realpath
+from os.path import relpath
 from os.path import dirname
 from os.path import exists
 from os.path import splitext
@@ -12,6 +14,7 @@ import numpy as np
 
 
 def process_dots(orig_fpath, dot_fpath, debug=False, verbose=0):
+
     """
     Ignore:
         import sys, ubelt
@@ -301,23 +304,33 @@ def process_dots(orig_fpath, dot_fpath, debug=False, verbose=0):
     return xs, ys, colors
 
 
-def gather_raw_biologist_data():
+def set_overlaps(set1, set2, s1='s1', s2='s2'):
     """
-    Ok, so there are these folders with years on them. Folders from 2011
-    and before contain images with dots physically on the pixels. These are
-    what we want to process.
-
-    Each of these folders contains:
-        * a list of imges with blacked out regions and dots.
-        * An [Originals] folder with images that also contains dots, text, but
-            no blacked out region
-        * An Original folder that actually has original images in it.
+    return info about set overlaps
     """
+    set1 = set(set1)
+    set2 = set(set2)
+    overlaps = ub.odict([
+        (s1, len(set1)),
+        (s2, len(set2)),
+        ('isect', len(set1.intersection(set2))),
+        ('union', len(set1.union(set2))),
+        ('%s - %s' % (s1, s2), len(set1.difference(set2))),
+        ('%s - %s' % (s2, s1), len(set2.difference(set1))),
+    ])
+    return overlaps
 
+
+def _build_dot_original_fpath_association():
+    """
+    Builds association between jpeg images with dots and the original images
+
+    Returns:
+        List[Dict]: where each dictionary indicates what the dot image
+            and the original image are.
+    """
     dpath = '/home/joncrall/data/raid/noaa/sealions/BLACKEDOUT/extracted'
-
     rows = []
-
     import glob
     for sub_dpath in sorted(glob.glob(join(dpath, '*'))):
         collect_id = basename(sub_dpath)
@@ -345,19 +358,6 @@ def gather_raw_biologist_data():
                 elif k.endswith('_orig'):
                     k = k[:-5]
                 return k
-
-            def set_overlaps(set1, set2, s1='s1', s2='s2'):
-                set1 = set(set1)
-                set2 = set(set2)
-                overlaps = ub.odict([
-                    (s1, len(set1)),
-                    (s2, len(set2)),
-                    ('isect', len(set1.intersection(set2))),
-                    ('union', len(set1.union(set2))),
-                    ('%s - %s' % (s1, s2), len(set1.difference(set2))),
-                    ('%s - %s' % (s2, s1), len(set2.difference(set1))),
-                ])
-                return overlaps
 
             basename_to_dot = {normalize_image_id(p): p for p in dot_images}
             basename_to_orig = {normalize_image_id(p): p for p in orig_images}
@@ -395,13 +395,31 @@ def gather_raw_biologist_data():
         '20080612_slap1755',  # missed one
         '20100607_sslc0237',
     ]
+    return good_rows
+
+
+def gather_raw_biologist_data():
+    """
+    Ok, so there are these folders with years on them. Folders from 2011
+    and before contain images with dots physically on the pixels. These are
+    what we want to process.
+
+    Each of these folders contains:
+        * a list of imges with blacked out regions and dots.
+        * An [Originals] folder with images that also contains dots, text, but
+            no blacked out region
+        * An Original folder that actually has original images in it.
+    """
+
+    # First find the pairs of images that we will use to extract dots
+    good_rows = _build_dot_original_fpath_association()
 
     import ndsampler
     dset = ndsampler.CocoDataset()
 
     from ndsampler import util_futures
 
-    coco_dpath = ub.ensuredir((dpath, 'coco-wip'))
+    coco_dpath = ub.ensuredir((dpath, 'coco-wip_v2'))
 
     # pool = util_futures.JobPool(mode='thread', max_workers=4)
     pool = util_futures.JobPool(mode='process', max_workers=0)
@@ -487,25 +505,210 @@ def _dev_verify():
         xdev.InteractiveIter.draw()
 
 
+def _postprocess_merged_dot_coco(merged_dots):
+    """
+    Hueristically cluster the colors of the jpeg-dots and convert them into
+    sealion categories. Then modify the bounding box size based on the
+    category.
+    """
+    import kwplot
+    # Categories in email:
+    # https://mail.google.com/mail/u/1/#inbox/FMfcgxwGCknfwcRkVfJzzkjBnHLxlbKh
+    # Bulls/Adult Males (red)
+    # Sub-Adult Males (SAM) (bright pink)
+    # Adult females (turquoise):
+    # Juveniles (royal blue or purple):
+    # Pups (chartreuse i.e. greenish):
+    known_categories = [
+        {'name': 'Bull', 'colors': [kwplot.Color('red').as01()]},
+        {'name': 'SAM', 'colors': [kwplot.Color('hotpink').as01()]},
+        {'name': 'Fem', 'colors': [kwplot.Color('turquoise').as01(), kwplot.Color('brown').as01()]},
+        {'name': 'Juv', 'colors': [kwplot.Color('royalblue').as01(), kwplot.Color('purple').as01()]},
+        {'name': 'Pup', 'colors': [kwplot.Color('chartreuse').as01()]},
+        {'name': 'Dead Pup', 'colors': [kwplot.Color((250, 200, 0)).as01()]},
+        {'name': 'unknown', 'colors': [kwplot.Color('white').as01()]},
+    ]
+    cluster_rgbs = []
+    cluster_labs = []
+    cluster_labels = []
+    for cat in known_categories:
+        for rgb in cat['colors']:
+            lab = kwimage.Color(rgb).as01(space='lab')
+            cluster_rgbs.append(rgb)
+            cluster_labs.append(lab)
+            cluster_labels.append(cat['name'])
+    cluster_rgbs = np.array(cluster_rgbs)
+    cluster_labs = np.array(cluster_labs)
+
+    import sklearn.neighbors
+    neighbors = sklearn.neighbors.NearestNeighbors(n_neighbors=1)
+    neighbors.fit(cluster_labs)
+
+    # hack, add some metadata back to the dataset
+    good_rows = _build_dot_original_fpath_association()
+    orig_to_row = {row['orig']: row for row in good_rows}
+
+    for img in merged_dots.imgs.values():
+        row = orig_to_row[img['file_name']]
+        img['dot_fpath'] = row['dot']
+
+    ### Read raw data
+    colors_rgb = []
+    colors_lab = []
+    aids = []
+    nan_gids = set()
+    for ann in ub.ProgIter(list(merged_dots.anns.values())):
+        if np.any(np.isnan(ann['color'])):
+            nan_gids.add(ann['image_id'])
+        else:
+            rgb = np.array(ann['color']) / 255.0
+            lab = kwimage.Color(rgb).as01(space='lab')
+            colors_rgb.append(rgb)
+            colors_lab.append(lab)
+            aids.append(ann['id'])
+    colors_rgb = np.array(colors_rgb)
+    colors_lab = np.array(colors_lab)
+    # import kwimage
+    # colors_lab = kwimage.convert_colorspace(colors_rgb[None, :], 'rgb', 'lab')[0]
+
+    nn_dist, nn_idx = neighbors.kneighbors(colors_lab)
+    annot_cnames = list(ub.take(cluster_labels, nn_idx.T[0]))
+
+    # apply category names to the annotations
+    for aid, cname in zip(aids, annot_cnames):
+        ann = merged_dots.anns[aid]
+        ann['category_name'] = cname
+        ann['category_id'] = merged_dots.ensure_category(cname)
+        if ann['category_name'] == 'Bull':
+            w = h = 128
+        elif ann['category_name'] == 'Fem':
+            w = h = 96
+        else:
+            w = h = 64
+        cx, cy = kwimage.Boxes([ann['bbox']], 'xywh').to_cxywh().data[0][0:2]
+        bbox = kwimage.Boxes([[cx, cy, w, h]], 'cxywh')
+        ann['bbox'] = bbox.to_xywh().data[0].round(1).tolist()
+
+    merged_dots._build_index()
+
+    if 0:
+        from sklearn import cluster
+        n_clusters = 7
+        kmeans = cluster.KMeans(
+            n_clusters=n_clusters, n_init=20, max_iter=10000, tol=1e-6,
+            algorithm='elkan', verbose=0)
+        kmeans.fit(colors_lab)
+        centers_lab = kmeans.cluster_centers_
+        centers_rgb = kwimage.convert_colorspace(centers_lab[None, :], 'lab', 'rgb')[0]
+        # Assign each annotation to a cluster
+        cluster_idx = kmeans.predict(colors_lab)
+
+    ###
+    # Find out what the brown color means
+    if False:
+        # from sklearn import metrics
+        # dist = metrics.euclidean_distances(
+        #     centers_lab,
+        #     [kwplot.Color('white').as01('lab')])
+        # nn_idx = dist[:, 0].argmin()
+        # is_query = (cluster_idx == nn_idx)
+        # query_aids = list(ub.compress(aids, is_query))
+
+        query_aids = merged_dots.cid_to_aids[merged_dots._resolve_to_cid('unknown')]
+        query_gids = merged_dots.annots(query_aids).gids
+        query_gid_to_aids = ub.group_items(query_aids, query_gids)
+
+        gids = ub.argsort(query_gid_to_aids, key=len)
+        gid = gids[len(gids) // 2]
+        img = merged_dots.imgs[gid]
+
+        dot_fpath = img['dot_fpath']
+        orig_fpath = img['file_name']
+        print('dot_fpath = {!r}'.format(dot_fpath))
+        print('orig_fpath = {!r}'.format(orig_fpath))
+
+        canvas = kwimage.imread(dot_fpath)
+
+        annots = merged_dots.annots(gid=gid)
+        boxes = annots._lookup('bbox')
+        colors = list(map(lambda x: tuple(x) if ub.iterable(x) else tuple([x]), annots._lookup('color')))
+        for color, sub_boxes in ub.group_items(boxes, colors).items():
+            if len(color) == 1:
+                color = 'silver'
+            canvas = kwimage.Boxes(sub_boxes, 'xywh').draw_on(canvas, color=color)
+
+        kwplot.imshow(canvas)
+
+        annots.boxes
+
+        canvas = kwimage.imread(dot_fpath)
+
+        merged_dots.show_image(gid=gid)
+
+    ###
+
+    SHOW = False
+    if SHOW:
+        # visualize the kmeans reasults
+        from sklearn import decomposition
+        # from sklearn import manifold
+        # tsne = manifold.TSNE(verbose=1)
+        # tsne.fit(colors_lab[::100])
+        # xy = tsne.transform(colors_lab)
+
+        pca = decomposition.PCA(n_components=2)
+        pca.fit(colors_lab[::10])
+        xy = pca.transform(colors_lab)
+
+        xy_centers = pca.transform(centers_lab)
+
+        import kwplot
+        kwplot.autoplt()
+        fig = kwplot.figure(fnum=2, doclf=True)
+        ax = fig.gca()
+
+        stride = 10
+        x, y = xy[::stride].T
+        c = colors_rgb[::stride]
+        ax.scatter(x, y, c=c)
+
+        x, y = xy_centers.T
+        c = centers_rgb
+        ax.scatter(x, y, c=c, s=500, marker='P', edgecolors='black')
+
+        for cat in known_categories:
+            rgb = cat['color']
+            lab = kwimage.Color(cat['color']).as01(space='lab')
+            x, y = pca.transform(np.array([lab]))[0]
+            ax.scatter([x], [y], c=[rgb], s=600, marker='*',
+                       edgecolors='black')
+
+
 def _prepare_master_coco():
     import glob
     import ndsampler
     dpath = '/home/joncrall/data/raid/noaa/sealions/BLACKEDOUT/extracted/coco-wip'
     fpaths = sorted(glob.glob(join(dpath, '*.json')))
 
+    # Load all the single-image jpeg-dot processed coco files
     datasets = []
     for fpath in ub.ProgIter(fpaths):
         dset = ndsampler.CocoDataset(fpath)
         datasets.append(dset)
-
+    # Merge the jpeg-dot coco files into a single coco file
     merged_dots = ndsampler.CocoDataset.union(*datasets)
 
+    # POSTPROCESS THE JPEG DOT COCO FILES. FIX BBOX SIZES AND CATEGORIES
+    _postprocess_merged_dot_coco(merged_dots)
+
+    # Load the photoshop-processed annotations
     fpath = '/home/joncrall/data/noaa/sealions/sealions_photoshop_annots_v1.mscoco.json'
     ps_dset = ndsampler.CocoDataset(fpath)
     ps_img_root = '/home/joncrall/data/noaa/sealions/BLACKEDOUT/extracted'
+
+    real_img_root = '/home/joncrall/data/noaa/sealions'
     for img in ps_dset.imgs.values():
         gpath = join(ps_img_root, img['file_name'])
-        assert exists(gpath)
         img['file_name'] = gpath
 
     merged = ndsampler.CocoDataset.union(merged_dots, ps_dset)
@@ -518,17 +721,29 @@ def _prepare_master_coco():
         print('base_folder = {!r}'.format(base_folder))
         img['year_code'] = base_folder
 
-    # Remove all categories
-    merged.remove_categories(merged.cats, keep_annots=True)
-    # add one category
-    cid = merged.add_category('sealion')
-    for ann in merged.anns.values():
-        ann['category_id'] = cid
+    for img in merged.imgs.values():
+        assert exists(join(img['file_name']))
+        rel_file_name = relpath(realpath(img['file_name']), realpath(real_img_root))
+        img['file_name'] = rel_file_name
+        assert exists(join(real_img_root, img['file_name']))
+
+    if False:
+        # Remove all categories
+        merged.remove_categories(merged.cats, keep_annots=True)
+        # add one category
+        cid = merged.add_category('sealion')
+        for ann in merged.anns.values():
+            ann['category_id'] = cid
+    else:
+        for ann in merged.anns.values():
+            if ann['category_id'] is None:
+                ann['category_id'] = merged._resolve_to_cid('unknown')
     merged.index.clear()
     merged._build_index()
 
+    merged.img_root = real_img_root
     merged._ensure_imgsize()
-    merged.fpath = '/home/joncrall/data/noaa/sealions/sealions_all_v1.mscoco.json'
+    merged.fpath = '/home/joncrall/data/noaa/sealions/sealions_all_v3.mscoco.json'
     merged.dump(merged.fpath, newlines=True)
 
     year_to_imgs = ub.group_items(merged.imgs.values(), lambda x: x['year_code'])
@@ -545,7 +760,7 @@ def _prepare_master_coco():
 
     for tag, gids in split_gids.items():
         subset = merged.subset(gids)
-        subset.fpath = ub.augpath(merged.fpath, base='sealions_{}_v1'.format(tag), multidot=1)
+        subset.fpath = ub.augpath(merged.fpath, base='sealions_{}_v3'.format(tag), multidot=1)
         print('subset.fpath = {!r}'.format(subset.fpath))
         subset.dump(subset.fpath, newlines=True)
 
@@ -555,6 +770,7 @@ if __name__ == '__main__':
     CommandLine:
         python ~/code/bioharn/dev/process_dots.py
 
+        rsync -avPR /home/joncrall/data/noaa/./US_ALASKA_MML_SEALION/ viame:/data/projects/viame/.
 
         python -m bioharn.detect_fit \
             --nice=detect-singleclass-cascade-v1 \
