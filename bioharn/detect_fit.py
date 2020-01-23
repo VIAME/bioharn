@@ -71,6 +71,7 @@ class DetectFitConfig(scfg.Config):
         'schedule': scfg.Value('ReduceLROnPlateau', help='learning rate / momentum scheduler'),
         'max_epoch': scfg.Value(200, help='Maximum number of epochs'),
         'patience': scfg.Value(10, help='Maximum number of bad epochs on validation before stopping'),
+        'min_lr': scfg.Value(1e-9, help='minimum learning rate before termination'),
 
         # Initialization
         'init': scfg.Value('imagenet', help='initialization strategy'),
@@ -554,7 +555,7 @@ def setup_harn(cmdline=True, **kw):
     if config['normalize_inputs']:
         # Get stats on the dataset (todo: turn off augmentation for this)
         _dset = torch_datasets['train']
-        stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(100, len(_dset))]
+        stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(1000, len(_dset))]
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
         cacher = ub.Cacher('dset_mean', cfgstr=_dset.input_id + 'v2')
         input_stats = cacher.tryload()
@@ -708,6 +709,7 @@ def setup_harn(cmdline=True, **kw):
             # 'maximize': ['mAP'],
             'patience': config['patience'],
             'max_epoch': config['max_epoch'],
+            'min_lr': config['min_lr'],
             'smoothing': .6,
         }),
 
@@ -968,13 +970,31 @@ if __name__ == '__main__':
             --augment=complex \
             --init=noop \
             --arch=cascade \
+            --optim=sgd --lr=3e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=4 --xpu=0 --batch_size=16 --bstep=1
+
+        python -m bioharn.detect_fit \
+            --nice=detect-singleclass-cascade-v4 \
+            --workdir=$HOME/work/sealions \
+            --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_train_v3.mscoco.json \
+            --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_vali_v3.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
             --optim=sgd --lr=1e-2 \
             --input_dims=window \
             --window_dims=512,512 \
             --window_overlap=0.0 \
             --multiscale=True \
             --normalize_inputs=True \
-            --workers=4 --xpu=0 --batch_size=12 --bstep=1
+            --min_lr=1e-6 \
+            --workers=4 --xpu=1,0 --batch_size=24 --bstep=1
 
 
     """

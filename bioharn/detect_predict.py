@@ -172,7 +172,10 @@ class DetectPredictor(object):
                     'tf_chip_to_full': raw_batch['tf_chip_to_full'],
                     'pad_offset_xy': pad_offset_xy,
                 }
-                for dets in self._predict_batch(batch):
+                results = self._predict_batch(batch)
+                import xdev
+                xdev.embed()
+                for dets in results:
                     accum_dets.append(dets)
 
         # Stitch predicted detections together

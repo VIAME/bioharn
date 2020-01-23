@@ -393,6 +393,10 @@ class MM_Coder(object):
         batch_results = outputs['batch_results']
         batch_dets = []
 
+        from bioharn._hacked_distributed import DataContainer
+        if isinstance(batch_results, DataContainer):
+            batch_results = batch_results.data
+
         # HACK for the way mmdet handles background
         if 'backround' in self.classes:
             start = 1
