@@ -19,8 +19,8 @@ class DetectPredictConfig(scfg.Config):
         'batch_size': 4,
         'xpu': 'auto',
 
-        'window_dims': scfg.Value('full', help='size of a sliding window'),  # (512, 512),
-        'input_dims': scfg.Value((512, 512), help='The size of the inputs to the network'),
+        'window_dims': scfg.Value('native', help='size of a sliding window'),  # (512, 512),
+        'input_dims': scfg.Value('window', help='The size of the inputs to the network'),
 
         'workers': 0,
 
