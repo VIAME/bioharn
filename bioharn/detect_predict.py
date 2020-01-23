@@ -96,7 +96,8 @@ class DetectPredictor(object):
                     native_config = _native_config()
                     native[key] = native_config[key]
                 except Exception:
-                    print((
+                    import warnings
+                    warnings.warn((
                         'WARNING: Unable to determine native {} from model. '
                         'Defaulting to {}! Please ensure this is OK.').format(
                             key, native_defaults[key]
@@ -173,8 +174,6 @@ class DetectPredictor(object):
                     'pad_offset_xy': pad_offset_xy,
                 }
                 results = self._predict_batch(batch)
-                import xdev
-                xdev.embed()
                 for dets in results:
                     accum_dets.append(dets)
 
@@ -199,10 +198,14 @@ class DetectPredictor(object):
 
     def _prepare_image(self, full_rgb):
         full_dims = tuple(full_rgb.shape[0:2])
+
         if self.config['window_dims'] == 'full':
             window_dims = full_dims
         else:
-            window_dims = self.config['window_dims']
+            # could do this more efficiently
+            native = self._infer_native(self.config)
+            window_dims = native['window_dims']
+            # window_dims = self.config['window_dims']
 
         # Pad small images to be at least the minimum window_dims size
         dims_delta = np.array(full_dims) - np.array(window_dims)
@@ -295,8 +298,9 @@ class DetectPredictor(object):
             gids (List[int], default=None): if specified, then only predict
                 on these images.
         """
-        input_dims = self.config['input_dims']
-        window_dims = self.config['window_dims']
+        native = self._infer_native(self.config)
+        input_dims = native['input_dims']
+        window_dims = native['window_dims']
 
         torch_dset = WindowedSamplerDataset(sampler, window_dims=window_dims,
                                             input_dims=input_dims, gids=gids)
@@ -403,8 +407,6 @@ class SingleImageDataset(torch_data.Dataset):
             # Record the inverse transformation
             window_size = self.window_dims[::-1]
             input_size = self.input_dims[::-1]
-            print('input_size = {!r}'.format(input_size))
-            print('window_size = {!r}'.format(window_size))
             shift, scale, embed_size = letterbox._letterbox_transform(window_size, input_size)
             # Resize the image
             chip_hwc = letterbox.augment_image(chip_hwc)
