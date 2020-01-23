@@ -939,7 +939,7 @@ def detect_cli(config={}):
     predictor.config['verbose'] = config['verbose']
     pred_gen = predictor.predict_sampler(sampler)
 
-    if not ub.argval('--serial'):
+    if not ub.argval('--serial') and config['workers'] > 0:
         buffered_gen = AsyncBufferedGenerator(pred_gen, size=coco_dset.n_images)
     else:
         buffered_gen = pred_gen
