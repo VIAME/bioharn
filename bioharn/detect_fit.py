@@ -994,7 +994,7 @@ if __name__ == '__main__':
             --multiscale=True \
             --normalize_inputs=True \
             --min_lr=1e-6 \
-            --workers=4 --xpu=1,0 --batch_size=24 --bstep=1
+            --workers=4 --xpu=1,0 --batch_size=8 --bstep=1
 
 
     """
