@@ -334,9 +334,9 @@ class DetectHarn(nh.FitHarn):
             >>> # DISABLE_DOCTSET
             >>> from bioharn.detect_fit import *  # NOQA
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
-            >>> #harn = setup_harn(bsize=1, datasets='special:habcam', arch='cascade', pretrained='/home/joncrall/work/bioharn/fit/nice/bioharn-det-v14-cascade/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip', normalize_inputs=False, use_disparity=True)
+            >>> harn = setup_harn(bsize=1, datasets='special:habcam', arch='cascade', pretrained='/home/joncrall/work/bioharn/fit/nice/bioharn-det-v14-cascade/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip', normalize_inputs=False, use_disparity=True, sampler_backend=None)
             >>> #harn = setup_harn(bsize=1, datasets='special:shapes8', arch='cascade', xpu=[1])
-            >>> harn = setup_harn(bsize=1, datasets='special:shapes8', arch='cascade', xpu=[1, 0])
+            >>> #harn = setup_harn(bsize=1, datasets='special:shapes8', arch='cascade', xpu=[1, 0])
             >>> harn.initialize()
             >>> batch = harn._demo_batch(0, 'train')
 
@@ -368,7 +368,7 @@ class DetectHarn(nh.FitHarn):
         # TODO: FIX YOLO SO SCALE IS NOT NEEDED
 
         if harn.script_config['use_disparity'] and 'disparity' in batch:
-            batch_disparity = kwarray.ArrayAPI.numpy(batch['disparity'])
+            batch_disparity = kwarray.ArrayAPI.numpy(torch.cat(batch['disparity'].data, dim=0))
         else:
             batch_disparity = None
 
@@ -937,15 +937,35 @@ if __name__ == '__main__':
             --schedule=ReduceLROnPlateau-p2-c2 \
             --augment=complex \
             --init=noop \
+            --workdir=$HOME/work/bioharn \
             --arch=cascade \
             --use_disparity=True \
-            --optim=adamw --lr=3e-3 \
+            --optim=adamw --lr=1e-3 \
             --input_dims=window \
             --window_dims=512,512 \
             --window_overlap=0.3 \
             --multiscale=True \
             --normalize_inputs=False \
-            --workers=0 --xpu=0 --batch_size=16 --bstep=1
+            --workers=4 --xpu=0 --batch_size=16 --bstep=4
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v18-cascade-mc-disp \
+            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
+            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --workdir=$HOME/work/bioharn \
+            --arch=cascade \
+            --use_disparity=True \
+            --optim=adamw --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=1024,1024 \
+            --window_overlap=0.0 \
+            --multiscale=True \
+            --normalize_inputs=False \
+            --workers=4 --xpu=0 --batch_size=4 --bstep=4
+
 
 
         $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json
