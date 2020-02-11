@@ -189,18 +189,20 @@ class DetectHarn(nh.FitHarn):
 
             return_result = harn._hack_do_draw
 
+            batch = batch.copy()
+            batch.pop('tr')
+
             if harn.script_config['use_disparity']:
                 batch = batch.copy()
                 # hack in 4th channel
                 orig_im = batch['im']
-                if len(batch['disparity'].data.shape) == 3:
-                    disparity = batch['disparity'].data.unsqueeze(1)
-                else:
-                    disparity = batch['disparity'].data
-                batch['im'] = torch.cat([orig_im, disparity], dim=1)
-
-            batch = batch.copy()
-            batch.pop('tr')
+                import xdev
+                with xdev.embed_on_exception_context:
+                    if len(batch['disparity'].data.shape) == 3:
+                        disparity = batch['disparity'].data.unsqueeze(1)
+                    else:
+                        disparity = batch['disparity'].data
+                    batch['im'] = torch.cat([orig_im, disparity], dim=1)
 
             if False:
 
