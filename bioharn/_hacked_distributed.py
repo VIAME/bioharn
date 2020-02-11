@@ -227,11 +227,11 @@ class DataContainer(ub.NiceRepr):
                             pad[2 * dim - 1] = max_shape[dim - 1] - sample.shape[-dim]
                         padded_samples.append(
                             F.pad(sample.data, pad, value=sample.padding_value))
-                    stacked.append(default_collate(padded_samples))
+                    stacked.append(_collate_else(padded_samples))
 
                 elif pad_dims_ is None:
                     stacked.append(
-                        default_collate([
+                        _collate_else([
                             sample.data
                             for sample in inbatch[i:i + samples_per_gpu]
                         ]))
@@ -929,6 +929,8 @@ def nestshape(data):
         elif isinstance(d, str):
             return d
         elif isinstance(d, (int, float)):
+            return d
+        elif isinstance(d, slice):
             return d
         else:
             raise TypeError(type(d))

@@ -146,16 +146,16 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> self = DetectFitDataset.demo(key='habcam', augment='complex')
             >>> spec = {'index': 954, 'input_dims': (300, 300)}
             >>> item = self[spec]
-            >>> hwc01 = item['im'].numpy().transpose(1, 2, 0)
-            >>> disparity = item['disparity']
-            >>> boxes = kwimage.Boxes(item['label']['cxywh'].numpy(), 'cxywh')
+            >>> hwc01 = item['im'].data.numpy().transpose(1, 2, 0)
+            >>> disparity = item['disparity'].data
+            >>> boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
             >>> # xdoc: +REQUIRES(--show)
             >>> import kwplot
             >>> kwplot.figure(doclf=True, fnum=1, pnum=(1, 2, 1))
             >>> kwplot.autompl()  # xdoc: +SKIP
             >>> kwplot.imshow(hwc01, fnum=1, pnum=(1, 2, 1))
             >>> boxes.draw()
-            >>> for mask, flag in zip(item['label']['class_masks'], item['label']['has_mask']):
+            >>> for mask, flag in zip(item['label']['class_masks'].data, item['label']['has_mask'].data):
             >>>      if flag > 0:
             >>>          kwimage.Mask(mask.data.cpu().numpy(), 'c_mask').draw()
             >>> kwplot.imshow(disparity, fnum=1, pnum=(1, 2, 2))
@@ -187,7 +187,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         img = self.sampler.dset.imgs[gid]
         disp_im = None
-        if img.get('source', '') == 'habcam_2015_stereo':
+        if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
             # Hack: dont pad next to the habcam border
             maxpad = ((img['width'] // 2) - slices[1].stop)
             pad = min(maxpad, pad)
@@ -229,8 +229,29 @@ class DetectFitDataset(torch.utils.data.Dataset):
         if self.use_segmentation:
             with_annots += ['segmentation']
 
+        # NOTE: using the gdal backend samples HABCAM images in 16ms, and no
+        # backend samples clocks in at 72ms. The disparity speedup is about 2x
         sample = self.sampler.load_sample(tr, visible_thresh=0.05,
                                           with_annots=with_annots, pad=pad)
+
+        if False:
+            # Benchmark
+            ti = ub.Timerit(100, bestof=10, verbose=2)
+            data_dims = ((img['width'] // 2), img['height'])
+            data_slice, extra_padding, st_dims = self.sampler._rectify_tr(
+                tr, data_dims, window_dims=None, pad=pad)
+            fpath = disp_cache_fpath
+            fpath = self.sampler.dset.load_image_fpath(tr['gid'])
+            png_fpath, cog_fpath = self.sampler.frames._gnames(tr['gid'])
+            for timer in ti.reset('cog'):
+                with timer:
+                    disp_frame = ndsampler.utils.util_gdal.LazyGDalFrameFile(cog_fpath)
+                    # Load the image data
+                    disp_im = disp_frame[data_slice]
+            for timer in ti.reset('naive'):
+                with timer:
+                    disp_frame = kwimage.imread(png_fpath)
+                    disp_im = disp_frame[data_slice]
 
         imdata = kwimage.atleast_3channels(sample['im'])[..., 0:3]
 
@@ -251,7 +272,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         HACK_SSEG = True
         if HACK_SSEG:
-            if img.get('source', '') == 'habcam_2015_stereo':
+            if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
                 ssegs = []
                 for xy, w in zip(boxes.xy_center, boxes.width):
                     r = w / 2.0
@@ -305,11 +326,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
             # note: the letterbox augment doesn't handle floats wello
             # use the kwimage.imresize instead
             # disp_im = self.letterbox.augment_image(disp_im)
-            import xdev
-            with xdev.embed_on_exception_context:
-                disp_im = kwimage.imresize(
-                    disp_im, dsize=self.letterbox.target_size,
-                    letterbox=True).clip(0, 1)
+            disp_im = kwimage.imresize(
+                disp_im, dsize=self.letterbox.target_size,
+                letterbox=True).clip(0, 1)
         output_dims = imdata.shape[0:2]
         if len(dets):
             dets = dets.warp(self.letterbox, input_dims=input_dims,
@@ -370,7 +389,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         item = {
             'im': DataContainer(chw01, stack=True),
             'label': label,
-            'tr': sample['tr'],
+            'tr': DataContainer(sample['tr'], stack=True),
         }
 
         if disp_im is not None:
