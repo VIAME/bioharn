@@ -636,8 +636,14 @@ class Hacked_DataParallel(DataParallel):
     Ignore:
         from bioharn._hacked_distributed import *  # NOQA
 
-        import netharn as nh
-        class MyModel(nh.layers.Module):
+        import torch
+        from torch.nn.parallel import DataParallel
+
+        # First lets create a simple model where the forward function accepts
+        # kwargs. I don't really care what they do for this example, but imaging
+        # they are flags that change the behavior of forward.
+
+        class MyModel(torch.nn.Module):
             def __init__(self):
                 super().__init__()
                 self.conv = torch.nn.Conv2d(1, 1, 1)
@@ -648,20 +654,36 @@ class Hacked_DataParallel(DataParallel):
         raw_model = MyModel()
         raw_model = raw_model.to(0)
 
-        im = torch.zeros(2, 1, 1, 1).to(0)
+        # Next create some dummy input and verify the model works by itself
+        im = torch.zeros(1, 1, 1, 1).to(0)
         raw_model.forward(im)
 
-        model = DataParallel(raw_model, device_ids=[0, 1], output_device=0)
-        model.forward(im)
+        # Now create a DataParallel object to map the input across two devices
+        par_model = DataParallel(raw_model, device_ids=[0, 1], output_device=0)
+
+        # In the case where kwargs are not specified DataParallel correctly
+        # understands that there is only one item in the batch and applies the
+        # operation on only one GPU.
+        par_model.forward(im)
+
+        # Howver, if you pass kwargs, then data parallel breaks
+        par_model.forward(im, flag1=True)
+
+        inputs = (im,)
+        kwargs = dict(flag1=True, flag2=False)
+        s1, k1 = par_model.scatter(inputs, kwargs, [0, 1])
+        replicas = par_model.replicate(par_model.module, par_model.device_ids[:len(s1)])
+        outputs = par_model.parallel_apply(replicas, s1, k1)
+
+        hack_scatter(inputs, [0, 1])[0]
 
         inbatch = [DataContainer.demo('img', shape=(1, 1, 1)) for _ in range(5)]
         im = DataContainer._collate(inbatch, 5)
 
-        kwargs = dict(return_loss=True, return_result=False)
+        im = torch.zeros(1, 1, 1, 1).to(0)
         inputs = (im,)
-
-        model = Hacked_DataParallel(raw_model, device_ids=[0, 1], output_device=0)
-        model.forward(*inputs, **kwargs)
+        self = Hacked_DataParallel(raw_model, device_ids=[0, 1], output_device=0)
+        self.forward(*inputs, **kwargs)
     """
 
     def forward(self, *inputs, **kwargs):
@@ -733,13 +755,40 @@ def hack_scatter(inputs, target_gpus, dim=0):
 
 
 def hack_scatter_kwargs(inputs, kwargs, target_gpus, dim=0):
-    """Scatter with support for kwargs dictionary"""
+    """
+    Scatter with support for kwargs dictionary
+
+    Example:
+        >>> # xdoctest: +REQUIRES(--multi-gpu)
+        >>> inputs = [torch.rand(1, 1, 1, 1)]
+        >>> kwargs = dict(a=1, b=2)
+        >>> target_gpus = [0, 1]
+        >>> a1, k1 = hack_scatter_kwargs(inputs, kwargs, target_gpus)
+
+        >>> # xdoctest: +REQUIRES(--multi-gpu)
+        >>> inputs = [torch.rand(1, 1, 1, 1)]
+        >>> kwargs = dict(a=torch.rand(1, 1, 1, 1), b=2)
+        >>> target_gpus = [0, 1]
+        >>> a1, k1 = hack_scatter_kwargs(inputs, kwargs, target_gpus)
+    """
     inputs = hack_scatter(inputs, target_gpus, dim) if inputs else []
     kwargs = hack_scatter(kwargs, target_gpus, dim) if kwargs else []
+
     if len(inputs) < len(kwargs):
         inputs.extend([() for _ in range(len(kwargs) - len(inputs))])
     elif len(kwargs) < len(inputs):
         kwargs.extend([{} for _ in range(len(inputs) - len(kwargs))])
+
+    # patch for cases where #inputs < len(target_gpus) and len(kwargs) > 0
+    PATCH = 1
+    if PATCH:
+        is_empty = [len(p) == 0 for p in inputs]
+        num_empty = sum(is_empty)
+        num_full = len(inputs) - num_empty
+        if num_full > 0 and num_empty > 0:
+            kwargs = kwargs[0:num_full]
+            inputs = inputs[0:num_full]
+
     inputs = tuple(inputs)
     kwargs = tuple(kwargs)
     return inputs, kwargs
