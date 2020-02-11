@@ -18,6 +18,7 @@ import re
 import collections
 import torch.nn.functional as F
 # from torch.nn.parallel import DataParallel
+from itertools import chain
 from netharn.device import DataParallel, XPU, DataSerial
 from torch.nn.parallel._functions import _get_stream
 from torch.nn.parallel._functions import Scatter as OrigScatter
@@ -633,6 +634,7 @@ class Hacked_DataParallel(DataParallel):
     """
 
     Ignore:
+        from bioharn._hacked_distributed import *  # NOQA
 
         import netharn as nh
         class MyModel(nh.layers.Module):
