@@ -103,7 +103,7 @@ class DataContainer(ub.NiceRepr):
         rng = kwarray.ensure_rng(rng)
         if key == 'img':
             shape = kwargs.get('shape', (3, 512, 512))
-            data = rng.rand(*shape)
+            data = rng.rand(*shape).astype(np.float32)
             data = torch.from_numpy(data)
             self = cls(data, stack=True)
         elif key == 'labels':
@@ -644,6 +644,10 @@ class Hacked_DataParallel(DataParallel):
         model.forward(inputs)
 
         inbatch = [DataContainer.demo('img', shape=(1, 1, 1)) for _ in range(5)]
+        inputs = DataContainer._collate(inbatch, 5)
+
+        model = Hacked_DataParallel(raw_model, device_ids=[0, 1], output_device=0)
+        model.forward(inputs)
     """
 
     def scatter(self, inputs, kwargs, device_ids):
