@@ -427,7 +427,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         else:
             n_devices = len(xpu.devices)
 
-        samples_per_gpu = batch_size // n_devices
+        samples_per_gpu = int(np.ceil(batch_size / n_devices))
         collate_fn = partial(container_collate,
                              samples_per_gpu=samples_per_gpu)
         # collate_fn = nh.data.collate.padded_collate

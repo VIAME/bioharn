@@ -165,9 +165,9 @@ class DetectHarn(nh.FitHarn):
         Example:
             >>> # DISABLE_DOCTSET
             >>> #harn = setup_harn(bsize=2, datasets='special:habcam', arch='cascade', init='noop', xpu=None, use_disparity=True, workers=0, normalize_inputs=False)
-            >>> harn = setup_harn(bsize=2, datasets='special:shapes256', arch='cascade', init='noop', xpu=(0,1), workers=0, normalize_inputs=False)
+            >>> harn = setup_harn(bsize=2, datasets='special:shapes7', arch='cascade', init='noop', xpu=(0,1), workers=0, batch_size=3, normalize_inputs=False)
             >>> harn.initialize()
-            >>> batch = harn._demo_batch(0, 'vali')
+            >>> batch = harn._demo_batch(1, 'train')
             >>> outputs, loss = harn.run_batch(batch)
 
         """
@@ -766,7 +766,7 @@ if __name__ == '__main__':
         python ~/code/netharn/examples/object_detection.py --datasets=special:voc
 
         python -m bioharn.detect_fit \
-            --nice=demo_shapes \
+            --nice=demo_shapes2 \
             --datasets=special:shapes256 \
             --schedule=ReduceLROnPlateau-p2-c2 \
             --augment=complex \
@@ -778,7 +778,7 @@ if __name__ == '__main__':
             --window_overlap=0.2 \
             --multiscale=True \
             --normalize_inputs=True \
-            --workers=0 --xpu=1,0 --batch_size=8 --bstep=4
+            --workers=0 --xpu=3 --batch_size=8 --bstep=4
 
         python -m bioharn.detect_fit \
             --nice=demo_shapes \

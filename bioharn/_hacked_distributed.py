@@ -292,7 +292,11 @@ def container_collate(inbatch, samples_per_gpu=1):
         >>>     {'im': DataContainer.demo('img'), 'label': DataContainer.demo('labels')},
         >>>     {'im': DataContainer.demo('img'), 'label': DataContainer.demo('labels')},
         >>> ]
+        >>> raw_batch = container_collate(batch, samples_per_gpu=6)
         >>> raw_batch = container_collate(batch, samples_per_gpu=2)
+        >>> raw_batch = container_collate(batch, samples_per_gpu=3)
+        >>> raw_batch = container_collate(batch, samples_per_gpu=4)
+        >>> raw_batch = container_collate(batch, samples_per_gpu=1)
     """
 
     if not isinstance(inbatch, collections.Sequence):
