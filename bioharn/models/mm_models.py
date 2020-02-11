@@ -56,7 +56,7 @@ def _batch_to_mm_inputs(batch):
     """
     ignore_thresh = 0.1
 
-    if type(batch['im']).__name__ == 'DataContainer':
+    if type(batch['im']).__name__ in ['BatchContainer']:
         # Things are already in data containers
 
         # Get the number of batch items for each GPU / group
@@ -393,8 +393,8 @@ class MM_Coder(object):
         batch_results = outputs['batch_results']
         batch_dets = []
 
-        from bioharn._hacked_distributed import DataContainer
-        if isinstance(batch_results, DataContainer):
+        from bioharn._hacked_distributed import BatchContainer
+        if isinstance(batch_results, BatchContainer):
             batch_results = batch_results.data
 
         # HACK for the way mmdet handles background
@@ -529,7 +529,7 @@ class MM_Detector(nh.layers.Module):
             Dict: containing results and losses depending on if return_loss and
                 return_result were specified.
         """
-        from bioharn._hacked_distributed import DataContainer
+        from bioharn._hacked_distributed import BatchContainer
         if 'img_metas' in batch and 'imgs' in batch:
             # already in mm_inputs format
             orig_mm_inputs = batch
@@ -550,7 +550,7 @@ class MM_Detector(nh.layers.Module):
         xpu = nh.XPU.from_data(self)
         for key in mm_inputs.keys():
             value = mm_inputs[key]
-            if isinstance(value, DataContainer):
+            if isinstance(value, BatchContainer):
                 if len(value.data) != 1:
                     raise ValueError('data not scattered correctly')
                 if value.cpu_only:
@@ -610,7 +610,7 @@ class MM_Detector(nh.layers.Module):
                     result = self.detector.forward([one_img], [[one_meta]],
                                                    return_loss=False)
                     batch_results.append(result)
-                outputs['batch_results'] = DataContainer(
+                outputs['batch_results'] = BatchContainer(
                     batch_results, stack=False, cpu_only=True)
         return outputs
 

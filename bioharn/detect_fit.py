@@ -162,14 +162,20 @@ class DetectHarn(nh.FitHarn):
         Args:
             batch: item returned by the loader
 
+
+        Ignore:
+            >>> from bioharn.detect_fit import *  # NOQA
+            >>> harn = setup_harn(bsize=2, datasets='special:habcam',
+            >>>     arch='cascade', init='noop', xpu=0, use_disparity=True,
+            >>>     workers=0, normalize_inputs=False, sampler_backend=None)
+
         Example:
             >>> # DISABLE_DOCTSET
-            >>> #harn = setup_harn(bsize=2, datasets='special:habcam', arch='cascade', init='noop', xpu=None, use_disparity=True, workers=0, normalize_inputs=False)
             >>> harn = setup_harn(bsize=2, datasets='special:shapes5',
             >>>                   arch='cascade', init='noop', xpu=(0,1),
             >>>                   workers=0, batch_size=3, normalize_inputs=False)
             >>> harn.initialize()
-            >>> batch = harn._demo_batch(2, 'vali')
+            >>> batch = harn._demo_batch(1, 'vali')
             >>> outputs, loss = harn.run_batch(batch)
 
         """
@@ -191,13 +197,15 @@ class DetectHarn(nh.FitHarn):
 
             batch = batch.copy()
             batch.pop('tr')
+            from bioharn._hacked_distributed import BatchContainer
 
             if harn.script_config['use_disparity']:
                 batch = batch.copy()
                 # hack in 4th channel
                 orig_im = batch['im']
-                import xdev
-                with xdev.embed_on_exception_context:
+                if isinstance(orig_im, BatchContainer):
+                    batch['im'] = BatchContainer.cat([orig_im, batch['disparity']], dim=1)
+                else:
                     if len(batch['disparity'].data.shape) == 3:
                         disparity = batch['disparity'].data.unsqueeze(1)
                     else:
@@ -247,10 +255,9 @@ class DetectHarn(nh.FitHarn):
             outputs = harn.model.forward(batch, return_loss=True,
                                          return_result=return_result)
 
-            # Hack away the DataContainer in the DataSerial case
-            from bioharn._hacked_distributed import DataContainer
+            # Hack away the BatchContainer in the DataSerial case
             if 'batch_results' in outputs:
-                if isinstance(outputs['batch_results'], DataContainer):
+                if isinstance(outputs['batch_results'], BatchContainer):
                     outputs['batch_results'] = outputs['batch_results'].data
             # Criterion was computed in the forward pass
             loss_parts = {k: v.sum() for k, v in outputs['loss_parts'].items()}

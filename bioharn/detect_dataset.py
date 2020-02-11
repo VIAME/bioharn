@@ -349,16 +349,16 @@ class DetectFitDataset(torch.utils.data.Dataset):
         index = torch.LongTensor([index])
         bg_weight = torch.FloatTensor([1.0])
 
-        from ._hacked_distributed import DataContainer
+        from ._hacked_distributed import ItemContainer
 
         label = {
-            'cxywh': DataContainer(torch.FloatTensor(cxwh.data), stack=False),
-            'class_idxs': DataContainer(torch.LongTensor(dets.class_idxs), stack=False),
-            'weight': DataContainer(torch.FloatTensor(dets.weights), stack=False),
+            'cxywh': ItemContainer(torch.FloatTensor(cxwh.data), stack=False),
+            'class_idxs': ItemContainer(torch.LongTensor(dets.class_idxs), stack=False),
+            'weight': ItemContainer(torch.FloatTensor(dets.weights), stack=False),
 
-            'indices': DataContainer(index, stack=False),
-            'orig_sizes': DataContainer(orig_size, stack=False),
-            'bg_weights': DataContainer(bg_weight, stack=False),
+            'indices': ItemContainer(index, stack=False),
+            'orig_sizes': ItemContainer(orig_size, stack=False),
+            'bg_weights': ItemContainer(bg_weight, stack=False),
         }
 
         if 'segmentations' in dets.data and self.use_segmentation:
@@ -383,17 +383,17 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 class_masks = torch.empty((0, h, w), dtype=torch.uint8)
             else:
                 class_masks = torch.cat(class_mask_list, dim=0)
-            label['class_masks'] = DataContainer(class_masks, stack=False)
-            label['has_mask'] = DataContainer(has_mask, stack=False)
+            label['class_masks'] = ItemContainer(class_masks, stack=False)
+            label['has_mask'] = ItemContainer(has_mask, stack=False)
 
         item = {
-            'im': DataContainer(chw01, stack=True),
+            'im': ItemContainer(chw01, stack=True),
             'label': label,
-            'tr': DataContainer(sample['tr'], stack=False),
+            'tr': ItemContainer(sample['tr'], stack=False),
         }
 
         if disp_im is not None:
-            item['disparity'] = DataContainer(
+            item['disparity'] = ItemContainer(
                 torch.FloatTensor(disp_im[None, :, :]),
                 stack=True)
 
@@ -444,13 +444,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
         from functools import partial
 
         if xpu is None:
-            n_devices = 1
+            num_devices = 1
         else:
-            n_devices = len(xpu.devices)
+            num_devices = len(xpu.devices)
 
-        samples_per_gpu = int(np.ceil(batch_size / n_devices))
-        collate_fn = partial(container_collate,
-                             samples_per_gpu=samples_per_gpu)
+        collate_fn = partial(container_collate, num_devices=num_devices)
         # collate_fn = nh.data.collate.padded_collate
 
         loader = torch.utils.data.DataLoader(

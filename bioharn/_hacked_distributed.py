@@ -57,29 +57,80 @@ class CollateException(Exception):
 _DEBUG = False
 
 
-class DataContainer(ub.NiceRepr):
-    """A container for any type of objects.
+class BatchContainer(ub.NiceRepr):
+    """
+    A container for a set of items in a batch. Usually this is for network
+    outputs or a set of items that have already been collated.
 
-    Typically tensors will be stacked in the collate function and sliced along
-    some dimension in the scatter function. This behavior has some limitations.
-    1. All tensors have to be the same size.
-    2. Types are limited (numpy array or Tensor).
+    Attributes:
+        data (List): Unlike ItemContainer, data is always a list where
+            len(data) is the number of devices this batch will run on.
+    """
+    def __init__(self, data, stack=False, padding_value=-1, cpu_only=False,
+                 pad_dims=2):
+        self.data = data
+        self.meta = {
+            'stack': stack,
+            'padding_value': padding_value,
+            'cpu_only': cpu_only,
+            'pad_dims': pad_dims,
+        }
 
-    We design `DataContainer` and `MMDataParallel` to overcome these
-    limitations. The behavior can be either of the following.
+    def __nice__(self):
+        shape_repr = ub.repr2(nestshape(self.data), nl=-2)
+        return 'nestshape(data)={}, **{}'.format(shape_repr, ub.repr2(self.meta, nl=0))
 
-    - copy to GPU, pad all tensors to the same size and stack them
-    - copy to GPU without stacking
-    - leave the objects as is and pass it to the model
-    - pad_dims specifies the number of last few dimensions to do padding
+    @property
+    def cpu_only(self):
+        return self.meta['cpu_only']
+
+    @property
+    def stack(self):
+        return self.meta['stack']
+
+    @property
+    def padding_value(self):
+        return self.meta['padding_value']
+
+    @property
+    def pad_dims(self):
+        return self.meta['pad_dims']
+
+    @classmethod
+    def cat(cls, items, dim=0):
+        """
+        Concatenate data in multiple BatchContainers
+
+        Example:
+            d1 = BatchContainer([torch.rand(3, 3, 1, 1), torch.rand(2, 3, 1, 1)])
+            d2 = BatchContainer([torch.rand(3, 1, 1, 1), torch.rand(2, 1, 1, 1)])
+            items = [d1, d2]
+            self = BatchContainer.cat(items, dim=1)
+        """
+        newdata = []
+        num_devices = len(items[0].data)
+        for device_idx in range(num_devices):
+            parts = [item.data[device_idx] for item in items]
+            newpart = torch.cat(parts, dim=dim)
+            newdata.append(newpart)
+        self = cls(newdata, **items[0].meta)
+        return self
+
+
+class ItemContainer(ub.NiceRepr):
+    """
+    A container for uncollated items that defines a specific collation
+    strategy. Based on mmdetections ItemContainer.
     """
 
-    def __init__(self,
-                 data,
-                 stack=False,
-                 padding_value=-1,
-                 cpu_only=False,
-                 pad_dims=2):
+    def __init__(
+        self,
+        data,
+        stack=False,
+        padding_value=-1,
+        cpu_only=False,
+        pad_dims=2
+    ):
         self._data = data
         assert pad_dims in [None, 1, 2, 3]
         self.meta = {
@@ -90,8 +141,6 @@ class DataContainer(ub.NiceRepr):
         }
 
     def __nice__(self):
-        if isinstance(self.data, torch.Tensor):
-            pass
         shape_repr = ub.repr2(nestshape(self.data), nl=-2)
         return 'nestshape(data)={}, **{}'.format(shape_repr, ub.repr2(self.meta, nl=0))
 
@@ -154,55 +203,55 @@ class DataContainer(ub.NiceRepr):
         return self.data.dim()
 
     @classmethod
-    def _collate(cls, inbatch, samples_per_gpu=None):
+    def _collate(cls, inbatch, num_devices=None):
         """
         Collates a sequence of DataContainers
 
         Args:
-            inbatch (Sequence[DataContainer]): datacontainers with the same
+            inbatch (Sequence[ItemContainer]): datacontainers with the same
                 parameters.
 
-            samples_per_gpu (int): maximum group size. If None, then uses batch
-                size.
+            num_devices (int): number of groups, if None, then uses one group.
 
         Example:
-            >>> print('Collate Image DataContainer')
-            >>> inbatch = [DataContainer.demo('img') for _ in range(5)]
+            >>> print('Collate Image ItemContainer')
+            >>> inbatch = [ItemContainer.demo('img') for _ in range(5)]
             >>> print('inbatch = {}'.format(ub.repr2(inbatch)))
-            >>> result = DataContainer._collate(inbatch, 1)
+            >>> result = ItemContainer._collate(inbatch, 2)
             >>> print('result1 = {}'.format(ub.repr2(result, nl=1)))
-            >>> result = DataContainer._collate(inbatch, 2)
+            >>> result = ItemContainer._collate(inbatch, 1)
             >>> print('result2 = {}'.format(ub.repr2(result, nl=1)))
-            >>> result = DataContainer._collate(inbatch, None)
+            >>> result = ItemContainer._collate(inbatch, None)
             >>> print('resultN = {}'.format(ub.repr2(result, nl=1)))
 
-            >>> print('Collate Label DataContainer')
-            >>> inbatch = [DataContainer.demo('labels') for _ in range(5)]
+            >>> print('Collate Label ItemContainer')
+            >>> inbatch = [ItemContainer.demo('labels') for _ in range(5)]
             >>> print('inbatch = {}'.format(ub.repr2(inbatch, nl=1)))
-            >>> result = DataContainer._collate(inbatch, 1)
+            >>> result = ItemContainer._collate(inbatch, 1)
             >>> print('result1 = {}'.format(ub.repr2(result, nl=1)))
-            >>> result = DataContainer._collate(inbatch, 2)
+            >>> result = ItemContainer._collate(inbatch, 2)
             >>> print('result2 = {}'.format(ub.repr2(result, nl=1)))
-            >>> result = DataContainer._collate(inbatch, None)
+            >>> result = ItemContainer._collate(inbatch, None)
             >>> print('resultN = {}'.format(ub.repr2(result, nl=1)))
         """
         item0 = inbatch[0]
         bsize = len(inbatch)
-        if samples_per_gpu is None:
-            samples_per_gpu = bsize
+        if num_devices is None:
+            num_devices = 1
 
-        # assert bsize % samples_per_gpu == 0
+        samples_per_device = int(np.ceil(bsize / num_devices))
+
+        # assert bsize % samples_per_device == 0
         stacked = []
         if item0.cpu_only:
-
             # chunking logic
             stacked = []
-            for i in range(0, bsize, samples_per_gpu):
+            for i in range(0, bsize, samples_per_device):
                 stacked.append(
-                    [sample.data for sample in inbatch[i:i + samples_per_gpu]])
+                    [sample.data for sample in inbatch[i:i + samples_per_device]])
 
         elif item0.stack:
-            for i in range(0, bsize, samples_per_gpu):
+            for i in range(0, bsize, samples_per_device):
                 item = inbatch[i]
                 pad_dims_ = item.pad_dims
                 assert isinstance(item.data, torch.Tensor)
@@ -215,13 +264,13 @@ class DataContainer(ub.NiceRepr):
                     max_shape = [0 for _ in range(pad_dims_)]
                     for dim in range(1, pad_dims_ + 1):
                         max_shape[dim - 1] = item.shape[-dim]
-                    for sample in inbatch[i:i + samples_per_gpu]:
+                    for sample in inbatch[i:i + samples_per_device]:
                         for dim in range(0, ndim - pad_dims_):
                             assert item.shape[dim] == sample.shape[dim]
                         for dim in range(1, pad_dims_ + 1):
                             max_shape[dim - 1] = max(max_shape[dim - 1], sample.shape[-dim])
                     padded_samples = []
-                    for sample in inbatch[i:i + samples_per_gpu]:
+                    for sample in inbatch[i:i + samples_per_device]:
                         pad = [0 for _ in range(pad_dims_ * 2)]
                         for dim in range(1, pad_dims_ + 1):
                             pad[2 * dim - 1] = max_shape[dim - 1] - sample.shape[-dim]
@@ -233,21 +282,21 @@ class DataContainer(ub.NiceRepr):
                     stacked.append(
                         default_collate([
                             sample.data
-                            for sample in inbatch[i:i + samples_per_gpu]
+                            for sample in inbatch[i:i + samples_per_device]
                         ]))
                 else:
                     raise ValueError(
                         'pad_dims should be either None or integers (1-3)')
 
         else:
-            for i in range(0, bsize, samples_per_gpu):
+            for i in range(0, bsize, samples_per_device):
                 stacked.append(
-                    [sample.data for sample in inbatch[i:i + samples_per_gpu]])
-        result = DataContainer(stacked, **item0.meta)
+                    [sample.data for sample in inbatch[i:i + samples_per_device]])
+        result = BatchContainer(stacked, **item0.meta)
         return result
 
 
-def container_collate(inbatch, samples_per_gpu=1):
+def container_collate(inbatch, num_devices=None):
     """Puts each data field into a tensor/DataContainer with outer dimension
     batch size.
 
@@ -286,38 +335,46 @@ def container_collate(inbatch, samples_per_gpu=1):
         >>>     'im': torch.rand(3, 512, 512),
         >>>     'label': torch.rand(3),
         >>> }
-        >>> batch = items = [item1, item2, item3]
-        >>> raw_batch = container_collate(items)
+        >>> batch = batch_items = [item1, item2, item3]
+        >>> raw_batch = container_collate(batch_items)
+        >>> print('batch_items = {}'.format(ub.repr2(batch_items, nl=2)))
+        >>> print('raw_batch = {}'.format(ub.repr2(raw_batch, nl=2)))
 
-        >>> batch = [
-        >>>     {'im': DataContainer.demo('img'), 'label': DataContainer.demo('labels')},
-        >>>     {'im': DataContainer.demo('img'), 'label': DataContainer.demo('labels')},
-        >>>     {'im': DataContainer.demo('img'), 'label': DataContainer.demo('labels')},
+        >>> batch = batch_items = [
+        >>>     {'im': ItemContainer.demo('img'), 'label': ItemContainer.demo('labels')},
+        >>>     {'im': ItemContainer.demo('img'), 'label': ItemContainer.demo('labels')},
+        >>>     {'im': ItemContainer.demo('img'), 'label': ItemContainer.demo('labels')},
         >>> ]
-        >>> raw_batch = container_collate(batch, samples_per_gpu=6)
-        >>> raw_batch = container_collate(batch, samples_per_gpu=2)
-        >>> raw_batch = container_collate(batch, samples_per_gpu=3)
-        >>> raw_batch = container_collate(batch, samples_per_gpu=4)
-        >>> raw_batch = container_collate(batch, samples_per_gpu=1)
+        >>> raw_batch = container_collate(batch, num_devices=2)
+        >>> print('batch_items = {}'.format(ub.repr2(batch_items, nl=2)))
+        >>> print('raw_batch = {}'.format(ub.repr2(raw_batch, nl=2)))
+
+        >>> raw_batch = container_collate(batch, num_devices=6)
+        >>> raw_batch = container_collate(batch, num_devices=3)
+        >>> raw_batch = container_collate(batch, num_devices=4)
+        >>> raw_batch = container_collate(batch, num_devices=1)
+        >>> print('batch = {}'.format(ub.repr2(batch, nl=1)))
     """
 
     if not isinstance(inbatch, collections.Sequence):
         raise TypeError("{} is not supported.".format(inbatch.dtype))
     item0 = inbatch[0]
-    if isinstance(item0, DataContainer):
-        return item0.__class__._collate(inbatch, samples_per_gpu)
+    if isinstance(item0, ItemContainer):
+        return item0.__class__._collate(inbatch, num_devices=num_devices)
     elif isinstance(item0, collections.Sequence):
         transposed = zip(*inbatch)
-        return [container_collate(samples, samples_per_gpu)
+        return [container_collate(samples,
+                                  num_devices=num_devices)
                 for samples in transposed]
     elif isinstance(item0, collections.Mapping):
         return {
-            key: container_collate([d[key] for d in inbatch], samples_per_gpu)
+            key: container_collate([d[key] for d in inbatch],
+                                   num_devices=num_devices)
             for key in item0
         }
     else:
-        return _collate_else(inbatch, container_collate)
-
+        return default_collate(inbatch)
+        # return _collate_else(inbatch, container_collate)
 
 def _collate_else(batch, collate_func):
     """
@@ -677,8 +734,8 @@ class Hacked_DataParallel(DataParallel):
 
         hack_scatter(inputs, [0, 1])[0]
 
-        inbatch = [DataContainer.demo('img', shape=(1, 1, 1)) for _ in range(5)]
-        im = DataContainer._collate(inbatch, 5)
+        inbatch = [ItemContainer.demo('img', shape=(1, 1, 1)) for _ in range(5)]
+        im = ItemContainer._collate(inbatch, 5)
 
         im = torch.zeros(1, 1, 1, 1).to(0)
         inputs = (im,)
@@ -728,7 +785,7 @@ def hack_scatter(inputs, target_gpus, dim=0):
     def scatter_map(obj):
         if isinstance(obj, torch.Tensor):
             return OrigScatter.apply(target_gpus, None, dim, obj)
-        if isinstance(obj, DataContainer):
+        if isinstance(obj, BatchContainer):
             if obj.cpu_only:
                 return obj.data
             else:
@@ -800,7 +857,7 @@ def hack_gather(outputs, target_device, dim=0):
       (-1 means the CPU).
 
     The only difference from original :func:`gather` is to add support for
-    :type:`DataContainer`.
+    :type:`BatchContainer`.
 
     Ignore:
         >>> from bioharn._hacked_distributed import *  # NOQA
@@ -808,7 +865,7 @@ def hack_gather(outputs, target_device, dim=0):
         >>> rng = kwarray.ensure_rng(0)
         >>> outputs = [
         >>>     {
-        >>>         'batch_results': DataContainer([
+        >>>         'batch_results': BatchContainer([
         >>>             torch.rand(rng.randint(0, 10), 5).to(0)
         >>>             for _ in range(4)
         >>>         ], stack=False),
@@ -818,7 +875,7 @@ def hack_gather(outputs, target_device, dim=0):
         >>>         },
         >>>     },
         >>>     {
-        >>>         'batch_results': DataContainer([
+        >>>         'batch_results': BatchContainer([
         >>>             torch.rand(rng.randint(0, 10), 5).to(1)
         >>>             for _ in range(4)
         >>>         ], stack=False),
@@ -838,7 +895,7 @@ def hack_gather(outputs, target_device, dim=0):
         out = outputs[0]
         if isinstance(out, torch.Tensor):
             return OrigGather.apply(target_device, dim, *outputs)
-        if isinstance(out, DataContainer):
+        if isinstance(out, BatchContainer):
             if out.datatype is list:
                 newdata = [d for dc in outputs
                            for d in dc.data]
@@ -908,7 +965,7 @@ def nestshape(data):
         import numpy as np
         if isinstance(d, dict):
             return ub.odict(sorted([(k, _recurse(v)) for k, v in d.items()]))
-        elif type(d).__name__.endswith('DataContainer'):
+        elif 'Container' in type(d).__name__:
             meta = ub.odict(sorted([
                 ('stack', d.stack),
                 ('padding_value', d.padding_value),
@@ -917,7 +974,7 @@ def nestshape(data):
                 ('cpu_only', d.cpu_only),
             ]))
             meta = ub.repr2(meta, nl=0)
-            return {'DataContainer' + meta: _recurse(d.data)}
+            return {type(d).__name__ + meta: _recurse(d.data)}
         elif isinstance(d, list):
             return [_recurse(v) for v in d]
         elif isinstance(d, tuple):
