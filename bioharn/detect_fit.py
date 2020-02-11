@@ -198,7 +198,7 @@ class DetectHarn(nh.FitHarn):
                 batch['im'] = torch.cat([orig_im, disparity], dim=1)
 
             batch = batch.copy()
-            # batch.pop('tr')
+            batch.pop('tr')
 
             if False:
 
