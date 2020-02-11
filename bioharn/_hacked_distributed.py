@@ -634,21 +634,53 @@ class Hacked_DataParallel(DataParallel):
 
     Ignore:
 
-        raw_model = torch.nn.Conv2d(1, 1, 1)
-        raw_model = raw_model.to(0)
-        inputs = torch.zeros(2, 1, 1, 1).to(0)
+        import netharn as nh
+        class MyModel(nh.layers.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(1, 1, 1)
 
-        raw_model.forward(inputs)
+            def forward(self, im, **kwargs):
+                return self.conv(im)
+
+        raw_model = MyModel()
+        raw_model = raw_model.to(0)
+
+        im = torch.zeros(2, 1, 1, 1).to(0)
+        raw_model.forward(im)
 
         model = DataParallel(raw_model, device_ids=[0, 1], output_device=0)
-        model.forward(inputs)
+        model.forward(im)
 
         inbatch = [DataContainer.demo('img', shape=(1, 1, 1)) for _ in range(5)]
-        inputs = DataContainer._collate(inbatch, 5)
+        im = DataContainer._collate(inbatch, 5)
+
+        kwargs = dict(return_loss=True, return_result=False)
+        inputs = (im,)
 
         model = Hacked_DataParallel(raw_model, device_ids=[0, 1], output_device=0)
-        model.forward(inputs)
+        model.forward(*inputs, **kwargs)
     """
+
+    def forward(self, *inputs, **kwargs):
+        """
+        Unchanged version for torch.nn.DataParallel
+        """
+        if not self.device_ids:
+            return self.module(*inputs, **kwargs)
+
+        for t in chain(self.module.parameters(), self.module.buffers()):
+            if t.device != self.src_device_obj:
+                raise RuntimeError("module must have its parameters and buffers "
+                                   "on device {} (device_ids[0]) but found one of "
+                                   "them on device: {}".format(self.src_device_obj, t.device))
+
+        inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
+        if len(self.device_ids) == 1:
+            return self.module(*inputs[0], **kwargs[0])
+        replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
+        outputs = self.parallel_apply(replicas, inputs, kwargs)
+        return self.gather(outputs, self.output_device)
 
     def scatter(self, inputs, kwargs, device_ids):
         return hack_scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
