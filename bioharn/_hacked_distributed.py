@@ -95,14 +95,15 @@ class DataContainer(ub.NiceRepr):
         return 'nestshape(data)={}, **{}'.format(shape_repr, ub.repr2(self.meta, nl=0))
 
     @classmethod
-    def demo(cls, key='img', rng=None):
+    def demo(cls, key='img', rng=None, **kwargs):
         """
         Create data for tests
         """
         import kwarray
         rng = kwarray.ensure_rng(rng)
         if key == 'img':
-            data = rng.rand(3, 512, 512)
+            shape = kwargs.get('shape', (3, 512, 512))
+            data = rng.rand(*shape)
             data = torch.from_numpy(data)
             self = cls(data, stack=True)
         elif key == 'labels':
@@ -629,6 +630,21 @@ class HackedScatter(object):
 
 
 class Hacked_DataParallel(DataParallel):
+    """
+
+    Ignore:
+
+        raw_model = torch.nn.Conv2d(1, 1, 1)
+        raw_model = raw_model.to(0)
+        inputs = torch.zeros(2, 1, 1, 1).to(0)
+
+        raw_model.forward(inputs)
+
+        model = DataParallel(raw_model, device_ids=[0, 1], output_device=0)
+        model.forward(inputs)
+
+        inbatch = [DataContainer.demo('img', shape=(1, 1, 1)) for _ in range(5)]
+    """
 
     def scatter(self, inputs, kwargs, device_ids):
         return hack_scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)

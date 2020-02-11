@@ -165,9 +165,9 @@ class DetectHarn(nh.FitHarn):
         Example:
             >>> # DISABLE_DOCTSET
             >>> #harn = setup_harn(bsize=2, datasets='special:habcam', arch='cascade', init='noop', xpu=None, use_disparity=True, workers=0, normalize_inputs=False)
-            >>> harn = setup_harn(bsize=2, datasets='special:shapes7', arch='cascade', init='noop', xpu=(0,1), workers=0, batch_size=3, normalize_inputs=False)
+            >>> harn = setup_harn(bsize=2, datasets='special:shapes5', arch='cascade', init='noop', xpu=(0,1), workers=0, batch_size=3, normalize_inputs=False)
             >>> harn.initialize()
-            >>> batch = harn._demo_batch(1, 'train')
+            >>> batch = harn._demo_batch(2, 'vali')
             >>> outputs, loss = harn.run_batch(batch)
 
         """
