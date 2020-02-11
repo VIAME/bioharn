@@ -262,6 +262,11 @@ class DetectPredictor(object):
         else:
             shift_xy_ = shift_xy
 
+        if 'disparity' in batch and self.model.module.in_channels > 3:
+            batch = batch.copy()
+            batch['im'] = torch.cat([batch['im'], batch['disparity']], dim=1)
+            pass
+
         # All GPU work happens in this line
         if hasattr(self.model.module, 'detector'):
             # HACK FOR MMDET MODELS
@@ -340,6 +345,8 @@ class DetectPredictor(object):
                     'im': xpu.move(raw_batch['im']),
                     'tf_chip_to_full': raw_batch['tf_chip_to_full'],
                 }
+                if 'disparity' in raw_batch:
+                    batch['disparity'] = xpu.move(raw_batch['disparity']),
                 batch_gids = raw_batch['gid'].view(-1).numpy()
                 batch_dets = list(self._predict_batch(batch))
 
@@ -562,11 +569,13 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             letterbox.target_size = self.input_dims[::-1]
             # Record the inverse transformation
             chip_size = np.array(chip_dims[::-1])
+            inputs_dims = self.input_dims
             input_size = np.array(self.input_dims[::-1])
             shift, scale, embed_size = letterbox._letterbox_transform(chip_size, input_size)
             # Resize the image
             chip_hwc = letterbox.augment_image(chip_hwc)
         else:
+            letterbox = None
             shift = [0, 0]
             scale = [1, 1]
         scale_xy = torch.FloatTensor(scale)
@@ -600,6 +609,29 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             'gid': torch.LongTensor([gid]),
             'tf_chip_to_full': tf_chip_to_full,
         }
+
+        sampler = self.sampler
+        img = sampler.dset.imgs[gid]
+        if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
+            from bioharn.detect_dataset import _cached_habcam_disparity_frame
+            disp_frame = _cached_habcam_disparity_frame(sampler, gid)
+            data_dims = ((img['width'] // 2), img['height'])
+            pad = 0
+            data_slice, extra_padding, st_dims = sampler._rectify_tr(
+                tr, data_dims, window_dims=None, pad=pad)
+            # Load the image data
+            disp_im = disp_frame[data_slice]
+            if extra_padding:
+                if disp_im.ndim != len(extra_padding):
+                    extra_padding = extra_padding + [(0, 0)]  # Handle channels
+                disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
+            if letterbox is not None:
+                disp_im = letterbox.augment_image(disp_im)
+            if len(disp_im.shape) == 2:
+                disp_im = disp_im[None, :, :]
+            else:
+                disp_im = disp_im.transpose(2, 0, 1)
+            item['disparity'] = torch.FloatTensor(disp_im)
         return item
 
 
@@ -773,19 +805,22 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
     det_outdir = ub.ensuredir((out_dpath, 'pred'))
 
-    if enable_cache:
-        # Figure out what gids have already been computed
-        import glob
-        cached_fpaths = list(glob.glob(join(det_outdir, '*.json')))
-        have_gids = [int(basename(fpath).split('_')[2].split('.')[0])
-                     for fpath in cached_fpaths]
-    else:
-        have_gids = []
-
     print('Found {} existing predictions'.format(len(have_gids)))
 
     if gids is None:
         gids = list(coco_dset.imgs.keys())
+
+
+    gid_to_pred_fpath = {
+        gid: join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+        for gid in gids
+    }
+
+    if enable_cache:
+        # Figure out what gids have already been computed
+        have_gids = [gid for gid, fpath in gid_to_pred_fpath.items() if exists(fpath)]
+    else:
+        have_gids = []
 
     gids = ub.oset(gids) - have_gids
 
@@ -801,6 +836,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
     prog = ub.ProgIter(gen, total=coco_dset.n_images,
                        desc='buffered detect (caching)')
     for img_idx, (gid, dets) in enumerate(prog):
+        break
         gid_to_pred[gid] = dets
 
         img = coco_dset.imgs[gid]

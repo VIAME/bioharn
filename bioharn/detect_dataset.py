@@ -194,21 +194,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
             DO_HABCAM_DISPARITY = True
             if DO_HABCAM_DISPARITY:
-                img_hashid = self.sampler.frames._lookup_hashid(gid)
-                disp_cache_dpath = ub.ensuredir((self.sampler.frames.workdir, '_cache', '_disp_v6'))
-                disp_cache_fpath = join(disp_cache_dpath, img_hashid + '_disp_v6.cog.tif')
-                if not exists(disp_cache_fpath):
-                    # Note: probably should be atomic
-                    img3 = self.sampler.dset.load_image(gid)
-                    imgL = img3[:, 0:img3.shape[1] // 2]
-                    imgR = img3[:, img3.shape[1] // 2:]
-                    img_disparity = multipass_disparity(
-                        imgL, imgR, scale=0.5, as01=True)
-                    img_disparity = img_disparity.astype(np.float32)
-
-                    ndsampler.utils.util_gdal._imwrite_cloud_optimized_geotiff(
-                        disp_cache_fpath, img_disparity, compress='DEFLATE')
-                disp_frame = ndsampler.utils.util_gdal.LazyGDalFrameFile(disp_cache_fpath)
+                disp_frame = _cached_habcam_disparity_frame(sampler, gid)
 
                 data_dims = ((img['width'] // 2), img['height'])
                 data_slice, extra_padding, st_dims = self.sampler._rectify_tr(
@@ -1189,3 +1175,23 @@ def multipass_disparity(img_left, img_right, outlier_percent=3,
         disp_img = kwimage.imresize(disp_img, dsize=orig_size,
                                     interpolation='nearest')
     return disp_img
+
+
+def _cached_habcam_disparity_frame(sampler, gid):
+    import ndsampler
+    img_hashid = sampler.frames._lookup_hashid(gid)
+    disp_cache_dpath = ub.ensuredir((sampler.frames.workdir, '_cache', '_disp_v6'))
+    disp_cache_fpath = join(disp_cache_dpath, img_hashid + '_disp_v6.cog.tif')
+    if not exists(disp_cache_fpath):
+        # Note: probably should be atomic
+        img3 = sampler.dset.load_image(gid)
+        imgL = img3[:, 0:img3.shape[1] // 2]
+        imgR = img3[:, img3.shape[1] // 2:]
+        img_disparity = multipass_disparity(
+            imgL, imgR, scale=0.5, as01=True)
+        img_disparity = img_disparity.astype(np.float32)
+
+        ndsampler.utils.util_gdal._imwrite_cloud_optimized_geotiff(
+            disp_cache_fpath, img_disparity, compress='DEFLATE')
+    disp_frame = ndsampler.utils.util_gdal.LazyGDalFrameFile(disp_cache_fpath)
+    return disp_frame

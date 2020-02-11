@@ -1,4 +1,7 @@
 from os.path import exists
+from os.path import join
+from os.path import dirname
+import os
 import ndsampler
 import kwimage
 import netharn as nh
@@ -41,12 +44,16 @@ class DetectEvaluateConfig(scfg.Config):
         'workdir': scfg.Path('~/work/bioharn', help='Dump all results in your workdir'),
 
         'out_dpath': scfg.Path('./detect_eval_out/', help='folder to send the output'),
+
+        'eval_in_train_dpath': scfg.Path(True, help='write eval results into the training directory if its known'),
     }
 
 
 def evaluate_models(**kw):
     """
     Evaluate multiple models using a config file or CLI.
+
+    /home/joncrall/work/bioharn/fit/nice/bioharn-det-v16-cascade/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP.zip
 
     Ignore:
         from bioharn.detect_eval import *  # NOQA
@@ -129,11 +136,14 @@ class DetectEvaluator(object):
     """
     Ignore:
         from bioharn.detect_eval import *  # NOQA
-        config = {'xpu': 0, 'batch_size': 6}
-        config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000044.pt')
+        config = {'xpu': 0, 'batch_size': 2}
+        # config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000044.pt')
         # config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v10-test-retinanet/deploy_MM_RetinaNet_daodqsmy_010_QRNNNW.zip'
         # config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v11-test-cascade/deploy_MM_CascadeRCNN_ovphtcvk_037_HZUJKO.zip'
-        self = DetectEvaluator(config)
+        config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v16-cascade/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP.zip'
+        config['dataset'] = ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
+
+        evaluator = self = DetectEvaluator(config)
         self._init()
 
         self.evaluate()
@@ -218,7 +228,34 @@ class DetectEvaluator(object):
         self.paths = {}
         out_dpath = ub.ensuredir(self.config['out_dpath'])
 
-        self.paths['base'] = ub.ensuredir((out_dpath, self.dset_tag, self.model_tag, self.pred_cfg))
+        base_dpath = join(out_dpath, self.dset_tag, self.model_tag, self.pred_cfg)
+
+        class UnknownTrainDpath(Exception):
+            pass
+
+        try:
+            if self.config['eval_in_train_dpath']:
+                # NOTE: the train_dpath in the info directory is wrt to the
+                # machine the model was trained on. Used the deployed model to
+                # grab that path instead wrt to the current machine.
+                if deployed.path is None:
+                    train_dpath = dirname(deployed.info['train_info_fpath'])
+                else:
+                    train_dpath = dirname(deployed.path)
+                print('train_dpath = {!r}'.format(train_dpath))
+                eval_dpath = join(train_dpath, 'eval', self.dset_tag,
+                                  self.model_tag, self.pred_cfg)
+                ub.ensuredir(eval_dpath)
+                ub.ensuredir(dirname(base_dpath))
+                if not os.path.islink(base_dpath) and exists(base_dpath):
+                    ub.delete(base_dpath)
+                ub.symlink(eval_dpath, base_dpath, overwrite=True)
+            else:
+                raise UnknownTrainDpath
+        except UnknownTrainDpath:
+            ub.ensuredir(base_dpath)
+
+        self.paths['base'] = base_dpath
         self.paths['metrics'] = ub.ensuredir((self.paths['base'], 'metrics'))
         self.paths['viz'] = ub.ensuredir((self.paths['base'], 'viz'))
 
@@ -227,8 +264,9 @@ class DetectEvaluator(object):
         sampler = self.sampler
         # pred_gen = self.predictor.predict_sampler(sampler)
 
+        out_dpath = self.paths['base']
         gid_to_pred = detect_predict._cached_predict(
-            self.predictor, sampler, self.paths['base'], gids=None, draw=10,
+            self.predictor, sampler, out_dpath, gids=None, draw=10,
             enable_cache=True)
 
         return gid_to_pred

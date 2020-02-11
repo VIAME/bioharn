@@ -736,12 +736,13 @@ def setup_harn(cmdline=True, **kw):
     print('hyper = {!r}'.format(hyper))
     print('make harn')
     harn = DetectHarn(hyper=hyper)
-    harn.config.update({
+    harn.preferences.update({
         'num_keep': 2,
         'keep_freq': 30,
         'export_modules': ['bioharn'],  # TODO
         'prog_backend': 'progiter',  # alternative: 'tqdm'
         'keyboard_debug': True,
+        'eager_dump_tensorboard': True,
     })
     harn.intervals.update({
         'log_iter_train': 50,
@@ -958,7 +959,7 @@ if __name__ == '__main__':
             --workdir=$HOME/work/bioharn \
             --arch=cascade \
             --use_disparity=True \
-            --optim=adamw --lr=1e-3 \
+            --optim=sgd --lr=1e-3 \
             --input_dims=window \
             --window_dims=1024,1024 \
             --window_overlap=0.0 \
