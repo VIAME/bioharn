@@ -389,7 +389,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         item = {
             'im': DataContainer(chw01, stack=True),
             'label': label,
-            'tr': DataContainer(sample['tr'], stack=True),
+            'tr': DataContainer(sample['tr'], stack=False),
         }
 
         if disp_im is not None:
