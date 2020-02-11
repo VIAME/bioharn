@@ -1,6 +1,10 @@
 from os.path import join
 import numpy as np
 import ubelt as ub
+import warnings
+from sklearn.utils.validation import check_array
+from sklearn.externals.six.moves import zip
+from sklearn.model_selection._split import (_BaseKFold,)
 
 
 def main():
@@ -9,6 +13,8 @@ def main():
     """
     import pandas as pd
     csv_fpath =  ub.expandpath('~/raid/data/noaa/2015_Habcam_photos/Habcam_2015_AnnotatedObjects.csv')
+    csv_fpath =  ub.expandpath('~/remote/viame/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_AnnotatedObjects.csv')
+    assert exists(csv_fpath)
     df = pd.read_csv(csv_fpath)
 
     records = df.to_dict(orient='records')
@@ -25,48 +31,54 @@ def main():
 
     # Simplify the categories
     catname_map = {
-        'American Lobster': None,
-        'monkfish': None,
-        'squid': None,
-        'probably didemnum': None,
+
         'dead sea scallop inexact': 'dead sea scallop',
-        'unidentified fish (less than half)': None,
-        'unidentified flatfish (less than half)': None,
-        'probable scallop-like rock': None,
         'probable swimming sea scallop inexact': 'swimming sea scallop',
         'probable dead sea scallop width': 'dead sea scallop',
         'sea scallop clapper inexact': 'dead sea scallop',
         'probable dead sea scallop inexact': 'dead sea scallop',
-        'unidentified fish': None,
-        'convict worm': None,
         'dead sea scallop': 'dead sea scallop',
-        'unidentified skate (less than half)': None,
+
+        'American Lobster': 'lobster',
+        'monkfish': 'monkfish',
+        'squid': 'squid',
+
+        'probably didemnum': 'didemnum',
+        'probable scallop-like rock': 'rock',
+
         'probable swimming sea scallop': 'swimming sea scallop',
         'sea scallop clapper width': 'dead sea scallop',
         'sea scallop clapper': 'dead sea scallop',
-        'unidentified roundfish (less than half)': None,
+
+        'unidentified fish (less than half)': 'fish',
+        'unidentified fish': 'fish',
+
+        'unidentified roundfish (less than half)': 'roundfish',
+        'unidentified roundfish': 'roundfish',
+
+        'unidentified flatfish (less than half)': 'flatfish',
+        'unidentified flatfish': 'flatfish',
+
+        'convict worm': 'convict worm',
+
+        'dust cloud': 'dust cloud',
+        'waved whelk': 'waved whelk',
+
+        'unidentified skate (less than half)': 'skate',
+        'unidentified skate': 'skate',
+
+        'jonah or rock crab': 'crab',
+
         'swimming sea scallop inexact':  'swimming sea scallop',
         'probable dead sea scallop': 'dead sea scallop',
-        'dust cloud': None,
-        'waved whelk': None,
-        'unidentified flatfish': None,
-        'unidentified skate': None,
         'swimming sea scallop width': 'swimming sea scallop',
         'probable live sea scallop inexact': 'live sea scallop',
-        'jonah or rock crab': None,
         'probable live sea scallop': 'live sea scallop',
         'live sea scallop inexact': 'live sea scallop',
-        'unidentified roundfish': None,
         'swimming sea scallop': 'swimming sea scallop',
         'live sea scallop width': 'live sea scallop',
         'live sea scallop': 'live sea scallop',
     }
-
-    if True:
-        # do one category
-        for key in catname_map:
-            if catname_map[key] is not None:
-                catname_map[key] = 'scallop'
 
     import ndsampler
     coco_dset = ndsampler.CocoDataset()
@@ -134,6 +146,7 @@ def main():
         cat_name = catname_map[object_name]
         if cat_name is None:
             cat_name = 'other'
+            print('cat_name = {!r}'.format(cat_name))
 
         try:
             cid = coco_dset._resolve_to_cid(cat_name)
@@ -166,23 +179,10 @@ def main():
     coco_dset.remove_annotations(weird_anns)
 
     # populate image size / remove bad images
-    from PIL import Image
-    coco_dset.dataset['img_root'] = '2015_Habcam_photos'
-    coco_dset.img_root = ub.expandpath('~/raid/data/noaa/2015_Habcam_photos')
-    bad_images = []
-    for img in ub.ProgIter(coco_dset.dataset['images'],
-                           verbose=1):
-        gpath = join(coco_dset.img_root, img['file_name'])
-        if 'width' not in img:
-            try:
-                pil_img = Image.open(gpath)
-                w, h = pil_img.size
-                pil_img.close()
-            except OSError:
-                bad_images.append(img)
-            else:
-                img['width'] = w
-                img['height'] = h
+    coco_dset.dataset.pop('img_root', None)
+    coco_dset.img_root = dirname(csv_fpath)
+    bad_images = coco_dset._ensure_imgsize(workers=16, fail=False)
+
     coco_dset.remove_images(bad_images)
 
     # Add special tag indicating a stereo image
@@ -192,8 +192,7 @@ def main():
     stats = coco_dset.basic_stats()
     suffix = 'g{n_imgs:06d}_a{n_anns:08d}_c{n_cats:04d}'.format(**stats)
 
-    coco_dset.dataset['img_root'] = '2015_Habcam_photos'
-    coco_dset.fpath = ub.expandpath('~/raid/data/noaa/Habcam_2015_{}_v2.mscoco.json'.format(suffix))
+    coco_dset.fpath = ub.augpath(csv_fpath, ext='', base='Habcam_2015_{}_v3.mscoco.json'.format(suffix))
 
     datasets = train_vali_split(coco_dset)
     print('datasets = {!r}'.format(datasets))
@@ -201,6 +200,7 @@ def main():
     coco_dset.dump(coco_dset.fpath, newlines=True)
     for tag, tag_dset in datasets.items():
         print('{} fpath = {!r}'.format(tag, tag_dset.fpath))
+        print(ub.repr2(tag_dset.category_annotation_frequency()))
         tag_dset.dump(tag_dset.fpath, newlines=True)
 
     """
@@ -302,13 +302,12 @@ def train_vali_split(coco_dset):
 
 
 def _split_train_vali_test_gids(coco_dset, factor=2):
-    import kwil
     import kwarray
 
     def _stratified_split(gids, cids, n_splits=2, rng=None):
         """ helper to split while trying to maintain class balance within images """
         rng = kwarray.ensure_rng(rng)
-        selector = kwil.StratifiedGroupKFold(n_splits=n_splits, random_state=rng)
+        selector = StratifiedGroupKFold(n_splits=n_splits, random_state=rng)
         skf_list = list(selector.split(X=gids, y=cids, groups=gids))
         trainx, testx = skf_list[0]
         return trainx, testx
@@ -321,7 +320,7 @@ def _split_train_vali_test_gids(coco_dset, factor=2):
         gids.extend([gid_] * len(cids_))
 
     # Split into learn/test then split learn into train/vali
-    rng = kwil.ensure_rng(1617402282)
+    rng = kwarray.ensure_rng(1617402282)
     # FIXME: make train bigger with 2
     learnx, testx = _stratified_split(gids, cids, rng=rng,
                                       n_splits=factor)
@@ -339,6 +338,134 @@ def _split_train_vali_test_gids(coco_dset, factor=2):
     }
     print('splits = {}'.format(ub.repr2(ub.map_vals(len, split_gids))))
     return split_gids
+
+
+class StratifiedGroupKFold(_BaseKFold):
+    """Stratified K-Folds cross-validator with Grouping
+
+    Provides train/test indices to split data in train/test sets.
+
+    This cross-validation object is a variation of GroupKFold that returns
+    stratified folds. The folds are made by preserving the percentage of
+    samples for each class.
+
+    Read more in the :ref:`User Guide <cross_validation>`.
+
+    Parameters
+    ----------
+    n_splits : int, default=3
+        Number of folds. Must be at least 2.
+    """
+
+    def __init__(self, n_splits=3, shuffle=False, random_state=None):
+        super(StratifiedGroupKFold, self).__init__(n_splits, shuffle, random_state)
+
+    def _make_test_folds(self, X, y=None, groups=None):
+        """
+        Args:
+            X (ndarray): data
+            y (ndarray): labels
+            groups (ndarray): groupids for items. Items with the same groupid
+                must be placed in the same group.
+
+        Returns:
+            list: test_folds
+
+        Example:
+            >>> groups = [1, 1, 3, 4, 2, 2, 7, 8, 8]
+            >>> y      = [1, 1, 1, 1, 2, 2, 2, 3, 3]
+            >>> X = np.empty((len(y), 0))
+            >>> rng = kwarray.ensure_rng(0)
+            >>> self = StratifiedGroupKFold(random_state=rng)
+            >>> skf_list = list(self.split(X=X, y=y, groups=groups))
+            ...
+            >>> import ubelt as ub
+            >>> print(ub.repr2(skf_list, nl=1, with_dtype=False))
+            [
+                (np.array([2, 3, 4, 5, 6]), np.array([0, 1, 7, 8])),
+                (np.array([0, 1, 2, 7, 8]), np.array([3, 4, 5, 6])),
+                (np.array([0, 1, 3, 4, 5, 6, 7, 8]), np.array([2])),
+            ]
+        """
+        import kwarray
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', 'invalid value')
+            n_splits = self.n_splits
+            y = np.asarray(y)
+            n_samples = y.shape[0]
+
+            unique_y, y_inversed = np.unique(y, return_inverse=True)
+            n_classes = max(unique_y) + 1
+            unique_groups, group_idxs = kwarray.group_indices(groups)
+            grouped_y = kwarray.apply_grouping(y, group_idxs)
+            grouped_y_counts = np.array([
+                np.bincount(y_, minlength=n_classes) for y_ in grouped_y])
+
+            target_freq = grouped_y_counts.sum(axis=0)
+            target_freq = target_freq.astype(np.float)
+            target_ratio = target_freq / float(target_freq.sum())
+
+            # Greedilly choose the split assignment that minimizes the local
+            # * squared differences in target from actual frequencies
+            # * and best equalizes the number of items per fold
+            # Distribute groups with most members first
+            split_freq = np.zeros((n_splits, n_classes))
+            # split_ratios = split_freq / split_freq.sum(axis=1)
+            split_ratios = np.ones(split_freq.shape) / split_freq.shape[1]
+            split_diffs = ((split_freq - target_ratio) ** 2).sum(axis=1)
+            sortx = np.argsort(grouped_y_counts.sum(axis=1))[::-1]
+            grouped_splitx = []
+
+            # import ubelt as ub
+            # print(ub.repr2(grouped_y_counts, nl=-1))
+            # print('target_ratio = {!r}'.format(target_ratio))
+
+            for count, group_idx in enumerate(sortx):
+                # print('---------\n')
+                group_freq = grouped_y_counts[group_idx]
+                cand_freq = (split_freq + group_freq)
+                cand_freq = cand_freq.astype(np.float)
+                cand_ratio = cand_freq / cand_freq.sum(axis=1)[:, None]
+                cand_diffs = ((cand_ratio - target_ratio) ** 2).sum(axis=1)
+                # Compute loss
+                losses = []
+                # others = np.nan_to_num(split_diffs)
+                other_diffs = np.array([
+                    sum(split_diffs[x + 1:]) + sum(split_diffs[:x])
+                    for x in range(n_splits)
+                ])
+                # penalize unbalanced splits
+                ratio_loss = other_diffs + cand_diffs
+                # penalize heavy splits
+                freq_loss = split_freq.sum(axis=1)
+                freq_loss = freq_loss.astype(np.float)
+                freq_loss = freq_loss / freq_loss.sum()
+                losses = ratio_loss + freq_loss
+                #-------
+                splitx = np.argmin(losses)
+                # print('losses = %r, splitx=%r' % (losses, splitx))
+                split_freq[splitx] = cand_freq[splitx]
+                split_ratios[splitx] = cand_ratio[splitx]
+                split_diffs[splitx] = cand_diffs[splitx]
+                grouped_splitx.append(splitx)
+
+            test_folds = np.empty(n_samples, dtype=np.int)
+            for group_idx, splitx in zip(sortx, grouped_splitx):
+                idxs = group_idxs[group_idx]
+                test_folds[idxs] = splitx
+
+        return test_folds
+
+    def _iter_test_masks(self, X, y=None, groups=None):
+        test_folds = self._make_test_folds(X, y, groups)
+        for i in range(self.n_splits):
+            yield test_folds == i
+
+    def split(self, X, y, groups=None):
+        """Generate indices to split data into training and test set.
+        """
+        y = check_array(y, ensure_2d=False, dtype=None)
+        return super(StratifiedGroupKFold, self).split(X, y, groups)
 
 """
 

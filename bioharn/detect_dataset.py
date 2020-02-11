@@ -374,7 +374,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
         }
 
         if disp_im is not None:
-            item['disparity'] = torch.FloatTensor(disp_im[None, :, :])
+            item['disparity'] = DataContainer(
+                torch.FloatTensor(disp_im[None, :, :]),
+                stack=True)
 
         return item
 

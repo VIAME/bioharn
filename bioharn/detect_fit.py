@@ -83,7 +83,7 @@ class DetectFitConfig(scfg.Config):
 
         # Hacked Dynamics
         'warmup_iters': 800,
-        'warmup_ratio': 1.0 / 10.0,
+        'warmup_ratio': 0.1,
         'grad_norm_max': 35,
         'grad_norm_type': 2,
 
@@ -165,7 +165,9 @@ class DetectHarn(nh.FitHarn):
         Example:
             >>> # DISABLE_DOCTSET
             >>> #harn = setup_harn(bsize=2, datasets='special:habcam', arch='cascade', init='noop', xpu=None, use_disparity=True, workers=0, normalize_inputs=False)
-            >>> harn = setup_harn(bsize=2, datasets='special:shapes5', arch='cascade', init='noop', xpu=(0,1), workers=0, batch_size=3, normalize_inputs=False)
+            >>> harn = setup_harn(bsize=2, datasets='special:shapes5',
+            >>>                   arch='cascade', init='noop', xpu=(0,1),
+            >>>                   workers=0, batch_size=3, normalize_inputs=False)
             >>> harn.initialize()
             >>> batch = harn._demo_batch(2, 'vali')
             >>> outputs, loss = harn.run_batch(batch)
@@ -676,11 +678,6 @@ def setup_harn(cmdline=True, **kw):
     print('optimizer_ = {!r}'.format(optimizer_))
 
     dynamics_ = nh.Dynamics.coerce(config)
-    if True:
-        dynamics_['warmup_iters'] = config['warmup_iters']
-        dynamics_['warmup_ratio'] = config['warmup_ratio']
-        dynamics_['grad_norm_max'] = config['grad_norm_max']
-        dynamics_['grad_norm_type'] = config['grad_norm_type']
     print('dynamics_ = {!r}'.format(dynamics_))
 
     import sys
@@ -923,6 +920,26 @@ if __name__ == '__main__':
             --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-v16-cascade/ozeaiwmm/explit_checkpoints/_epoch_00000000_2019-12-12T185656+5.pt \
             --normalize_inputs=False \
             --workers=4 --xpu=1 --batch_size=8 --bstep=4
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v17-cascade-mc-disp \
+            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
+            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --use_disparity=True \
+            --optim=adamw --lr=3e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.3 \
+            --multiscale=True \
+            --normalize_inputs=False \
+            --workers=4 --xpu=0 --batch_size=16 --bstep=1
+
+
+        $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json
 
         # --pretrained='https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth' \
 
