@@ -164,7 +164,8 @@ class DetectHarn(nh.FitHarn):
 
         Example:
             >>> # DISABLE_DOCTSET
-            >>> harn = setup_harn(bsize=2, datasets='special:habcam', arch='cascade', init='noop', xpu=None, use_disparity=True, workers=0, normalize_inputs=False)
+            >>> #harn = setup_harn(bsize=2, datasets='special:habcam', arch='cascade', init='noop', xpu=None, use_disparity=True, workers=0, normalize_inputs=False)
+            >>> harn = setup_harn(bsize=2, datasets='special:shapes256', arch='cascade', init='noop', xpu=(0,1), workers=0, normalize_inputs=False)
             >>> harn.initialize()
             >>> batch = harn._demo_batch(0, 'vali')
             >>> outputs, loss = harn.run_batch(batch)
@@ -197,7 +198,7 @@ class DetectHarn(nh.FitHarn):
                 batch['im'] = torch.cat([orig_im, disparity], dim=1)
 
             batch = batch.copy()
-            batch.pop('tr')
+            # batch.pop('tr')
 
             if False:
 
@@ -778,6 +779,21 @@ if __name__ == '__main__':
             --multiscale=True \
             --normalize_inputs=True \
             --workers=0 --xpu=1,0 --batch_size=8 --bstep=4
+
+        python -m bioharn.detect_fit \
+            --nice=demo_shapes \
+            --datasets=special:shapes256 \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.2 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=0 --xpu=1 --batch_size=8 --bstep=4
 
         python -m bioharn.detect_fit \
             --nice=bioharn-test-yolo \

@@ -233,6 +233,7 @@ def associate_detections(true_dset, pred_dsets):
 
 def main():
     true_dset, pred_dsets = load_candidate_detections()
+    associate_detections(true_dset, pred_dsets)
 
 
 if __name__ == '__main__':

@@ -292,14 +292,14 @@ def container_collate(inbatch, samples_per_gpu=1):
         >>>     {'im': DataContainer.demo('img'), 'label': DataContainer.demo('labels')},
         >>>     {'im': DataContainer.demo('img'), 'label': DataContainer.demo('labels')},
         >>> ]
-        >>> raw_batch = container_collate(batch)
+        >>> raw_batch = container_collate(batch, samples_per_gpu=2)
     """
 
     if not isinstance(inbatch, collections.Sequence):
         raise TypeError("{} is not supported.".format(inbatch.dtype))
     item0 = inbatch[0]
     if isinstance(item0, DataContainer):
-        return item0.__class__._collate(inbatch)
+        return item0.__class__._collate(inbatch, samples_per_gpu)
     elif isinstance(item0, collections.Sequence):
         transposed = zip(*inbatch)
         return [container_collate(samples, samples_per_gpu)

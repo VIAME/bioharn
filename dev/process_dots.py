@@ -405,7 +405,7 @@ def gather_raw_biologist_data():
     what we want to process.
 
     Each of these folders contains:
-        * a list of imges with blacked out regions and dots.
+        * a list of images with blacked out regions and dots.
         * An [Originals] folder with images that also contains dots, text, but
             no blacked out region
         * An Original folder that actually has original images in it.
@@ -721,11 +721,13 @@ def _prepare_master_coco():
         print('base_folder = {!r}'.format(base_folder))
         img['year_code'] = base_folder
 
-    for img in merged.imgs.values():
-        assert exists(join(img['file_name']))
-        rel_file_name = relpath(realpath(img['file_name']), realpath(real_img_root))
-        img['file_name'] = rel_file_name
-        assert exists(join(real_img_root, img['file_name']))
+    merged.rebase(real_img_root)
+
+    # for img in merged.imgs.values():
+    #     assert exists(join(img['file_name']))
+    #     rel_file_name = relpath(realpath(img['file_name']), realpath(real_img_root))
+    #     img['file_name'] = rel_file_name
+    #     assert exists(join(real_img_root, img['file_name']))
 
     if False:
         # Remove all categories
