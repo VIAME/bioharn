@@ -227,11 +227,11 @@ class DataContainer(ub.NiceRepr):
                             pad[2 * dim - 1] = max_shape[dim - 1] - sample.shape[-dim]
                         padded_samples.append(
                             F.pad(sample.data, pad, value=sample.padding_value))
-                    stacked.append(_collate_else(padded_samples))
+                    stacked.append(default_collate(padded_samples))
 
                 elif pad_dims_ is None:
                     stacked.append(
-                        _collate_else([
+                        default_collate([
                             sample.data
                             for sample in inbatch[i:i + samples_per_gpu]
                         ]))
