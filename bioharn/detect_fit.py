@@ -193,10 +193,10 @@ class DetectHarn(nh.FitHarn):
                 batch = batch.copy()
                 # hack in 4th channel
                 orig_im = batch['im']
-                if len(batch['disparity'].shape) == 3:
-                    disparity = batch['disparity'].unsqueeze(1)
+                if len(batch['disparity'].data.shape) == 3:
+                    disparity = batch['disparity'].data.unsqueeze(1)
                 else:
-                    disparity = batch['disparity']
+                    disparity = batch['disparity'].data
                 batch['im'] = torch.cat([orig_im, disparity], dim=1)
 
             batch = batch.copy()
@@ -936,7 +936,7 @@ if __name__ == '__main__':
             --window_overlap=0.3 \
             --multiscale=True \
             --normalize_inputs=False \
-            --workers=4 --xpu=0 --batch_size=16 --bstep=1
+            --workers=0 --xpu=0 --batch_size=16 --bstep=1
 
 
         $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json
