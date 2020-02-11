@@ -1,6 +1,7 @@
 """
 """
 from os.path import basename
+from os.path import exists
 from os.path import join
 import ubelt as ub
 import torch.utils.data as torch_data
@@ -346,7 +347,7 @@ class DetectPredictor(object):
                     'tf_chip_to_full': raw_batch['tf_chip_to_full'],
                 }
                 if 'disparity' in raw_batch:
-                    batch['disparity'] = xpu.move(raw_batch['disparity']),
+                    batch['disparity'] = xpu.move(raw_batch['disparity'])
                 batch_gids = raw_batch['gid'].view(-1).numpy()
                 batch_dets = list(self._predict_batch(batch))
 
@@ -805,7 +806,6 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
     det_outdir = ub.ensuredir((out_dpath, 'pred'))
 
-    print('Found {} existing predictions'.format(len(have_gids)))
 
     if gids is None:
         gids = list(coco_dset.imgs.keys())
@@ -821,6 +821,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         have_gids = [gid for gid, fpath in gid_to_pred_fpath.items() if exists(fpath)]
     else:
         have_gids = []
+    print('Found {} existing predictions'.format(len(have_gids)))
 
     gids = ub.oset(gids) - have_gids
 

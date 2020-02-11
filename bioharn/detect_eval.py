@@ -140,7 +140,7 @@ class DetectEvaluator(object):
         # config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000044.pt')
         # config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v10-test-retinanet/deploy_MM_RetinaNet_daodqsmy_010_QRNNNW.zip'
         # config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v11-test-cascade/deploy_MM_CascadeRCNN_ovphtcvk_037_HZUJKO.zip'
-        config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v16-cascade/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP.zip'
+        config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v16-cascade/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP'
         config['dataset'] = ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
 
         evaluator = self = DetectEvaluator(config)
