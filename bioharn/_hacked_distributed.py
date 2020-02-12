@@ -979,9 +979,9 @@ def nestshape(data):
         elif 'Container' in type(d).__name__:
             meta = ub.odict(sorted([
                 ('stack', d.stack),
-                ('padding_value', d.padding_value),
-                ('pad_dims', d.pad_dims),
-                ('datatype', d.datatype),
+                # ('padding_value', d.padding_value),
+                # ('pad_dims', d.pad_dims),
+                # ('datatype', d.datatype),
                 ('cpu_only', d.cpu_only),
             ]))
             meta = ub.repr2(meta, nl=0)
