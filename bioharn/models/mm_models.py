@@ -602,6 +602,9 @@ class MM_Detector(nh.layers.Module):
                         raise TypeError(
                             '{} is not a tensor or list of tensors'.format(loss_name))
 
+            if hasattr(self, '_fix_loss_parts'):
+                self._fix_loss_parts(loss_parts)
+
             outputs['loss_parts'] = loss_parts
 
         if return_result:
@@ -1023,6 +1026,17 @@ class MM_CascadeRCNN(MM_Detector):
                                              test_cfg=test_cfg,
                                              classes=classes,
                                              input_stats=input_stats)
+
+    def _fix_loss_parts(self, loss_parts):
+        """
+        Hack for data parallel runs where the loss dicts need to have the same
+        exact keys.
+        """
+        for i in range(self.detector.num_stages):
+            for name in ['loss_cls', 'loss_bbox']:
+                key = 's{}.{}'.format(i, name)
+                if key not in loss_parts:
+                    loss_parts[key] = torch.zeros(1, device=self.main_device)
 
 
 class MM_MaskRCNN(MM_Detector):
