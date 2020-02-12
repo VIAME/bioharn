@@ -500,8 +500,15 @@ def setup_harn(cmdline=True, **kw):
     nh.configure_hacks(config)  # fix opencv bugs
     ub.ensuredir(config['workdir'])
 
-    # Hack to fix: https://github.com/pytorch/pytorch/issues/973
-    torch.multiprocessing.set_sharing_strategy('file_system')
+    if True:
+        # Hack to fix: https://github.com/pytorch/pytorch/issues/973
+        # torch.multiprocessing.set_sharing_strategy('file_system')
+        try:
+            import resource
+            rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+            resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
+        except Exception:
+            pass
 
     # Load ndsampler.CocoDataset objects from info in the config
     subsets = coerce_data.coerce_datasets(config)
