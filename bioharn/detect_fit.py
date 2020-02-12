@@ -229,6 +229,12 @@ class DetectHarn(nh.FitHarn):
                 replicas = self.replicate(self.module, self.device_ids[:len(_inputs)])
 
                 if 0:
+                    out0 = replicas[0](*_inputs[0], **_kwargs[0])
+                    out1 = replicas[1](*_inputs[1], **_kwargs[1])
+                    out2 = replicas[2](*_inputs[2], **_kwargs[2])
+                    out3 = replicas[3](*_inputs[3], **_kwargs[3])
+
+                if 0:
                     _single_out = self.module(_inputs[0][0], **_kwargs[0])
                     _report_data_shape(_single_out)
 
@@ -255,9 +261,9 @@ class DetectHarn(nh.FitHarn):
                 warnings.filterwarnings('ignore', 'indexing with dtype')
                 # warnings.filterwarnings('ignore', 'asked to gather along dimension 0')
                 import xdev
-                xdev.embed()
-                outputs = harn.model.forward(batch, return_loss=True,
-                                             return_result=return_result)
+                with xdev.embed_on_exception_context:
+                    outputs = harn.model.forward(batch, return_loss=True,
+                                                 return_result=return_result)
 
             # Hack away the BatchContainer in the DataSerial case
             if 'batch_results' in outputs:
