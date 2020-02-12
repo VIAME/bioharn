@@ -500,9 +500,10 @@ def setup_harn(cmdline=True, **kw):
     nh.configure_hacks(config)  # fix opencv bugs
     ub.ensuredir(config['workdir'])
 
-    if True:
+    if False:
         # Hack to fix: https://github.com/pytorch/pytorch/issues/973
         # torch.multiprocessing.set_sharing_strategy('file_system')
+        torch.multiprocessing.set_start_method('spawn', force=True)
         try:
             import resource
             rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
