@@ -314,6 +314,8 @@ class DetectPredictor(object):
 
         torch_dset = WindowedSamplerDataset(sampler, window_dims=window_dims,
                                             input_dims=input_dims, gids=gids)
+        if len(torch_dset) == 0:
+            return
         slider_loader = torch.utils.data.DataLoader(
             torch_dset, shuffle=False, num_workers=self.config['workers'],
             batch_size=self.config['batch_size'])
@@ -758,8 +760,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         gen = pred_gen
 
     gid_to_pred = {}
-    prog = ub.ProgIter(gen, total=coco_dset.n_images,
-                       desc='buffered detect (caching)')
+    prog = ub.ProgIter(gen, total=len(gids), desc='buffered detect (caching)')
     for img_idx, (gid, dets) in enumerate(prog):
         gid_to_pred[gid] = dets
 

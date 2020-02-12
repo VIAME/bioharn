@@ -896,16 +896,16 @@ def hack_gather(outputs, target_device, dim=0):
         if isinstance(out, torch.Tensor):
             return OrigGather.apply(target_device, dim, *outputs)
         if isinstance(out, BatchContainer):
-            if out.datatype is list:
-                newdata = [d for dc in outputs
-                           for d in dc.data]
-                if not out.cpu_only:
-                    import netharn as nh
-                    target_xpu = nh.XPU(target_device)
-                    newdata = target_xpu.move(newdata)
-                return newdata
-            else:
-                raise NotImplementedError(repr(out.datatype))
+            # if out.datatype is list:
+            newdata = [d for dc in outputs
+                       for d in dc.data]
+            if not out.cpu_only:
+                import netharn as nh
+                target_xpu = nh.XPU(target_device)
+                newdata = target_xpu.move(newdata)
+            return newdata
+            # else:
+            #     raise NotImplementedError(repr(out.datatype))
         if out is None:
             return None
         if isinstance(out, dict):

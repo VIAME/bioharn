@@ -307,7 +307,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
         # Apply letterbox resize transform to train and test
         self.letterbox.target_size = inp_size
         input_dims = imdata.shape[0:2]
-        imdata = self.letterbox.augment_image(imdata)
+        import xdev
+        with xdev.embed_on_exception_context:
+            imdata = self.letterbox.augment_image(imdata)
         if disp_im is not None:
             # note: the letterbox augment doesn't handle floats wello
             # use the kwimage.imresize instead
@@ -423,7 +425,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             kwarray.seed_global(np.random.get_state()[1][0] + worker_id)
             if self.augmenter:
                 rng = kwarray.ensure_rng(None)
-                self.augmenter.reseed(rng)
+                reseed_(self.augmenter, rng)
 
         # torch.utils.data.sampler.WeightedRandomSampler
         from bioharn._hacked_distributed import container_collate
@@ -442,6 +444,13 @@ class DetectFitDataset(torch.utils.data.Dataset):
             collate_fn=collate_fn, num_workers=num_workers,
             pin_memory=pin_memory, worker_init_fn=worker_init_fn)
         return loader
+
+
+def reseed_(auger, rng):
+    if hasattr(auger, 'seed_'):
+        return auger.seed_(rng)
+    else:
+        return auger.reseed(rng)
 
 
 class MultiScaleBatchSampler2(torch_sampler.BatchSampler):
@@ -900,7 +909,7 @@ class DetectionAugmentor(object):
             ('disp_intensity', self._disp_intensity),
         ])
         self.mode = mode
-        self.reseed(self.rng)
+        self.seed_(self.rng)
 
     def json_id(self):
         def imgaug_json_id(aug):
@@ -931,10 +940,10 @@ class DetectionAugmentor(object):
         params = ub.map_vals(imgaug_json_id, self._augers)
         return params
 
-    def reseed(self, rng):
+    def seed_(self, rng):
         for auger in self._augers.values():
             if auger is not None:
-                auger.reseed(rng)
+                reseed_(auger, rng)
 
     def augment_data(self, imdata, dets, disp_im=None):
         """

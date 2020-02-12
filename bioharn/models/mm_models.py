@@ -8,6 +8,7 @@ import torch
 import kwimage
 from collections import OrderedDict
 from distutils.version import LooseVersion
+import warnings
 
 
 def _hack_mm_backbone_in_channels(backbone_cfg):
@@ -581,23 +582,26 @@ class MM_Detector(nh.layers.Module):
 
             # Compute input normalization
             imgs_norm = self.input_norm(imgs)
-            losses = self.detector.forward(imgs_norm, img_metas,
-                                           gt_bboxes=gt_bboxes,
-                                           gt_labels=gt_labels,
-                                           gt_bboxes_ignore=gt_bboxes_ignore,
-                                           return_loss=True, **trainkw)
-            loss_parts = OrderedDict()
-            for loss_name, loss_value in losses.items():
-                if 'loss' in loss_name:
-                    if isinstance(loss_value, torch.Tensor):
-                        loss_parts[loss_name] = loss_value.mean()
-                    elif isinstance(loss_value, list):
-                        loss_parts[loss_name] = sum(_loss.mean() for _loss in loss_value)
-                    else:
-                        raise TypeError(
-                            '{} is not a tensor or list of tensors'.format(loss_name))
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', 'indexing with dtype')
 
-            outputs['loss_parts'] = loss_parts
+                losses = self.detector.forward(imgs_norm, img_metas,
+                                               gt_bboxes=gt_bboxes,
+                                               gt_labels=gt_labels,
+                                               gt_bboxes_ignore=gt_bboxes_ignore,
+                                               return_loss=True, **trainkw)
+                loss_parts = OrderedDict()
+                for loss_name, loss_value in losses.items():
+                    if 'loss' in loss_name:
+                        if isinstance(loss_value, torch.Tensor):
+                            loss_parts[loss_name] = loss_value.mean()
+                        elif isinstance(loss_value, list):
+                            loss_parts[loss_name] = sum(_loss.mean() for _loss in loss_value)
+                        else:
+                            raise TypeError(
+                                '{} is not a tensor or list of tensors'.format(loss_name))
+
+                outputs['loss_parts'] = loss_parts
 
         if return_result:
             with torch.no_grad():
@@ -606,10 +610,12 @@ class MM_Detector(nh.layers.Module):
                 # For whaver reason we cant run more than one test image at the
                 # same time.
                 batch_results = []
-                for one_img, one_meta in zip(hack_imgs, img_metas):
-                    result = self.detector.forward([one_img], [[one_meta]],
-                                                   return_loss=False)
-                    batch_results.append(result)
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', 'indexing with dtype')
+                    for one_img, one_meta in zip(hack_imgs, img_metas):
+                        result = self.detector.forward([one_img], [[one_meta]],
+                                                       return_loss=False)
+                        batch_results.append(result)
                 outputs['batch_results'] = BatchContainer(
                     batch_results, stack=False, cpu_only=True)
         return outputs

@@ -576,7 +576,7 @@ def setup_harn(cmdline=True, **kw):
             from bioharn._hacked_distributed import container_collate
             # collate_fn = container_collate
             from functools import partial
-            collate_fn = partial(container_collate, samples_per_gpu=1)
+            collate_fn = partial(container_collate, num_devices=1)
 
             loader = torch.utils.data.DataLoader(
                 stats_subset,
@@ -779,13 +779,13 @@ if __name__ == '__main__':
             --augment=complex \
             --init=noop \
             --arch=cascade \
-            --optim=sgd --lr=1e-3 \
+            --optim=sgd --lr=1e-6 \
             --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.2 \
-            --multiscale=True \
+            --window_dims=128,128 \
+            --window_overlap=0.0 \
+            --multiscale=False \
             --normalize_inputs=True \
-            --workers=0 --xpu=3 --batch_size=8 --bstep=4
+            --workers=0 --xpu=0,1 --batch_size=8 --bstep=1
 
         python -m bioharn.detect_fit \
             --nice=demo_shapes \
@@ -1069,5 +1069,5 @@ if __name__ == '__main__':
         tb = traceback.format_stack()
         s += ''.join(tb[:-1])
         return s
-    warnings.formatwarning = _monkeypatch_formatwarning_tb
+    # warnings.formatwarning = _monkeypatch_formatwarning_tb
     fit()
