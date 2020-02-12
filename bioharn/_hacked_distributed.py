@@ -12,6 +12,7 @@ FIXME 0 dimension tensors
 """
 import torch.utils.data as torch_data
 import torch
+import warnings
 import ubelt as ub
 import numpy as np  # NOQA
 import re
@@ -891,14 +892,17 @@ def hack_gather(outputs, target_device, dim=0):
         >>> gathered = hack_gather(outputs, target_device, dim)
         >>> _report_data_shape(gathered)
     """
-    def gather_map(outputs):
-        out = outputs[0]
+    def gather_map(outputs_):
+        out = outputs_[0]
         if isinstance(out, torch.Tensor):
-            return OrigGather.apply(target_device, dim, *outputs)
+            # if all(t.dim() == 0 for t in outputs_) and dim == 0:
+            #     # unsqueeze warnings will trigger
+            #     import xdev
+            #     xdev.embed()
+            return OrigGather.apply(target_device, dim, *outputs_)
         if isinstance(out, BatchContainer):
             # if out.datatype is list:
-            newdata = [d for dc in outputs
-                       for d in dc.data]
+            newdata = [d for dc in outputs_ for d in dc.data]
             if not out.cpu_only:
                 import netharn as nh
                 target_xpu = nh.XPU(target_device)
@@ -909,11 +913,13 @@ def hack_gather(outputs, target_device, dim=0):
         if out is None:
             return None
         if isinstance(out, dict):
-            if not all((len(out) == len(d) for d in outputs)):
+            if not all((len(out) == len(d) for d in outputs_)):
+                import xdev
+                xdev.embed()
                 raise ValueError('All dicts must have the same number of keys')
-            return type(out)(((k, gather_map([d[k] for d in outputs]))
+            return type(out)(((k, gather_map([d[k] for d in outputs_]))
                               for k in out))
-        return type(out)(map(gather_map, zip(*outputs)))
+        return type(out)(map(gather_map, zip(*outputs_)))
 
     # Recursive function calls like this create reference cycles.
     # Setting the function to None clears the refcycle.

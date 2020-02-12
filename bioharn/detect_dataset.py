@@ -307,9 +307,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         # Apply letterbox resize transform to train and test
         self.letterbox.target_size = inp_size
         input_dims = imdata.shape[0:2]
-        import xdev
-        with xdev.embed_on_exception_context:
-            imdata = self.letterbox.augment_image(imdata)
+        imdata = self.letterbox.augment_image(imdata)
         if disp_im is not None:
             # note: the letterbox augment doesn't handle floats wello
             # use the kwimage.imresize instead

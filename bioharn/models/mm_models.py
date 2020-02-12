@@ -8,7 +8,7 @@ import torch
 import kwimage
 from collections import OrderedDict
 from distutils.version import LooseVersion
-import warnings
+import warnings  # NOQA
 
 
 def _hack_mm_backbone_in_channels(backbone_cfg):
@@ -28,8 +28,6 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
             backbone_key = 'ResNet'
         backbone_cls = models.registry.BACKBONES.get(backbone_key)
         cls_kw = inspect.signature(backbone_cls).parameters
-        # import xdev
-        # cls_kw = xdev.get_func_kwargs(backbone_cls)
         if 'in_channels' not in cls_kw:
             if backbone_cfg['in_channels'] == 3:
                 backbone_cfg.pop('in_channels')
@@ -563,6 +561,9 @@ class MM_Detector(nh.layers.Module):
         imgs = mm_inputs.pop('imgs')
         img_metas = mm_inputs.pop('img_metas')
 
+        # with warnings.catch_warnings():
+        #     warnings.filterwarnings('ignore', 'indexing with dtype')
+
         outputs = {}
         if return_loss:
             gt_bboxes = mm_inputs['gt_bboxes']
@@ -582,26 +583,26 @@ class MM_Detector(nh.layers.Module):
 
             # Compute input normalization
             imgs_norm = self.input_norm(imgs)
-            with warnings.catch_warnings():
-                warnings.filterwarnings('ignore', 'indexing with dtype')
 
-                losses = self.detector.forward(imgs_norm, img_metas,
-                                               gt_bboxes=gt_bboxes,
-                                               gt_labels=gt_labels,
-                                               gt_bboxes_ignore=gt_bboxes_ignore,
-                                               return_loss=True, **trainkw)
-                loss_parts = OrderedDict()
-                for loss_name, loss_value in losses.items():
-                    if 'loss' in loss_name:
-                        if isinstance(loss_value, torch.Tensor):
-                            loss_parts[loss_name] = loss_value.mean()
-                        elif isinstance(loss_value, list):
-                            loss_parts[loss_name] = sum(_loss.mean() for _loss in loss_value)
-                        else:
-                            raise TypeError(
-                                '{} is not a tensor or list of tensors'.format(loss_name))
+            losses = self.detector.forward(imgs_norm, img_metas,
+                                           gt_bboxes=gt_bboxes,
+                                           gt_labels=gt_labels,
+                                           gt_bboxes_ignore=gt_bboxes_ignore,
+                                           return_loss=True, **trainkw)
+            loss_parts = OrderedDict()
+            for loss_name, loss_value in losses.items():
+                if 'loss' in loss_name:
+                    # Ensure these are tensors and not scalars for
+                    # DataParallel
+                    if isinstance(loss_value, torch.Tensor):
+                        loss_parts[loss_name] = loss_value.mean().unsqueeze(0)
+                    elif isinstance(loss_value, list):
+                        loss_parts[loss_name] = sum(_loss.mean().unsqueeze(0) for _loss in loss_value)
+                    else:
+                        raise TypeError(
+                            '{} is not a tensor or list of tensors'.format(loss_name))
 
-                outputs['loss_parts'] = loss_parts
+            outputs['loss_parts'] = loss_parts
 
         if return_result:
             with torch.no_grad():
@@ -610,12 +611,10 @@ class MM_Detector(nh.layers.Module):
                 # For whaver reason we cant run more than one test image at the
                 # same time.
                 batch_results = []
-                with warnings.catch_warnings():
-                    warnings.filterwarnings('ignore', 'indexing with dtype')
-                    for one_img, one_meta in zip(hack_imgs, img_metas):
-                        result = self.detector.forward([one_img], [[one_meta]],
-                                                       return_loss=False)
-                        batch_results.append(result)
+                for one_img, one_meta in zip(hack_imgs, img_metas):
+                    result = self.detector.forward([one_img], [[one_meta]],
+                                                   return_loss=False)
+                    batch_results.append(result)
                 outputs['batch_results'] = BatchContainer(
                     batch_results, stack=False, cpu_only=True)
         return outputs

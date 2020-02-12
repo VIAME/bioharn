@@ -252,8 +252,11 @@ class DetectHarn(nh.FitHarn):
                                              return_result=return_result)
                 _report_data_shape(outputs)
 
-            outputs = harn.model.forward(batch, return_loss=True,
-                                         return_result=return_result)
+            with warnings.catch_warnings():
+                # warnings.filterwarnings('ignore', 'indexing with dtype')
+                # warnings.filterwarnings('ignore', 'asked to gather along dimension 0')
+                outputs = harn.model.forward(batch, return_loss=True,
+                                             return_result=return_result)
 
             # Hack away the BatchContainer in the DataSerial case
             if 'batch_results' in outputs:
@@ -785,7 +788,7 @@ if __name__ == '__main__':
             --window_overlap=0.0 \
             --multiscale=False \
             --normalize_inputs=True \
-            --workers=0 --xpu=0,1 --batch_size=8 --bstep=1
+            --workers=0 --xpu=1,0 --batch_size=8 --bstep=1
 
         python -m bioharn.detect_fit \
             --nice=demo_shapes \
@@ -1069,5 +1072,5 @@ if __name__ == '__main__':
         tb = traceback.format_stack()
         s += ''.join(tb[:-1])
         return s
-    # warnings.formatwarning = _monkeypatch_formatwarning_tb
+    warnings.formatwarning = _monkeypatch_formatwarning_tb
     fit()
