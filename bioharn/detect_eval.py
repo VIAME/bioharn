@@ -116,10 +116,10 @@ def evaluate_models(**kw):
 
             print('config = {}'.format(ub.repr2(config)))
             evaluator = DetectEvaluator(config)
-            self = evaluator
 
             # Reuse the dataset / predictor when possible
             evaluator.predictor = predictor
+            evaluator.sampler = sampler
             print('_init')
             evaluator._init()
             print('evaluate')

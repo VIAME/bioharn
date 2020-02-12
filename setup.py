@@ -8,6 +8,7 @@ Developing:
     git clone https://github.com/Erotemic/bioharn.git
     pip install -e bioharn
 """
+from os.path import exists
 from setuptools import setup
 import sys
 from os.path import dirname
