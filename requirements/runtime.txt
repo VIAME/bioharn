@@ -1,0 +1,13 @@
+imgaug
+torch 
+six
+numpy 
+opencv_python 
+kwarray 
+kwimage 
+ndsampler 
+netharn 
+scriptconfig
+ubelt
+mmcv
+mmdet

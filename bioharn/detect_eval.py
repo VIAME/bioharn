@@ -145,13 +145,14 @@ class DetectEvaluator(object):
 
         evaluator = self = DetectEvaluator(config)
         self._init()
+        predictor = evaluator.predictor
+        sampler = evaluator.sampler
+        coco_dset = sampler.dset
+
+        predictor.config['verbose'] = 1
+        out_dpath = self.paths['base']
 
         self.evaluate()
-
-        evaluator = self
-        predictor = self.predictor
-        self = predictor
-        sampler = evaluator.sampler
     """
 
     def __init__(self, config=None):
@@ -265,10 +266,9 @@ class DetectEvaluator(object):
         # pred_gen = self.predictor.predict_sampler(sampler)
 
         out_dpath = self.paths['base']
-        gid_to_pred = detect_predict._cached_predict(
+        gid_to_pred, gid_to_pred_fpath = detect_predict._cached_predict(
             self.predictor, sampler, out_dpath, gids=None, draw=10,
             enable_cache=True)
-
         return gid_to_pred
 
     def evaluate(self):

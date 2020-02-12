@@ -1,7 +1,8 @@
 """
 """
-from os.path import basename
 from os.path import exists
+from os.path import isfile
+from os.path import basename
 from os.path import join
 import ubelt as ub
 import torch.utils.data as torch_data
@@ -303,6 +304,9 @@ class DetectPredictor(object):
             sampler (ndsampler.CocoDataset): dset wrapped in a sampler
             gids (List[int], default=None): if specified, then only predict
                 on these images.
+
+        Yields:
+            Tuple[int, Detections] : image_id, detection pairs
         """
         native = self._infer_native(self.config)
         input_dims = native['input_dims']
@@ -341,6 +345,7 @@ class DetectPredictor(object):
             # ----
             buffer_gids = []
             buffer_dets = []
+
             for raw_batch in prog:
                 batch = {
                     'im': xpu.move(raw_batch['im']),
@@ -353,14 +358,14 @@ class DetectPredictor(object):
 
                 # Determine if we have finished an image (assuming images are
                 # passed in sequentially in order)
-                buffer_gids.extend(batch_gids)
-                buffer_dets.extend(batch_dets)
-
-                # Test if we can yield intermediate results for an image
                 can_yield = (
                     np.any(np.diff(batch_gids)) or
                     (len(buffer_gids) and buffer_gids[-1] != batch_gids[0])
                 )
+
+                buffer_gids.extend(batch_gids)
+                buffer_dets.extend(batch_dets)
+
                 if can_yield:
                     ready_idx = max(np.where(np.diff(buffer_gids))[0]) + 1
                     ready_gids = buffer_gids[:ready_idx]
@@ -570,7 +575,6 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             letterbox.target_size = self.input_dims[::-1]
             # Record the inverse transformation
             chip_size = np.array(chip_dims[::-1])
-            inputs_dims = self.input_dims
             input_size = np.array(self.input_dims[::-1])
             shift, scale, embed_size = letterbox._letterbox_transform(chip_size, input_size)
             # Resize the image
@@ -640,69 +644,6 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 # CLI
 
 
-import queue  # NOQA
-from threading import Thread  # NOQA
-
-
-class _AsyncConsumerThread(Thread):
-    """
-    Will fill the queue with content of the source in a separate thread.
-
-    Example:
-        >>> import queue
-        >>> q = queue.Queue()
-        >>> c = _background_consumer(q, range(3))
-        >>> c.start()
-        >>> q.get(True, 1)
-        0
-        >>> q.get(True, 1)
-        1
-        >>> q.get(True, 1)
-        2
-        >>> q.get(True, 1) is ub.NoParam
-        True
-    """
-    def __init__(self, queue, source):
-        Thread.__init__(self)
-
-        self._queue = queue
-        self._source = source
-
-    def run(self):
-        for item in self._source:
-            self._queue.put(item)
-        # Signal the consumer we are done.
-        self._queue.put(ub.NoParam)
-
-
-class AsyncBufferedGenerator(object):
-    """Buffers content of an iterator polling the contents of the given
-    iterator in a separate thread.
-    When the consumer is faster than many producers, this kind of
-    concurrency and buffering makes sense.
-
-    The size parameter is the number of elements to buffer.
-
-    The source must be threadsafe.
-
-    References:
-        http://code.activestate.com/recipes/576999-concurrent-buffer-for-generators/
-    """
-    def __init__(self, source, size=100):
-        self._queue = queue.Queue(size)
-
-        self._poller = _AsyncConsumerThread(self._queue, source)
-        self._poller.daemon = True
-        self._poller.start()
-
-    def __iter__(self):
-        while True:
-            item = self._queue.get(True)
-            if item is ub.NoParam:
-                return
-            yield item
-
-
 class DetectPredictCLIConfig(scfg.Config):
     default = ub.dict_union(
         {
@@ -715,212 +656,9 @@ class DetectPredictCLIConfig(scfg.Config):
     )
 
 
-def atomic_move(src, dst):
-    """
-    Rename a file from ``src`` to ``dst``, atomically if possible.
-
-    Args:
-        src (str | PathLike): file path to an existing file
-        dst (str | PathLike): file path to a destination file
-
-    References:
-        .. [1] https://alexwlchan.net/2019/03/atomic-cross-filesystem-moves-in-python/
-
-    Notes:
-        *   Moves must be atomic.  ``shutil.move()`` is not atomic.
-            Note that multiple threads may try to write to the cache at once,
-            so atomicity is required to ensure the serving on one thread doesn't
-            pick up a partially saved image from another thread.
-
-        *   Moves must work across filesystems.  Often temp directories and the
-            cache directories live on different filesystems.  ``os.rename()`` can
-            throw errors if run across filesystems.
-
-        So we try ``os.rename()``, but if we detect a cross-filesystem copy, we
-        switch to ``shutil.move()`` with some wrappers to make it atomic.
-
-    Example:
-        >>> import ubelt as ub
-        >>> dpath = ub.ensure_app_cache_dir('ubelt')
-        >>> fpath1 = join(dpath, 'foo')
-        >>> fpath2 = join(dpath, 'bar')
-        >>> ub.touch(fpath1)
-        >>> atomic_move(fpath1, fpath2)
-        >>> assert not exists(fpath1)
-        >>> assert exists(fpath2)
-    """
-    import os
-    try:
-        os.rename(src, dst)
-    except OSError as err:
-        import errno
-        import shutil
-        if err.errno == errno.EXDEV:
-            import uuid
-            # Generate a unique ID, and copy `<src>` to the target directory
-            # with a temporary name `<dst>.<ID>.tmp`.  Because we're copying
-            # across a filesystem boundary, this initial copy may not be
-            # atomic.  We intersperse a random UUID so if different processes
-            # are copying into `<dst>`, they don't overlap in their tmp copies.
-            copy_id = uuid.uuid4()
-            tmp_dst = "%s.%s.tmp" % (dst, copy_id)
-            shutil.copyfile(src, tmp_dst)
-
-            # Then do an atomic rename onto the new name, and clean up the
-            # source image.
-            os.rename(tmp_dst, dst)
-            os.unlink(src)
-        else:
-            raise
-
-
-def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
-                    draw=False, enable_cache=True, async_buffer=True):
-    """
-    Helper to only do predictions that havent been done yet.
-
-    Note that this currently requires you to ensure that the dest folder is
-    unique to this particular dataset.
-
-    Ignore:
-        pass
-
-        >>> import ndsampler
-        >>> config = {}
-        >>> config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000042.pt')
-        >>> predictor = DetectPredictor(config)
-        >>> predictor._ensure_model()
-
-        >>> out_dpath = './cached_out'
-
-        >>> gids = None
-        >>> coco_dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
-        >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
-        >>>                                 backend=None)
-
-    """
-    import kwarray
-    import ndsampler
-    coco_dset = sampler.dset
-    # predictor.config['verbose'] = 1
-
-    det_outdir = ub.ensuredir((out_dpath, 'pred'))
-
-
-    if gids is None:
-        gids = list(coco_dset.imgs.keys())
-
-
-    gid_to_pred_fpath = {
-        gid: join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
-        for gid in gids
-    }
-
-    if enable_cache:
-        # Figure out what gids have already been computed
-        have_gids = [gid for gid, fpath in gid_to_pred_fpath.items() if exists(fpath)]
-    else:
-        have_gids = []
-    print('Found {} existing predictions'.format(len(have_gids)))
-
-    gids = ub.oset(gids) - have_gids
-
-    pred_gen = predictor.predict_sampler(sampler, gids=gids)
-
-    if async_buffer:
-        buffered_gen = AsyncBufferedGenerator(pred_gen, size=coco_dset.n_images)
-        gen = buffered_gen
-    else:
-        gen = pred_gen
-
-    gid_to_pred = {}
-    prog = ub.ProgIter(gen, total=coco_dset.n_images,
-                       desc='buffered detect (caching)')
-    for img_idx, (gid, dets) in enumerate(prog):
-        break
-        gid_to_pred[gid] = dets
-
-        img = coco_dset.imgs[gid]
-
-        single_img_coco = ndsampler.CocoDataset()
-        gid = single_img_coco.add_image(**img)
-        for cat in coco_dset.cats.values():
-            single_img_coco.add_category(**cat)
-
-        for ann in dets.to_coco():
-            ann['image_id'] = gid
-            try:
-                catname = ann['category_name']
-                ann['category_id'] = single_img_coco._resolve_to_cid(catname)
-            except KeyError:
-                if 'category_id' not in ann:
-                    cid = single_img_coco.add_category(catname)
-                    ann['category_id'] = cid
-            single_img_coco.add_annotation(**ann)
-
-        single_pred_fpath = join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
-        # print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
-        import tempfile
-        tmp_fpath = tempfile.mktemp()
-        single_img_coco.dump(tmp_fpath, newlines=True)
-        atomic_move(tmp_fpath, single_pred_fpath)
-
-        if draw is True or (draw and img_idx < draw):
-            draw_outdir = ub.ensuredir((out_dpath, 'draw'))
-            img_fpath = coco_dset.load_image_fpath(gid)
-            gname = basename(img_fpath)
-            viz_fname = ub.augpath(gname, prefix='detect_', ext='.jpg')
-            viz_fpath = join(draw_outdir, viz_fname)
-
-            image = kwimage.imread(img_fpath)
-
-            flags = dets.scores > .2
-            flags[kwarray.argmaxima(dets.scores, num=10)] = True
-            top_dets = dets.compress(flags)
-            toshow = top_dets.draw_on(image, alpha=None)
-            # kwplot.imshow(toshow)
-            kwimage.imwrite(viz_fpath, toshow, space='rgb')
-
-    if enable_cache:
-        for gid in ub.ProgIter(have_gids, desc='loading cached pred gids'):
-            single_pred_fpath = join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
-            single_img_coco = ndsampler.CocoDataset(single_pred_fpath)
-            dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
-                                                       dset=single_img_coco)
-            gid_to_pred[gid] = dets
-    return gid_to_pred
-
-
-def detect_cli(config={}):
-    """
-    CommandLine:
-        python -m bioharn.detect_predict --help
-
-    CommandLine:
-        python -m bioharn.detect_predict \
-            --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json \
-            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip \
-            --out_dpath=~/work/bioharn/habcam_test_out \
-            --draw=100 \
-            --input_dims=512,512 \
-            --xpu=0 --batch_size=1
-
-    Ignore:
-        >>> config = {}
-        >>> config['dataset'] = '~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'
-        >>> config['deployed'] = '/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip'
-        >>> config['out_dpath'] = 'out'
-    """
-    import kwarray
-    import ndsampler
-    from os.path import basename, join, exists, isfile, isdir  # NOQA
-
-    config = DetectPredictCLIConfig(config, cmdline=True)
-    print('config = {}'.format(ub.repr2(config.asdict())))
-
-    out_dpath = ub.expandpath(config.get('out_dpath'))
-
+def _coerce_sampler(config):
     import six
+    import ndsampler
     if isinstance(config['dataset'], six.string_types):
         if config['dataset'].endswith('.json'):
             dataset_fpath = ub.expandpath(config['dataset'])
@@ -951,77 +689,174 @@ def detect_cli(config={}):
             coco_dset.add_image(gpath)
     else:
         raise TypeError(config['dataset'])
-
-    draw = config.get('draw')
     workdir = ub.expandpath(config.get('workdir'))
-
-    det_outdir = ub.ensuredir((out_dpath, 'pred'))
-
-    pred_config = ub.dict_subset(config, DetectPredictConfig.default)
-
     print('Create sampler')
     sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
                                     backend=sampler_backend)
-    print('prepare frames')
-    sampler.frames.prepare(workers=config['workers'])
+    return sampler
 
-    print('Create predictor')
-    predictor = DetectPredictor(pred_config)
-    print('Ensure model')
-    predictor._ensure_model()
 
-    pred_dataset = coco_dset.dataset.copy()
-    pred_dataset['annotations'] = []
-    pred_dset = ndsampler.CocoDataset(pred_dataset)
+def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
+                    draw=False, enable_cache=True, async_buffer=False):
+    """
+    Helper to only do predictions that havent been done yet.
 
-    # self = predictor
-    predictor.config['verbose'] = config['verbose']
-    pred_gen = predictor.predict_sampler(sampler)
+    Note that this currently requires you to ensure that the dest folder is
+    unique to this particular dataset.
 
-    if not ub.argval('--serial') and config['workers'] > 0:
-        buffered_gen = AsyncBufferedGenerator(pred_gen, size=coco_dset.n_images)
+    Ignore:
+        pass
+
+        >>> import ndsampler
+        >>> config = {}
+        >>> config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000042.pt')
+        >>> predictor = DetectPredictor(config)
+        >>> predictor._ensure_model()
+
+        >>> out_dpath = './cached_out'
+
+        >>> gids = None
+        >>> coco_dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
+        >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
+        >>>                                 backend=None)
+
+    """
+    import kwarray
+    import ndsampler
+    from bioharn import util
+    import tempfile
+    coco_dset = sampler.dset
+    # predictor.config['verbose'] = 1
+
+    det_outdir = ub.ensuredir((out_dpath, 'pred'))
+    tmp_fpath = tempfile.mktemp()
+
+    if gids is None:
+        gids = list(coco_dset.imgs.keys())
+
+    gid_to_pred_fpath = {
+        gid: join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+        for gid in gids
+    }
+
+    if enable_cache:
+        # Figure out what gids have already been computed
+        have_gids = [gid for gid, fpath in gid_to_pred_fpath.items() if exists(fpath)]
     else:
-        buffered_gen = pred_gen
-    conf_thresh = config['conf_thresh']
+        have_gids = []
+    print('Found {} existing predictions'.format(len(have_gids)))
+
+    gids = ub.oset(gids) - have_gids
+
+    pred_gen = predictor.predict_sampler(sampler, gids=gids)
+
+    if async_buffer:
+        buffered_gen = util.AsyncBufferedGenerator(pred_gen,
+                                                   size=coco_dset.n_images)
+        gen = buffered_gen
+    else:
+        gen = pred_gen
 
     gid_to_pred = {}
-    prog = ub.ProgIter(buffered_gen, total=coco_dset.n_images,
-                       desc='buffered detect (cli)')
+    prog = ub.ProgIter(gen, total=coco_dset.n_images,
+                       desc='buffered detect (caching)')
     for img_idx, (gid, dets) in enumerate(prog):
         gid_to_pred[gid] = dets
 
+        img = coco_dset.imgs[gid]
+
+        single_img_coco = ndsampler.CocoDataset()
+        gid = single_img_coco.add_image(**img)
+        for cat in coco_dset.cats.values():
+            single_img_coco.add_category(**cat)
+
         for ann in dets.to_coco():
             ann['image_id'] = gid
-            try:
-                catname = ann['category_name']
-                ann['category_id'] = pred_dset._resolve_to_cid(catname)
-            except KeyError:
-                if 'category_id' not in ann:
-                    cid = pred_dset.add_category(catname)
-                    ann['category_id'] = cid
-            pred_dset.add_annotation(**ann)
+            catname = ann['category_name']
+            cid = single_img_coco.ensure_category(catname)
+            ann['category_id'] = cid
+            single_img_coco.add_annotation(**ann)
 
-        single_img_coco = pred_dset.subset([gid])
-        single_pred_dpath = ub.ensuredir((det_outdir, 'single_image'))
-        single_pred_fpath = join(single_pred_dpath, 'detections_gid_{:08d}.mscoco.json'.format(gid))
-        single_img_coco.dump(single_pred_fpath, newlines=True)
+        single_pred_fpath = join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+        print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
+        single_img_coco.dump(tmp_fpath, newlines=True)
+        util.atomic_move(tmp_fpath, single_pred_fpath)
 
         if draw is True or (draw and img_idx < draw):
             draw_outdir = ub.ensuredir((out_dpath, 'draw'))
-            img_fpath = coco_dset.load_image_fpath(gid)
+            img_fpath = coco_dset.get_image_fpath(gid)
             gname = basename(img_fpath)
             viz_fname = ub.augpath(gname, prefix='detect_', ext='.jpg')
             viz_fpath = join(draw_outdir, viz_fname)
 
             image = kwimage.imread(img_fpath)
 
-            flags = dets.scores > conf_thresh
+            flags = dets.scores > .2
             flags[kwarray.argmaxima(dets.scores, num=10)] = True
             top_dets = dets.compress(flags)
             toshow = top_dets.draw_on(image, alpha=None)
             # kwplot.imshow(toshow)
             kwimage.imwrite(viz_fpath, toshow, space='rgb')
 
+    if enable_cache:
+        for gid in ub.ProgIter(have_gids, desc='loading cached pred gids'):
+            single_pred_fpath = gid_to_pred_fpath[gid]
+            single_img_coco = ndsampler.CocoDataset(single_pred_fpath)
+            dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
+                                                       dset=single_img_coco)
+            gid_to_pred[gid] = dets
+    return gid_to_pred, gid_to_pred_fpath
+
+
+def detect_cli(config={}):
+    """
+    CommandLine:
+        python -m bioharn.detect_predict --help
+
+    CommandLine:
+        python -m bioharn.detect_predict \
+            --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json \
+            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip \
+            --out_dpath=~/work/bioharn/habcam_test_out \
+            --draw=100 \
+            --input_dims=512,512 \
+            --xpu=0 --batch_size=1
+
+    Ignore:
+        >>> config = {}
+        >>> config['dataset'] = '~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'
+        >>> config['deployed'] = '/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip'
+        >>> config['out_dpath'] = 'out'
+    """
+    config = DetectPredictCLIConfig(config, cmdline=True)
+    print('config = {}'.format(ub.repr2(config.asdict())))
+
+    out_dpath = ub.expandpath(config.get('out_dpath'))
+    det_outdir = ub.ensuredir((out_dpath, 'pred'))
+
+    sampler = _coerce_sampler(config)
+    print('prepare frames')
+    sampler.frames.prepare(workers=config['workers'])
+
+    print('Create predictor')
+    pred_config = ub.dict_subset(config, DetectPredictConfig.default)
+    predictor = DetectPredictor(pred_config)
+    print('Ensure model')
+    predictor._ensure_model()
+
+    async_buffer = ub.argval('--serial') and config['workers'] > 0
+
+    gid_to_pred, gid_to_pred_fpath = _cached_predict(
+        predictor, sampler, out_dpath='./cached_out', gids=None,
+        draw=config['draw'], enable_cache=True, async_buffer=async_buffer)
+
+    import ndsampler
+    coco_dsets = []
+    for gid, pred_fpath in gid_to_pred_fpath.items():
+        single_img_coco = ndsampler.CocoDataset(pred_fpath)
+        coco_dsets.append(single_img_coco)
+
+    pred_dset = ndsampler.CocoDataset.union(coco_dsets)
     pred_fpath = join(det_outdir, 'detections.mscoco.json')
     print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
     pred_dset.dump(pred_fpath, newlines=True)
