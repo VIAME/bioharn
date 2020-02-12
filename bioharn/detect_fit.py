@@ -500,6 +500,9 @@ def setup_harn(cmdline=True, **kw):
     nh.configure_hacks(config)  # fix opencv bugs
     ub.ensuredir(config['workdir'])
 
+    # Hack to fix: https://github.com/pytorch/pytorch/issues/973
+    torch.multiprocessing.set_sharing_strategy('file_system')
+
     # Load ndsampler.CocoDataset objects from info in the config
     subsets = coerce_data.coerce_datasets(config)
 
@@ -1080,11 +1083,11 @@ if __name__ == '__main__':
             --init=noop \
             --arch=cascade \
             --sampler_backend=None \
-            --optim=sgd --lr=1e-2 \
+            --optim=sgd --lr=1e-3 \
             --input_dims=window \
             --window_dims=512,512 \
             --window_overlap=0.0 \
-            --workers=4 --batch_size=8 --bstep=1
+            --workers=4 --batch_size=24 --bstep=1
 
 
 
