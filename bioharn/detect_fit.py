@@ -1063,6 +1063,23 @@ if __name__ == '__main__':
             --workers=4 --xpu=1,0 --batch_size=8 --bstep=1
 
 
+        python -m bioharn.detect_fit \
+            --nice=test-pyrosome \
+            --train_dataset=/data/projects/GOOD/pyrosome-train/deep_training/training_truth.json \
+            --vali_dataset=/data/projects/GOOD/pyrosome-train/deep_training/validation_truth.json \
+            --xpu=0,1,2,3 \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=1e-2 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --workers=4 --xpu=1,0 --batch_size=8 --bstep=1
+
+
+
     """
     import warnings
     import traceback

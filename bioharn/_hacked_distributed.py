@@ -913,10 +913,15 @@ def hack_gather(outputs, target_device, dim=0):
         if out is None:
             return None
         if isinstance(out, dict):
-            if not all((len(out) == len(d) for d in outputs_)):
-                import xdev
-                xdev.embed()
-                raise ValueError('All dicts must have the same number of keys')
+            out0_keys = set(out.keys())
+            output_keys = [set(d.keys()) for d in outputs_]
+            if not all(out0_keys == k for k in output_keys):
+                problem_keys = (
+                    set.union(*output_keys) - set.intersection(*output_keys)
+                )
+                raise ValueError(
+                    'All dicts must have the same keys. '
+                    'problem_keys={}'.format(problem_keys))
             return type(out)(((k, gather_map([d[k] for d in outputs_]))
                               for k in out))
         return type(out)(map(gather_map, zip(*outputs_)))
