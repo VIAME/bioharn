@@ -247,7 +247,6 @@ class DetectHarn(nh.FitHarn):
                 _report_data_shape(_inputs)
 
                 _inputs, _kwargs = self.scatter(mm_inputs, dict(return_loss=True, return_result=True), self.device_ids)
-
                 outputs = harn.model.forward(mm_inputs, return_loss=True,
                                              return_result=return_result)
                 _report_data_shape(outputs)
@@ -255,6 +254,8 @@ class DetectHarn(nh.FitHarn):
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', 'indexing with dtype')
                 # warnings.filterwarnings('ignore', 'asked to gather along dimension 0')
+                import xdev
+                xdev.embed()
                 outputs = harn.model.forward(batch, return_loss=True,
                                              return_result=return_result)
 
@@ -1072,11 +1073,12 @@ if __name__ == '__main__':
             --augment=complex \
             --init=noop \
             --arch=cascade \
+            --sampler_backend=None \
             --optim=sgd --lr=1e-2 \
             --input_dims=window \
             --window_dims=512,512 \
             --window_overlap=0.0 \
-            --workers=4 --xpu=1,0 --batch_size=8 --bstep=1
+            --workers=4 --batch_size=8 --bstep=1
 
 
 
