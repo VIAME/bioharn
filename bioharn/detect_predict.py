@@ -33,7 +33,7 @@ class DetectPredictConfig(scfg.Config):
         'nms_thresh': 0.4,
         'conf_thresh': 0.1,
 
-        'verbose': 3,
+        'verbose': 1,
     }
 
 
@@ -869,6 +869,8 @@ def detect_cli(config={}):
 
     print('Create predictor')
     pred_config = ub.dict_subset(config, DetectPredictConfig.default)
+    if config['verbose'] < 2:
+        pred_config['verbose'] = 0
     predictor = DetectPredictor(pred_config)
     print('Ensure model')
     predictor._ensure_model()
