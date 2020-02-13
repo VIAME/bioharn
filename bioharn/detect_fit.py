@@ -1013,7 +1013,7 @@ if __name__ == '__main__':
         python -m bioharn.detect_fit \
             --nice=demo_shapes_gpu1 \
             --datasets=special:shapes256 \
-            --schedule=ReduceLROnPlateau-p2-c2 \
+            --schedule=ReduceLROnPlateau-p2-c2 G
             --augment=complex \
             --init=noop \
             --arch=cascade \
@@ -1082,7 +1082,7 @@ if __name__ == '__main__':
 
 
         python -m bioharn.detect_fit \
-            --nice=test-pyrosome \
+            --nice=test-pyrosome2 \
             --train_dataset=/data/projects/GOOD/pyrosome-train/deep_training/training_truth.json \
             --vali_dataset=/data/projects/GOOD/pyrosome-train/deep_training/validation_truth.json \
             --xpu=0,1,2,3 \
@@ -1091,11 +1091,11 @@ if __name__ == '__main__':
             --init=noop \
             --arch=cascade \
             --sampler_backend=None \
-            --optim=sgd --lr=1e-3 \
+            --optim=sgd --lr=3e-3 \
             --input_dims=window \
-            --window_dims=512,512 \
+            --window_dims=1024,1024 \
             --window_overlap=0.0 \
-            --workers=4 --batch_size=24 --bstep=1
+            --workers=6 --batch_size=12 --bstep=1
 
 
 

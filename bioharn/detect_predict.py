@@ -823,6 +823,14 @@ def detect_cli(config={}):
             --input_dims=512,512 \
             --xpu=0 --batch_size=1
 
+
+        python -m bioharn.detect_predict \
+            --dataset=/data/projects/GOOD/pyrosome-test/US_NW_2017_NWFSC_PYROSOME_TEST \
+            --deployed=~/work/bioharn/fit/nice/test-pyrosome/deploy_MM_CascadeRCNN_lqufwadq_031_HNSZYA.zip \
+            --out_dpath=~/work/bioharn/predict_pyrosome_test \
+            --draw=100 \
+            --xpu=auto --batch_size=2
+
     Ignore:
         >>> config = {}
         >>> config['dataset'] = '~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'
