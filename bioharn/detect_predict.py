@@ -785,6 +785,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
             single_img_coco.add_annotation(**ann)
 
         single_pred_fpath = join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+        prog.ensure_newline()
         print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
         single_img_coco.dump(tmp_fpath, newlines=True)
         util.atomic_move(tmp_fpath, single_pred_fpath)
