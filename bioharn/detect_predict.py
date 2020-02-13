@@ -646,78 +646,10 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 # CLI
 
 
-class DetectPredictCLIConfig(scfg.Config):
-    default = ub.dict_union(
-        {
-            'dataset': scfg.Value(None, help='coco dataset, path to images or folder of images'),
-            'out_dpath': scfg.Value('./out', help='output directory'),
-            'draw': scfg.Value(False),
-            'sampler_backend': scfg.Value(None),
-            'workdir': scfg.Value('~/work/bioharn', help='work directory for sampler if needed'),
-        },
-        DetectPredictConfig.default
-    )
-
-
-def find_files(dpath, glob_pat='*', recursive=True, ignorecase=True,
-               followlinks=False):
-    """
-    Search for files in a directory hierarchy
-
-    Args:
-        dpath (str): base directory to search
-
-        glob_pat (str | List[str]): file name pattern or list of patterns in
-            glob format
-
-        recursive (bool, default=True): recursive flag
-
-        followlinks (bool, default=False): follows symlinks
-
-    Yields:
-        str: matching file paths
-
-    References:
-        https://stackoverflow.com/questions/8151300/ignore-case-in-glob-on-linux
-
-    Example:
-        >>> import kwimage
-        >>> ignorecase = True
-        >>> dpath = dirname(kwimage.__file__)
-        >>> glob_pat = '*.So'
-        >>> fpaths = list(find_files(dpath, glob_pat))
-        >>> print('fpaths = {}'.format(ub.repr2(fpaths, nl=1)))
-
-        >>> glob_pat = ['*.So', '*py']
-        >>> fpaths = list(find_files(dpath, glob_pat))
-        >>> print('fpaths = {}'.format(ub.repr2(fpaths, nl=1)))
-    """
-    import fnmatch
-    import re
-    import os
-    from os.path import join
-    flags = 0
-    if ignorecase:
-        flags |= re.IGNORECASE
-
-    if ub.iterable(glob_pat):
-        regex_pat = '|'.join([fnmatch.translate(p) for p in glob_pat])
-    else:
-        regex_pat = fnmatch.translate(glob_pat)
-    regex = re.compile(regex_pat, flags=flags)
-    # note: os.walk is faster than os.listdir
-    for root, dirs, files in os.walk(dpath, followlinks=followlinks):
-        for fname in files:
-            if regex.match(fname):
-                fpath = join(root, fname)
-                yield fpath
-        if not recursive:
-            break
-
-
 def _coerce_sampler(config):
     import six
     import ndsampler
+    from bioharn import util
     from os.path import isdir
 
     # Running prediction is much faster if you can build a sampler.
@@ -743,7 +675,7 @@ def _coerce_sampler(config):
                     '.r1', '.r2', '.r3', '.r4', '.r5', '.nsf',
                 ]
                 img_globs = ['*' + ext for ext in IMG_EXTS]
-                fpaths = list(find_files(image_path, img_globs))
+                fpaths = list(util.find_files(image_path, img_globs))
                 if len(fpaths):
                     coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
                 else:
@@ -883,6 +815,19 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
     return gid_to_pred, gid_to_pred_fpath
 
 
+class DetectPredictCLIConfig(scfg.Config):
+    default = ub.dict_union(
+        {
+            'dataset': scfg.Value(None, help='coco dataset, path to images or folder of images'),
+            'out_dpath': scfg.Value('./out', help='output directory'),
+            'draw': scfg.Value(False),
+            'sampler_backend': scfg.Value(None),
+            'workdir': scfg.Value('~/work/bioharn', help='work directory for sampler if needed'),
+        },
+        DetectPredictConfig.default
+    )
+
+
 def detect_cli(config={}):
     """
     CommandLine:
@@ -900,8 +845,8 @@ def detect_cli(config={}):
 
         python -m bioharn.detect_predict \
             --dataset=/data/projects/GOOD/pyrosome-test/US_NW_2017_NWFSC_PYROSOME_TEST \
-            --deployed=~/work/bioharn/fit/nice/test-pyrosome/deploy_MM_CascadeRCNN_lqufwadq_031_HNSZYA.zip \
-            --out_dpath=~/work/bioharn/predict_pyrosome_test \
+            --deployed=$HOME/work/bioharn/fit/nice/test-pyrosome/deploy_MM_CascadeRCNN_lqufwadq_031_HNSZYA.zip \
+            --out_dpath=$HOME/work/bioharn/predict_pyrosome_test \
             --draw=100 \
             --xpu=auto --batch_size=2
 
@@ -930,7 +875,7 @@ def detect_cli(config={}):
     async_buffer = ub.argval('--serial') and config['workers'] > 0
 
     gid_to_pred, gid_to_pred_fpath = _cached_predict(
-        predictor, sampler, out_dpath='./cached_out', gids=None,
+        predictor, sampler, out_dpath=out_dpath, gids=None,
         draw=config['draw'], enable_cache=True, async_buffer=async_buffer)
 
     import ndsampler
