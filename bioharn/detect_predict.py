@@ -819,10 +819,10 @@ class DetectPredictCLIConfig(scfg.Config):
     default = ub.dict_union(
         {
             'dataset': scfg.Value(None, help='coco dataset, path to images or folder of images'),
-            'out_dpath': scfg.Value('./out', help='output directory'),
+            'out_dpath': scfg.Path('./out', help='output directory'),
             'draw': scfg.Value(False),
             'sampler_backend': scfg.Value(None),
-            'workdir': scfg.Value('~/work/bioharn', help='work directory for sampler if needed'),
+            'workdir': scfg.Path('~/work/bioharn', help='work directory for sampler if needed'),
         },
         DetectPredictConfig.default
     )
