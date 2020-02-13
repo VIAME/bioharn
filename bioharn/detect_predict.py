@@ -787,8 +787,8 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
             single_img_coco.add_annotation(**ann)
 
         single_pred_fpath = join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
-        prog.ensure_newline()
-        print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
+        # prog.ensure_newline()
+        # print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
         single_img_coco.dump(tmp_fpath, newlines=True)
         util.atomic_move(tmp_fpath, single_pred_fpath)
 
@@ -878,6 +878,7 @@ def detect_cli(config={}):
     predictor._ensure_model()
 
     async_buffer = ub.argval('--serial') and config['workers'] > 0
+    async_buffer = False  # HACK OFF
 
     gid_to_pred, gid_to_pred_fpath = _cached_predict(
         predictor, sampler, out_dpath=out_dpath, gids=None,
