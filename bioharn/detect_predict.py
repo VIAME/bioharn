@@ -743,7 +743,7 @@ def _coerce_sampler(config):
                     '.r2', '.r3', '.r4', '.r5', '.nsf',
                 ]
                 img_globs = ['*' + ext for ext in IMG_EXTS]
-                fpaths = find_files(image_path, img_globs)
+                fpaths = list(find_files(image_path, img_globs))
                 if len(fpaths):
                     coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
                 else:
