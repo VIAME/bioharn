@@ -705,7 +705,8 @@ def _coerce_sampler(config):
 
 
 def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
-                    draw=False, enable_cache=True, async_buffer=False):
+                    draw=False, enable_cache=True, async_buffer=False,
+                    verbose=1):
     """
     Helper to only do predictions that havent been done yet.
 
@@ -766,7 +767,8 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         gen = pred_gen
 
     gid_to_pred = {}
-    prog = ub.ProgIter(gen, total=len(gids), desc='buffered detect (caching)')
+    prog = ub.ProgIter(gen, total=len(gids), desc='buffered detect (caching)',
+                       verbose=verbose)
     for img_idx, (gid, dets) in enumerate(prog):
         gid_to_pred[gid] = dets
 
