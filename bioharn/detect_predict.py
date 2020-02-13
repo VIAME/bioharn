@@ -652,6 +652,7 @@ class DetectPredictCLIConfig(scfg.Config):
             'dataset': scfg.Value(None, help='coco dataset, path to images or folder of images'),
             'out_dpath': scfg.Value('./out', help='output directory'),
             'draw': scfg.Value(False),
+            'sampler_backend': scfg.Value(None),
             'workdir': scfg.Value('~/work/bioharn', help='work directory for sampler if needed'),
         },
         DetectPredictConfig.default
@@ -661,38 +662,38 @@ class DetectPredictCLIConfig(scfg.Config):
 def _coerce_sampler(config):
     import six
     import ndsampler
+
+    # Running prediction is much faster if you can build a sampler.
+    sampler_backend = config['sampler_backend']
+
     if isinstance(config['dataset'], six.string_types):
         if config['dataset'].endswith('.json'):
             dataset_fpath = ub.expandpath(config['dataset'])
             coco_dset = ndsampler.CocoDataset(dataset_fpath)
-            # Running prediction is much faster if you can build a sampler.
-            sampler_backend = {
-                'type': 'cog',
-                'config': {
-                    'compress': 'JPEG',
-                },
-                '_hack_old_names': False,  # flip to true to use legacy caches
-            }
-            sampler_backend = None
             print('coco hashid = {}'.format(coco_dset._build_hashid()))
         else:
-            sampler_backend = None
             if exists(config['dataset']) and isfile(config['dataset']):
                 # Single image case
                 image_fpath = ub.expandpath(config['dataset'])
                 coco_dset = ndsampler.CocoDataset()
                 coco_dset.add_image(image_fpath)
+            else:
+                import glob
+                fpaths = list(glob.glob(image_fpath))
+                if len(fpaths):
+                    coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
+                else:
+                    raise Exception('not an image path')
     elif isinstance(config['dataset'], list):
         # Multiple image case
         gpaths = config['dataset']
         gpaths = [ub.expandpath(g) for g in gpaths]
-        coco_dset = ndsampler.CocoDataset()
-        for gpath in gpaths:
-            coco_dset.add_image(gpath)
+        coco_dset = ndsampler.CocoDataset.from_image_paths(gpaths)
     else:
         raise TypeError(config['dataset'])
-    workdir = ub.expandpath(config.get('workdir'))
+
     print('Create sampler')
+    workdir = ub.expandpath(config.get('workdir'))
     sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
                                     backend=sampler_backend)
     return sampler
