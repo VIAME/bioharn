@@ -659,9 +659,66 @@ class DetectPredictCLIConfig(scfg.Config):
     )
 
 
+def find_files(dpath, glob_pat='*', recursive=True, ignorecase=True,
+               followlinks=False):
+    """
+    Search for files in a directory hierarchy
+
+    Args:
+        dpath (str): base directory to search
+
+        glob_pat (str | List[str]): file name pattern or list of patterns in
+            glob format
+
+        recursive (bool, default=True): recursive flag
+
+        followlinks (bool, default=False): follows symlinks
+
+    Yields:
+        str: matching file paths
+
+    References:
+        https://stackoverflow.com/questions/8151300/ignore-case-in-glob-on-linux
+
+    Example:
+        >>> import kwimage
+        >>> ignorecase = True
+        >>> dpath = dirname(kwimage.__file__)
+        >>> glob_pat = '*.So'
+        >>> fpaths = list(find_files(dpath, glob_pat))
+        >>> print('fpaths = {}'.format(ub.repr2(fpaths, nl=1)))
+
+        >>> glob_pat = ['*.So', '*py']
+        >>> fpaths = list(find_files(dpath, glob_pat))
+        >>> print('fpaths = {}'.format(ub.repr2(fpaths, nl=1)))
+    """
+    import fnmatch
+    import re
+    import os
+    from os.path import join
+    flags = 0
+    if ignorecase:
+        flags |= re.IGNORECASE
+
+    if ub.iterable(glob_pat):
+        regex_pat = '|'.join([fnmatch.translate(p) for p in glob_pat])
+    else:
+        regex_pat = fnmatch.translate(glob_pat)
+    regex = re.compile(regex_pat, flags=flags)
+    # note: os.walk is faster than os.listdir
+    for root, dirs, files in os.walk(dpath, followlinks=followlinks):
+        for fname in files:
+            if regex.match(fname):
+                fpath = join(root, fname)
+                yield fpath
+        if not recursive:
+            break
+
+
 def _coerce_sampler(config):
     import six
     import ndsampler
+    from os.path import isdir
 
     # Running prediction is much faster if you can build a sampler.
     sampler_backend = config['sampler_backend']
@@ -672,18 +729,34 @@ def _coerce_sampler(config):
             coco_dset = ndsampler.CocoDataset(dataset_fpath)
             print('coco hashid = {}'.format(coco_dset._build_hashid()))
         else:
-            if exists(config['dataset']) and isfile(config['dataset']):
+            image_path = ub.expandpath(config['dataset'])
+            path_exists = exists(image_path)
+            if path_exists and isfile(image_path):
                 # Single image case
-                image_fpath = ub.expandpath(config['dataset'])
                 coco_dset = ndsampler.CocoDataset()
-                coco_dset.add_image(image_fpath)
+                coco_dset.add_image(image_path)
+            elif path_exists and isdir(image_path):
+                # Directory of images case
+                IMG_EXTS = [
+                    '.bmp', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.ntf',
+                    '.nitf', '.ptif', '.cog.tiff', '.cog.tif', '.r0', '.r1',
+                    '.r2', '.r3', '.r4', '.r5', '.nsf',
+                ]
+                img_globs = ['*' + ext for ext in IMG_EXTS]
+                fpaths = find_files(image_path, img_globs)
+                if len(fpaths):
+                    coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
+                else:
+                    raise Exception('no images found')
             else:
+                # Glob pattern case
                 import glob
-                fpaths = list(glob.glob(image_fpath))
+                fpaths = list(glob.glob(image_path))
                 if len(fpaths):
                     coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
                 else:
                     raise Exception('not an image path')
+
     elif isinstance(config['dataset'], list):
         # Multiple image case
         gpaths = config['dataset']
