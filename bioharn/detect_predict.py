@@ -890,7 +890,7 @@ def detect_cli(config={}):
         single_img_coco = ndsampler.CocoDataset(pred_fpath)
         coco_dsets.append(single_img_coco)
 
-    pred_dset = ndsampler.CocoDataset.union(coco_dsets)
+    pred_dset = ndsampler.CocoDataset.union(*coco_dsets)
     pred_fpath = join(det_outdir, 'detections.mscoco.json')
     print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
     pred_dset.dump(pred_fpath, newlines=True)
