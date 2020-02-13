@@ -738,9 +738,9 @@ def _coerce_sampler(config):
             elif path_exists and isdir(image_path):
                 # Directory of images case
                 IMG_EXTS = [
-                    '.bmp', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.ntf',
-                    '.nitf', '.ptif', '.cog.tiff', '.cog.tif', '.r0', '.r1',
-                    '.r2', '.r3', '.r4', '.r5', '.nsf',
+                    '.bmp', '.pgm', '.jpg', '.jpeg', '.png', '.tif', '.tiff',
+                    '.ntf', '.nitf', '.ptif', '.cog.tiff', '.cog.tif', '.r0',
+                    '.r1', '.r2', '.r3', '.r4', '.r5', '.nsf',
                 ]
                 img_globs = ['*' + ext for ext in IMG_EXTS]
                 fpaths = list(find_files(image_path, img_globs))
