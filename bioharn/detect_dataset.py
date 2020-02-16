@@ -126,19 +126,20 @@ class DetectFitDataset(torch.utils.data.Dataset):
         Example:
             >>> # DISABLE_DOCTSET
             >>> from bioharn.detect_dataset import *  # NOQA
-            >>> self = DetectFitDataset.demo(key='shapes8', augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
-            >>> index = 1
-            >>> item = self[{'index': index, 'input_dims': (300, 300)}]
-            >>> hwc01 = item['im'].numpy().transpose(1, 2, 0)
+            >>> torch_dset = self = DetectFitDataset.demo(key='shapes8', augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
+            >>> index = 0
+            >>> spec = {'index': index, 'input_dims': (120, 120)}
+            >>> item = self[spec]
+            >>> hwc01 = item['im'].data.numpy().transpose(1, 2, 0)
             >>> print(hwc01.shape)
-            >>> boxes = kwimage.Boxes(item['label']['cxywh'].numpy(), 'cxywh')
+            >>> boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
             >>> # xdoc: +REQUIRES(--show)
             >>> import kwplot
-            >>> kwplot.figure(doclf=True, fnum=1)
             >>> kwplot.autompl()  # xdoc: +SKIP
+            >>> kwplot.figure(doclf=True, fnum=1)
             >>> kwplot.imshow(hwc01)
             >>> boxes.draw()
-            >>> for mask in item['label']['class_masks']:
+            >>> for mask in item['label']['class_masks'].data:
             ...     kwimage.Mask(mask.data.cpu().numpy(), 'c_mask').draw()
             >>> kwplot.show_if_requested()
 
@@ -163,7 +164,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> boxes.draw()
             >>> kwplot.show_if_requested()
         """
-        import ndsampler
         if isinstance(spec, dict):
             index = spec['index']
             input_dims = spec['input_dims']
@@ -195,7 +195,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
             DO_HABCAM_DISPARITY = True
             if DO_HABCAM_DISPARITY:
-                disp_frame = _cached_habcam_disparity_frame(sampler, gid)
+                disp_frame = _cached_habcam_disparity_frame(self.sampler, gid)
 
                 data_dims = ((img['width'] // 2), img['height'])
                 data_slice, extra_padding, st_dims = self.sampler._rectify_tr(
@@ -220,25 +220,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
         # backend samples clocks in at 72ms. The disparity speedup is about 2x
         sample = self.sampler.load_sample(tr, visible_thresh=0.05,
                                           with_annots=with_annots, pad=pad)
-
-        if False:
-            # Benchmark
-            ti = ub.Timerit(100, bestof=10, verbose=2)
-            data_dims = ((img['width'] // 2), img['height'])
-            data_slice, extra_padding, st_dims = self.sampler._rectify_tr(
-                tr, data_dims, window_dims=None, pad=pad)
-            fpath = disp_cache_fpath
-            fpath = self.sampler.dset.load_image_fpath(tr['gid'])
-            png_fpath, cog_fpath = self.sampler.frames._gnames(tr['gid'])
-            for timer in ti.reset('cog'):
-                with timer:
-                    disp_frame = ndsampler.utils.util_gdal.LazyGDalFrameFile(cog_fpath)
-                    # Load the image data
-                    disp_im = disp_frame[data_slice]
-            for timer in ti.reset('naive'):
-                with timer:
-                    disp_frame = kwimage.imread(png_fpath)
-                    disp_im = disp_frame[data_slice]
 
         imdata = kwimage.atleast_3channels(sample['im'])[..., 0:3]
 
@@ -307,8 +288,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         # Apply letterbox resize transform to train and test
         self.letterbox.target_size = inp_size
-        input_dims = imdata.shape[0:2]
+        prelb_dims = imdata.shape[0:2]
         imdata = self.letterbox.augment_image(imdata)
+        postlb_dims = imdata.shape[0:2]
         if disp_im is not None:
             # note: the letterbox augment doesn't handle floats wello
             # use the kwimage.imresize instead
@@ -316,10 +298,10 @@ class DetectFitDataset(torch.utils.data.Dataset):
             disp_im = kwimage.imresize(
                 disp_im, dsize=self.letterbox.target_size,
                 letterbox=True).clip(0, 1)
-        output_dims = imdata.shape[0:2]
         if len(dets):
-            dets = dets.warp(self.letterbox, input_dims=input_dims,
-                             output_dims=output_dims)
+            dets = dets.warp(self.letterbox,
+                             input_dims=prelb_dims,
+                             output_dims=postlb_dims)
 
         # Remove any boxes that are no longer visible or out of bounds
         flags = (dets.boxes.area > 0).ravel()
