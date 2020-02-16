@@ -847,7 +847,7 @@ class DetectionAugmentor(object):
                     backend='cv2',
                 )),
                 iaa.Fliplr(p=.5),
-                iaa.Flipud(p=.5),
+                iaa.Flipud(p=.5 * (1 - gravity)),
                 iaa.Rot90(k=[0, 1, 2, 3]),
                 iaa.Sometimes(.9, iaa.CropAndPad(px=(-16, 16))),
 
