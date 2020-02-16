@@ -688,6 +688,7 @@ class DetectionAugmentor(object):
 
         self.mode = mode
 
+        print('gravity = {!r}'.format(gravity))
         self._intensity = iaa.Sequential([])
         self._geometric = iaa.Sequential([])
         self._disp_intensity = iaa.Sequential([])
