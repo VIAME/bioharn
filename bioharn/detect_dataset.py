@@ -849,10 +849,11 @@ class DetectionAugmentor(object):
                 )),
                 iaa.Fliplr(p=.5),
                 iaa.Flipud(p=.5 * (1 - gravity)),
-                iaa.Rot90(k=[0, 1, 2, 3]),
-                iaa.Sometimes(.9, iaa.CropAndPad(px=(-16, 16))),
-
-            ])
+            ] + ([iaa.Rot90(k=[0, 1, 2, 3])] * int(1 - gravity))  +
+                [
+                    iaa.Sometimes(.9, iaa.CropAndPad(px=(-16, 16))),
+                ]
+            )
             self._intensity = iaa.Sequential([
                 # Color, brightness, saturation, and contrast
                 iaa.Sometimes(0.1, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
