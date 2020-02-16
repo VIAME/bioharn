@@ -895,6 +895,27 @@ def detect_cli(config={}):
     print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
     pred_dset.dump(pred_fpath, newlines=True)
 
+def train_bdd_note():
+    """
+        python -m bioharn.detect_fit \
+            --nice=test-bdd \
+            --workdir=$HOME/work/bdd \
+            --train_dataset=/media/joncrall/raid/home/joncrall/data/standard_datasets/BDD/processed/vali/vali.mscoco.json \
+            --vali_dataset=/media/joncrall/raid/home/joncrall/data/standard_datasets/BDD/processed/vali/vali.mscoco.json \
+            --xpu=1 \
+            --schedule=step-20-25 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --sampler_backend=None \
+            --optim=sgd --lr=3e-3 \
+            --input_dims=window \
+            --dsampler_backend=cog \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --workers=4 --batch_size=8 --bstep=1
+    """
+
 
 if __name__ == '__main__':
     detect_cli()
