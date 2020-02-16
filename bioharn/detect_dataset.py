@@ -34,7 +34,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
     """
     def __init__(self, sampler, augment='simple', window_dims=[512, 512],
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
-                 factor=32, use_segmentation=True):
+                 factor=32, use_segmentation=True, gravity=0.0):
         super(DetectFitDataset, self).__init__()
 
         self.sampler = sampler
@@ -63,7 +63,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         if not augment:
             self.augmenter = None
         else:
-            self.augmenter = DetectionAugmentor(mode=augment, rng=self.rng)
+            self.augmenter = DetectionAugmentor(mode=augment, gravity=gravity,
+                                                rng=self.rng)
 
         # Used to resize images to the appropriate inp_size without changing
         # the aspect ratio.
@@ -680,7 +681,7 @@ class DetectionAugmentor(object):
     Ignore:
         self = DetectionAugmentor(mode='heavy')
     """
-    def __init__(self, mode='simple', rng=None):
+    def __init__(self, mode='simple', gravity=0, rng=None):
         import imgaug as ia
         from imgaug import augmenters as iaa
         self.rng = kwarray.ensure_rng(rng)
@@ -694,7 +695,7 @@ class DetectionAugmentor(object):
         if mode == 'simple':
             self._geometric = iaa.Sequential([
                 iaa.Fliplr(p=.5),
-                iaa.Flipud(p=.5),
+                iaa.Flipud(p=.5 * (1 - gravity)),
                 iaa.CropAndPad(px=(0, 4)),
             ])
             self._intensity = iaa.Sequential([])
@@ -717,7 +718,7 @@ class DetectionAugmentor(object):
                     backend='cv2',
                 ),
                 iaa.Fliplr(p=.5),
-                iaa.Flipud(p=.5),
+                iaa.Flipud(p=.5 * (1 - gravity)),
                 iaa.Rot90(k=[0, 1, 2, 3]),
                 iaa.CropAndPad(px=(-3, 3)),
             ])
@@ -737,7 +738,7 @@ class DetectionAugmentor(object):
                     backend='cv2',
                 )),
                 iaa.Fliplr(p=.5),
-                iaa.Flipud(p=.5),
+                iaa.Flipud(p=.5 * (1 - gravity)),
                 iaa.Rot90(k=[0, 1, 2, 3]),
                 iaa.Sometimes(.9, iaa.CropAndPad(px=(-4, 4))),
             ], random_order=False)
@@ -767,7 +768,7 @@ class DetectionAugmentor(object):
                     backend='cv2',
                 )),
                 iaa.Fliplr(p=.5),
-                iaa.Flipud(p=.5),
+                iaa.Flipud(p=.5 * (1 - gravity)),
                 iaa.Rot90(k=[0, 1, 2, 3]),
                 iaa.Sometimes(.9, iaa.CropAndPad(px=(-16, 16))),
             ])

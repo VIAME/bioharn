@@ -50,6 +50,7 @@ class DetectFitConfig(scfg.Config):
 
         # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['medium', 'simple']),
         'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'low', 'simple', 'complex', None]),
+        'gravity': scfg.Value(0.0, help='how often to assume gravity vector for augmentation'),
 
         'use_disparity': False,
 
@@ -566,6 +567,7 @@ def setup_harn(cmdline=True, **kw):
             window_dims=config['window_dims'],
             window_overlap=config['window_overlap'] if (tag == 'train') else 0.0,
             augment=config['augment'] if (tag == 'train') else False,
+            gravity=config['gravity'],
         )
         for tag, sampler in samplers.items()
     }
