@@ -49,8 +49,8 @@ class DetectPredictor(object):
         >>>     window_dims=(512, 512),
         >>>     input_dims=(256, 256),
         >>> )
-        >>> self = DetectPredictor(config)
-        >>> final = self.predict(full_rgb)
+        >>> predictor = DetectPredictor(config)
+        >>> final = predictor.predict(full_rgb)
         >>> # xdoc: +REQUIRES(--show)
         >>> import kwplot
         >>> kwplot.autompl()
@@ -58,14 +58,14 @@ class DetectPredictor(object):
         >>> final2 = final.compress(final.scores > .0)
         >>> final2.draw()
     """
-    def __init__(self, config):
-        self.config = DetectPredictConfig(config)
-        self.model = None
-        self.xpu = None
-        self.coder = None
+    def __init__(predictor, config):
+        predictor.config = DetectPredictConfig(config)
+        predictor.model = None
+        predictor.xpu = None
+        predictor.coder = None
 
-    def info(self, text):
-        if self.config['verbose']:
+    def info(predictor, text):
+        if predictor.config['verbose']:
             print(text)
 
     @classmethod
@@ -109,30 +109,30 @@ class DetectPredictor(object):
                 native[key] = config[key]
         return native
 
-    def _ensure_model(self):
-        if self.model is None:
-            xpu = nh.XPU.coerce(self.config['xpu'])
-            deployed = nh.export.DeployedModel.coerce(self.config['deployed'])
+    def _ensure_model(predictor):
+        if predictor.model is None:
+            xpu = nh.XPU.coerce(predictor.config['xpu'])
+            deployed = nh.export.DeployedModel.coerce(predictor.config['deployed'])
             model = deployed.load_model()
             if xpu != nh.XPU.from_data(model):
-                self.info('Mount {} on {}'.format(deployed, xpu))
+                predictor.info('Mount {} on {}'.format(deployed, xpu))
                 model = xpu.mount(model)
             model.train(False)
-            self.model = model
-            self.xpu = xpu
+            predictor.model = model
+            predictor.xpu = xpu
             # The model must have a coder
-            self.raw_model = self.xpu.raw(self.model)
-            self.coder = self.raw_model.coder
+            predictor.raw_model = predictor.xpu.raw(predictor.model)
+            predictor.coder = predictor.raw_model.coder
 
-    def _rectify_image(self, path_or_image):
+    def _rectify_image(predictor, path_or_image):
         if isinstance(path_or_image, six.string_types):
-            self.info('Reading {!r}'.format(path_or_image))
+            predictor.info('Reading {!r}'.format(path_or_image))
             full_rgb = kwimage.imread(path_or_image, space='rgb')
         else:
             full_rgb = path_or_image
         return full_rgb
 
-    def predict(self, path_or_image):
+    def predict(predictor, path_or_image):
         """
         Predict on a single large image using a sliding window_dims
 
@@ -144,70 +144,70 @@ class DetectPredictor(object):
             kwimage.Detections: a wrapper around predicted boxes, scores,
                 and class indices. See the `.data` attribute for more info.
         """
-        self.info('Begin detection prediction')
+        predictor.info('Begin detection prediction')
 
         # Ensure model is in prediction mode and disable gradients for speed
-        self._ensure_model()
+        predictor._ensure_model()
 
-        full_rgb = self._rectify_image(path_or_image)
-        self.info('Detect objects in image (shape={})'.format(full_rgb.shape))
+        full_rgb = predictor._rectify_image(path_or_image)
+        predictor.info('Detect objects in image (shape={})'.format(full_rgb.shape))
 
-        full_rgb, pad_offset_rc, window_dims = self._prepare_image(full_rgb)
+        full_rgb, pad_offset_rc, window_dims = predictor._prepare_image(full_rgb)
         pad_offset_xy = torch.FloatTensor(np.ascontiguousarray(pad_offset_rc[::-1]))
 
-        slider_dataset = self._make_dataset(full_rgb, window_dims)
+        slider_dataset = predictor._make_dataset(full_rgb, window_dims)
 
         # Its typically faster to use num_workers=0 here because the full image
         # is already in memory. We only need to slice and cast to float32.
         slider_loader = torch.utils.data.DataLoader(
-            slider_dataset, shuffle=False, num_workers=self.config['workers'],
-            batch_size=self.config['batch_size'])
+            slider_dataset, shuffle=False, num_workers=predictor.config['workers'],
+            batch_size=predictor.config['batch_size'])
 
         # TODO:
-        # mmdetection models need to modify self._raw_model.detector.test_cfg
+        # mmdetection models need to modify predictor._raw_model.detector.test_cfg
         prog = ub.ProgIter(slider_loader, total=len(slider_loader),
-                           desc='predict', enabled=self.config['verbose'] > 1)
+                           desc='predict', enabled=predictor.config['verbose'] > 1)
         accum_dets = []
         with torch.set_grad_enabled(False):
             for raw_batch in prog:
                 batch = {
-                    'im': self.xpu.move(raw_batch['im']),
+                    'im': predictor.xpu.move(raw_batch['im']),
                     'tf_chip_to_full': raw_batch['tf_chip_to_full'],
                     'pad_offset_xy': pad_offset_xy,
                 }
-                results = self._predict_batch(batch)
+                results = predictor._predict_batch(batch)
                 for dets in results:
                     accum_dets.append(dets)
 
         # Stitch predicted detections together
-        self.info('Accumulate detections')
+        predictor.info('Accumulate detections')
         all_dets = kwimage.Detections.concatenate(accum_dets)
 
         # Perform final round of NMS on the stiched boxes
-        self.info('Finalize detections')
+        predictor.info('Finalize detections')
 
         if len(all_dets) > 0:
             keep = all_dets.non_max_supression(
-                thresh=self.config['nms_thresh'],
+                thresh=predictor.config['nms_thresh'],
                 daq={'diameter': all_dets.boxes.width.max()},
             )
             final_dets = all_dets.take(keep)
         else:
             final_dets = all_dets
 
-        self.info('Finished prediction')
+        predictor.info('Finished prediction')
         return final_dets
 
-    def _prepare_image(self, full_rgb):
+    def _prepare_image(predictor, full_rgb):
         full_dims = tuple(full_rgb.shape[0:2])
 
-        if self.config['window_dims'] == 'full':
+        if predictor.config['window_dims'] == 'full':
             window_dims = full_dims
         else:
             # could do this more efficiently
-            native = self._infer_native(self.config)
+            native = predictor._infer_native(predictor.config)
             window_dims = native['window_dims']
-            # window_dims = self.config['window_dims']
+            # window_dims = predictor.config['window_dims']
 
         # Pad small images to be at least the minimum window_dims size
         dims_delta = np.array(full_dims) - np.array(window_dims)
@@ -231,22 +231,22 @@ class DetectPredictor(object):
 
         return full_rgb, pad_offset_rc, window_dims
 
-    def _make_dataset(self, full_rgb, window_dims):
+    def _make_dataset(predictor, full_rgb, window_dims):
         full_dims = tuple(full_rgb.shape[0:2])
 
         # Break large images into chunks to fit on the GPU
         slider = nh.util.SlidingWindow(full_dims, window=window_dims,
-                                       overlap=self.config['overlap'],
+                                       overlap=predictor.config['overlap'],
                                        keepbound=True, allow_overshoot=True)
 
-        input_dims = self.config['input_dims']
+        input_dims = predictor.config['input_dims']
         if input_dims == 'full' or input_dims == window_dims:
             input_dims = None
 
         slider_dataset = SingleImageDataset(full_rgb, slider, input_dims)
         return slider_dataset
 
-    def _predict_batch(self, batch):
+    def _predict_batch(predictor, batch):
         """
         Runs the torch network on a single batch and postprocesses the outputs
 
@@ -264,21 +264,21 @@ class DetectPredictor(object):
         else:
             shift_xy_ = shift_xy
 
-        if 'disparity' in batch and self.model.module.in_channels > 3:
+        if 'disparity' in batch and predictor.model.module.in_channels > 3:
             batch = batch.copy()
             batch['im'] = torch.cat([batch['im'], batch['disparity']], dim=1)
             pass
 
         # All GPU work happens in this line
-        if hasattr(self.model.module, 'detector'):
+        if hasattr(predictor.model.module, 'detector'):
             # HACK FOR MMDET MODELS
-            outputs = self.model.forward(batch, return_loss=False)
+            outputs = predictor.model.forward(batch, return_loss=False)
         else:
-            outputs = self.model.forward(batch['im'])
+            outputs = predictor.model.forward(batch['im'])
             # raise NotImplementedError('only works on mmdet models')
 
         # Postprocess GPU outputs
-        batch_dets = self.coder.decode_batch(outputs)
+        batch_dets = predictor.coder.decode_batch(outputs)
         for idx, det in enumerate(batch_dets):
             item_scale_xy = scale_xy[idx].numpy()
             item_shift_xy = shift_xy_[idx].numpy()
@@ -296,7 +296,7 @@ class DetectPredictor(object):
             det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
             yield det
 
-    def predict_sampler(self, sampler, gids=None):
+    def predict_sampler(predictor, sampler, gids=None):
         """
         Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
 
@@ -308,7 +308,7 @@ class DetectPredictor(object):
         Yields:
             Tuple[int, Detections] : image_id, detection pairs
         """
-        native = self._infer_native(self.config)
+        native = predictor._infer_native(predictor.config)
         input_dims = native['input_dims']
         window_dims = native['window_dims']
 
@@ -317,12 +317,12 @@ class DetectPredictor(object):
         if len(torch_dset) == 0:
             return
         slider_loader = torch.utils.data.DataLoader(
-            torch_dset, shuffle=False, num_workers=self.config['workers'],
-            batch_size=self.config['batch_size'])
+            torch_dset, shuffle=False, num_workers=predictor.config['workers'],
+            batch_size=predictor.config['batch_size'])
 
         prog = ub.ProgIter(slider_loader, total=len(slider_loader),
-                           chunksize=self.config['batch_size'],
-                           desc='predict', enabled=self.config['verbose'] > 1)
+                           chunksize=predictor.config['batch_size'],
+                           desc='predict', enabled=predictor.config['verbose'] > 1)
 
         def finalize_dets(ready_dets, ready_gids):
             gid_to_ready_dets = ub.group_items(ready_dets, ready_gids)
@@ -334,12 +334,12 @@ class DetectPredictor(object):
                 elif len(dets_list) > 1:
                     dets = kwimage.Detections.concatenate(dets_list)
                     keep = dets.non_max_supression(
-                        thresh=self.config['nms_thresh'],
+                        thresh=predictor.config['nms_thresh'],
                     )
                     dets = dets.take(keep)
                 yield (gid, dets)
 
-        xpu = self.xpu
+        xpu = predictor.xpu
 
         # raw_batch = ub.peek(prog)
         with torch.set_grad_enabled(False):
@@ -355,8 +355,9 @@ class DetectPredictor(object):
                 }
                 if 'disparity' in raw_batch:
                     batch['disparity'] = xpu.move(raw_batch['disparity'])
+
                 batch_gids = raw_batch['gid'].view(-1).numpy()
-                batch_dets = list(self._predict_batch(batch))
+                batch_dets = list(predictor._predict_batch(batch))
 
                 # Determine if we have finished an image (assuming images are
                 # passed in sequentially in order)
@@ -744,7 +745,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         gids = list(coco_dset.imgs.keys())
 
     gid_to_pred_fpath = {
-        gid: join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+        gid: join(det_outdir, 'dets_gid_{:08d}_v2.mscoco.json'.format(gid))
         for gid in gids
     }
 
@@ -776,8 +777,12 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
         single_img_coco = ndsampler.CocoDataset()
         gid = single_img_coco.add_image(**img)
-        for cat in coco_dset.cats.values():
+
+        for cat in dets.classes.to_coco():
             single_img_coco.add_category(**cat)
+
+        # for cat in coco_dset.cats.values():
+        #     single_img_coco.add_category(**cat)
 
         for ann in dets.to_coco():
             ann['image_id'] = gid
@@ -786,7 +791,8 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
             ann['category_id'] = cid
             single_img_coco.add_annotation(**ann)
 
-        single_pred_fpath = join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+        single_pred_fpath = gid_to_pred_fpath[gid]
+
         # prog.ensure_newline()
         # print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
         single_img_coco.dump(tmp_fpath, newlines=True)
@@ -894,27 +900,6 @@ def detect_cli(config={}):
     pred_fpath = join(det_outdir, 'detections.mscoco.json')
     print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
     pred_dset.dump(pred_fpath, newlines=True)
-
-def train_bdd_note():
-    """
-        python -m bioharn.detect_fit \
-            --nice=test-bdd \
-            --workdir=$HOME/work/bdd \
-            --train_dataset=/media/joncrall/raid/home/joncrall/data/standard_datasets/BDD/processed/vali/vali.mscoco.json \
-            --vali_dataset=/media/joncrall/raid/home/joncrall/data/standard_datasets/BDD/processed/vali/vali.mscoco.json \
-            --xpu=1 \
-            --schedule=step-20-25 \
-            --augment=complex \
-            --init=noop \
-            --arch=cascade \
-            --sampler_backend=None \
-            --optim=sgd --lr=3e-3 \
-            --input_dims=window \
-            --dsampler_backend=cog \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --workers=4 --batch_size=8 --bstep=1
-    """
 
 
 if __name__ == '__main__':

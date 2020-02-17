@@ -143,56 +143,56 @@ class DetectEvaluator(object):
         config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v16-cascade/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP'
         config['dataset'] = ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
 
-        evaluator = self = DetectEvaluator(config)
-        self._init()
+        evaluator = evaluator = DetectEvaluator(config)
+        evaluator._init()
         predictor = evaluator.predictor
         sampler = evaluator.sampler
         coco_dset = sampler.dset
 
         predictor.config['verbose'] = 1
-        out_dpath = self.paths['base']
+        out_dpath = evaluator.paths['base']
 
-        self.evaluate()
+        evaluator.evaluate()
     """
 
-    def __init__(self, config=None):
-        self.config = DetectEvaluateConfig(config)
-        self.predictor = None
-        self.sampler = None
+    def __init__(evaluator, config=None):
+        evaluator.config = DetectEvaluateConfig(config)
+        evaluator.predictor = None
+        evaluator.sampler = None
 
-    def _ensure_sampler(self):
-        if self.sampler is None:
+    def _ensure_sampler(evaluator):
+        if evaluator.sampler is None:
             print('loading dataset')
-            coco_dset = ndsampler.CocoDataset(ub.expandpath(self.config['dataset']))
+            coco_dset = ndsampler.CocoDataset(ub.expandpath(evaluator.config['dataset']))
             print('loaded dataset')
-            workdir = ub.expandpath(self.config['workdir'])
+            workdir = ub.expandpath(evaluator.config['workdir'])
             sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
                                             backend=None)
-            self.sampler = sampler
-            # self.sampler.frames.prepare(workers=min(2, self.config['workers']))
+            evaluator.sampler = sampler
+            # evaluator.sampler.frames.prepare(workers=min(2, evaluator.config['workers']))
             print('prepare frames')
-            self.sampler.frames.prepare(workers=self.config['workers'])
+            evaluator.sampler.frames.prepare(workers=evaluator.config['workers'])
             print('finished dataset load')
 
-    def _init(self):
-        self._ensure_sampler()
+    def _init(evaluator):
+        evaluator._ensure_sampler()
 
         # Load model
-        deployed = nh.export.DeployedModel.coerce(self.config['deployed'])
+        deployed = nh.export.DeployedModel.coerce(evaluator.config['deployed'])
         nice = deployed.train_info()['nice']
         if deployed.path is None:
             model_tag = nice + '_' + ub.augpath(deployed._info['snap_fpath'], dpath='', ext='', multidot=True)
         else:
             model_tag = nice + '_' + ub.augpath(deployed.path, dpath='', ext='', multidot=True)
 
-        self.model_tag = model_tag
-        self.dset_tag = self.sampler.dset.tag.rstrip('.json')
+        evaluator.model_tag = model_tag
+        evaluator.dset_tag = evaluator.sampler.dset.tag.rstrip('.json')
 
         # Load the trained model
         pred_keys = set(detect_predict.DetectPredictConfig.default.keys()) - {'verbose'}
-        pred_cfg = ub.dict_subset(self.config, pred_keys)
+        pred_cfg = ub.dict_subset(evaluator.config, pred_keys)
 
-        # if self.config['input_dims'] == 'native':
+        # if evaluator.config['input_dims'] == 'native':
         #     # hack, this info exists, but not in an easy form
         #     train_config = eval(deployed.train_info()['extra']['config'], {})
         #     pred_cfg['input_dims'] = train_config['input_dims']
@@ -200,42 +200,43 @@ class DetectEvaluator(object):
         native = detect_predict.DetectPredictor._infer_native(pred_cfg)
         pred_cfg.update(native)
 
-        if self.predictor is None:
+        if evaluator.predictor is None:
             # Only create the predictor if needed
             print('Needs initial init')
-            self.predictor = detect_predict.DetectPredictor(pred_cfg)
-            self.predictor._ensure_model()
+            evaluator.predictor = detect_predict.DetectPredictor(pred_cfg)
+            evaluator.predictor._ensure_model()
         else:
             # Reuse loaded predictors from other evaluators.
             # Update the config in this case
-            needs_reinit = self.predictor.config['deployed'] != pred_cfg['deployed']
-            self.predictor.config.update(pred_cfg)
+            needs_reinit = evaluator.predictor.config['deployed'] != pred_cfg['deployed']
+            evaluator.predictor.config.update(pred_cfg)
             print('needs_reinit = {!r}'.format(needs_reinit))
             if needs_reinit:
-                self.predictor._ensure_model()
+                evaluator.predictor._ensure_model()
             else:
                 print('reusing loaded model')
 
-        self.classes = self.predictor.raw_model.classes
+        evaluator.classes = evaluator.predictor.raw_model.classes
 
         # The parameters that influence the predictions
-        pred_params = ub.dict_subset(self.predictor.config, [
+        pred_params = ub.dict_subset(evaluator.predictor.config, [
             'input_dims',
             'window_dims',
         ])
-        self.pred_cfg = nh.util.make_short_idstr(pred_params)
-        self.predcfg_tag = self.pred_cfg
+        evaluator.pred_cfg = nh.util.make_short_idstr(pred_params)
+        evaluator.predcfg_tag = evaluator.pred_cfg
 
-        self.paths = {}
-        out_dpath = ub.ensuredir(self.config['out_dpath'])
+        evaluator.paths = {}
+        out_dpath = ub.ensuredir(evaluator.config['out_dpath'])
 
-        base_dpath = join(out_dpath, self.dset_tag, self.model_tag, self.pred_cfg)
+        base_dpath = join(out_dpath, evaluator.dset_tag, evaluator.model_tag,
+                          evaluator.pred_cfg)
 
         class UnknownTrainDpath(Exception):
             pass
 
         try:
-            if self.config['eval_in_train_dpath']:
+            if evaluator.config['eval_in_train_dpath']:
                 # NOTE: the train_dpath in the info directory is wrt to the
                 # machine the model was trained on. Used the deployed model to
                 # grab that path instead wrt to the current machine.
@@ -244,8 +245,8 @@ class DetectEvaluator(object):
                 else:
                     train_dpath = dirname(deployed.path)
                 print('train_dpath = {!r}'.format(train_dpath))
-                eval_dpath = join(train_dpath, 'eval', self.dset_tag,
-                                  self.model_tag, self.pred_cfg)
+                eval_dpath = join(train_dpath, 'eval', evaluator.dset_tag,
+                                  evaluator.model_tag, evaluator.pred_cfg)
                 ub.ensuredir(eval_dpath)
                 ub.ensuredir(dirname(base_dpath))
                 if not os.path.islink(base_dpath) and exists(base_dpath):
@@ -256,25 +257,28 @@ class DetectEvaluator(object):
         except UnknownTrainDpath:
             ub.ensuredir(base_dpath)
 
-        self.paths['base'] = base_dpath
-        self.paths['metrics'] = ub.ensuredir((self.paths['base'], 'metrics'))
-        self.paths['viz'] = ub.ensuredir((self.paths['base'], 'viz'))
+        evaluator.paths['base'] = base_dpath
+        evaluator.paths['metrics'] = ub.ensuredir((evaluator.paths['base'], 'metrics'))
+        evaluator.paths['viz'] = ub.ensuredir((evaluator.paths['base'], 'viz'))
 
-    def _run_predictions(self):
-        self.predictor.config['verbose'] = 1
-        sampler = self.sampler
-        # pred_gen = self.predictor.predict_sampler(sampler)
+    def _run_predictions(evaluator):
 
-        out_dpath = self.paths['base']
+        predictor = evaluator.predictor
+        sampler = evaluator.sampler
+        # pred_gen = evaluator.predictor.predict_sampler(sampler)
+
+        predictor.config['verbose'] = 1
+
+        out_dpath = evaluator.paths['base']
         gid_to_pred, gid_to_pred_fpath = detect_predict._cached_predict(
-            self.predictor, sampler, out_dpath, gids=None, draw=10,
+            predictor, sampler, out_dpath, gids=None, draw=10,
             enable_cache=True)
         return gid_to_pred
 
-    def evaluate(self):
+    def evaluate(evaluator):
         # TODO
-        self.predictor.config['verbose'] = 3
-        gid_to_pred = self._run_predictions()
+        evaluator.predictor.config['verbose'] = 3
+        gid_to_pred = evaluator._run_predictions()
 
         # This can take awhile to accumulate, perhaps cache intermediate
         # results to disk, so we can restart efficiently?
@@ -282,11 +286,36 @@ class DetectEvaluator(object):
         # for i, (gid, pred) in enumerate(pred_gen):
         #     gid_to_pred[gid] = pred
 
-        sampler = self.sampler
+        sampler = evaluator.sampler
+
+        # Determine if truth and model classes are compatible
+        model_classes = evaluator.predictor.coder.classes
+        truth_classes = sampler.classes
+        errors = []
+        for node1, id1 in truth_classes.node_to_id.items():
+            if id1 in model_classes.id_to_node:
+                node2 = model_classes.id_to_node[id1]
+                if node1 != node2:
+                    errors.append(
+                        'id={} exists in model and truth but have '
+                        'different names, {}, {}'.format(id1, node1, node2))
+            if node1 in model_classes.node_to_id:
+                id2 = model_classes.node_to_id[node1]
+                if id1 != id2:
+                    errors.append(
+                        'node={} exists in model and truth but have '
+                        'different ids, {}, {}'.format(node1, id1, id2))
+
+        graph2 = model_classes.graph.copy()
+        for node1, id1 in truth_classes.node_to_id.items():
+            if node1 not in model_classes.node_to_id:
+                graph2.add_node(node1, id=id1)
+        classes = ndsampler.CategoryTree(graph2)
+
+        if errors:
+            raise Exception('\n'.join(errors))
 
         # Build true dets
-        classes = self.predictor.coder.classes
-
         gid_to_truth = {}
         for gid in gid_to_pred.keys():
             annots = sampler.load_annotations(gid)
@@ -318,7 +347,7 @@ class DetectEvaluator(object):
         # print(dmet.score_coco(verbose=1))
         # dmet.score_netharn()
 
-        print('self.predcfg_tag = {!r}'.format(self.predcfg_tag))
+        print('evaluator.predcfg_tag = {!r}'.format(evaluator.predcfg_tag))
 
         # CascadeRCNN 512
         # 'voc_mAP':  0.8379016325674102,
