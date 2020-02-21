@@ -315,10 +315,9 @@ class DetectEvaluator(object):
         if errors:
             raise Exception('\n'.join(errors))
 
-        import xdev
-        xdev.embed()
-
-        xdev.fix_embed_globals()
+        # import xdev
+        # xdev.embed()
+        # xdev.fix_embed_globals()
         # import xdev
         # globals().update(**xdev.get_func_kwargs(dmet.confusion_vectors))
 
@@ -329,13 +328,14 @@ class DetectEvaluator(object):
             true_cids = [a['category_id'] for a in annots]
             true_cidx = np.array([classes.id_to_idx[c] for c in true_cids])
             true_sseg = [a.get('segmentation') for a in annots]
+            true_weight = [a.get('weight', 1) for a in annots]
 
             true_dets = kwimage.Detections(
                 boxes=kwimage.Boxes([a['bbox'] for a in annots], 'xywh'),
                 segmentations=true_sseg,
                 class_idxs=true_cidx,
                 classes=classes,
-                # weights=np.ones(len(true_cidx)),
+                weights=np.array(true_weight),
             ).numpy()
             gid_to_truth[gid] = true_dets
 
@@ -348,69 +348,27 @@ class DetectEvaluator(object):
             dmet.add_truth(true_dets, gid=gid)
 
         # Detection only scoring
-        cfsn_vecs1 = dmet.confusion_vectors(ignore_class=None)
-        cfsn_vecs2 = dmet.confusion_vectors(ignore_class='ignore')
+        cfsn_vecs = dmet.confusion_vectors(ignore_class='ignore')
 
-        cfsn_vecs = cfsn_vecs2
-
-        import kwarray
-        _data = {
-            'is_true': (cfsn_vecs.data['true'] > -1),
-            'pred_score': cfsn_vecs.data['score'],
-        }
-        bin_data = kwarray.DataFrameArray(_data)
-        from netharn.metrics.confusion_vectors import BinaryConfusionVectors  # NOQA
-        binvecs = BinaryConfusionVectors(bin_data)
+        # Get pure detection results
+        binvecs = cfsn_vecs.binarize_peritem()
         roc_result = binvecs.roc()
-        pr_result = binvecs.precision_recall()
+
+        pr_result = binvecs.precision_recall(method='voc2012')
+        # pr_result = binvecs.precision_recall(method='sklearn')
         print('roc_result = {!r}'.format(roc_result))
         print('pr_result = {!r}'.format(pr_result))
 
-        cfsn_vecs = cfsn_vecs1
-
-        import kwarray
-        _data = {
-            'is_true': (cfsn_vecs.data['true'] > -1),
-            'pred_score': cfsn_vecs.data['score'],
-        }
-        bin_data = kwarray.DataFrameArray(_data)
-        from netharn.metrics.confusion_vectors import BinaryConfusionVectors  # NOQA
-        binvecs = BinaryConfusionVectors(bin_data)
-        roc_result = binvecs.roc()
-        pr_result = binvecs.precision_recall()
-        print('roc_result = {!r}'.format(roc_result))
-        print('pr_result = {!r}'.format(pr_result))
-
-        # DETECTION QUALITY ONLY SCORING
-        df = cfsn_vecs.data._pandas()
-
-        roc_result
-
-        # roc_result.draw()
+        voc_info = dmet.score_voc(ignore_class='ignore')
+        print('voc_info = {!r}'.format(voc_info))
+        import xdev
+        xdev.embed()
 
         import kwplot
         kwplot.autompl()
 
-        was_assigned = df['pred'] >= 0
-        df[df['true'] < 0]
-        df[df['true'] > 0]
-        df[(df['pred'] > 0) & (df['true'] > 0)]
-        (df['pred'] >= 0).sum()
-
-        cfsn_perclass = cfsn_vecs1.binarize_ovr(mode=1)
-        cfsn_perclass.roc()
-
-        voc_info = dmet.score_voc(ignore_class='ignore')
-        print('voc-tp {}'.format(voc_info['perclass'][1]['tp'][[0, -1]]))
-        print('voc-fp {}'.format(voc_info['perclass'][1]['fp'][[0, -1]]))
-        print('voc-fn {}'.format(voc_info['perclass'][1]['fn'][[0, -1]]))
-        voc_info['perclass'][1]['npos']
-        print('voc_info = {}'.format(ub.repr2(voc_info, nl=1)))
-        print('mAP = {}'.format(voc_info['mAP']))
-
-        voc_info = dmet.score_voc(ignore_class=None)
-        print('voc_info = {}'.format(ub.repr2(voc_info, nl=1)))
-        print('mAP = {}'.format(voc_info['mAP']))
+        pr_result.draw()
+        roc_result.draw()
 
         # print(dmet.score_voc())
         # print(dmet.score_coco(verbose=1))

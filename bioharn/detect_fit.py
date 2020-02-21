@@ -94,6 +94,7 @@ class DetectFitConfig(scfg.Config):
         'draw_per_batch': scfg.Value(8, help='Number of items to draw within each batch'),
 
         'collapse_classes': scfg.Value(False, help='force one-class detector'),
+        'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
     }
 
     def normalize(self):
@@ -519,7 +520,9 @@ def setup_harn(cmdline=True, **kw):
     classes = subsets['train'].object_categories()
     for k, subset in subsets.items():
         # TODO: better handling
-        special_catnames = ['negative', 'ignore', 'test']
+        special_catnames = ['negative',
+                            # 'ignore',
+                            'test']
         for k in special_catnames:
             try:
                 subset.remove_categories([k], keep_annots=False, verbose=1)
@@ -644,6 +647,7 @@ def setup_harn(cmdline=True, **kw):
         )
         model = mm_models.MM_RetinaNet(**initkw)
         model._initkw = initkw
+        model._init_backbone_from_pretrained('torchvision://resnet50')
     elif arch == 'maskrcnn':
         from xviewharn.models import mm_models
         initkw = dict(
@@ -766,6 +770,7 @@ def setup_harn(cmdline=True, **kw):
         'prog_backend': 'progiter',  # alternative: 'tqdm'
         'keyboard_debug': True,
         'eager_dump_tensorboard': True,
+        'timeout': config['timeout'],
     })
     harn.intervals.update({
         'log_iter_train': 50,
@@ -1098,8 +1103,6 @@ if __name__ == '__main__':
             --window_dims=1024,1024 \
             --window_overlap=0.0 \
             --workers=6 --batch_size=12 --bstep=1
-
-
 
     """
     import warnings

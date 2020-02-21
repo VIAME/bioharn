@@ -37,7 +37,7 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
                 ).format(mmdet.__version__))
 
 
-def _batch_to_mm_inputs(batch):
+def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
     """
     Convert our netharn style batch to mmdet style
 
@@ -53,7 +53,6 @@ def _batch_to_mm_inputs(batch):
         >>> batch = _demo_batch(bsize)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
-    ignore_thresh = 0.1
 
     if type(batch['im']).__name__ in ['BatchContainer']:
         # Things are already in data containers
@@ -94,7 +93,11 @@ def _batch_to_mm_inputs(batch):
             gt_masks = []
 
             label = batch['label']
-            mm_inputs['gt_labels'] = label['class_idxs']
+            mm_inputs['gt_labels'] = DC(
+                [
+                    list(cidxs) for cidxs in label['class_idxs'].data
+                ], label['class_idxs'].stack,
+                label['class_idxs'].padding_value)
 
             if 'cxywh' in label:
                 mm_inputs['gt_bboxes'] = DC(
@@ -108,8 +111,8 @@ def _batch_to_mm_inputs(batch):
                 mm_inputs['gt_bboxes'] = DC(
                     [[kwimage.Boxes(b, 'tlbr').to_tlbr().data for b in bbs]
                      for bbs in label['tlbr'].data],
-                    label['cxywh'].stack,
-                    label['cxywh'].padding_value)
+                    label['tlbr'].stack,
+                    label['tlbr'].padding_value)
 
             if 'has_mask' in label:
                 # TODO
@@ -205,6 +208,9 @@ def _batch_to_mm_inputs(batch):
                 if 'class_masks' in label:
                     batch_has_mask = label['has_mask'].view(B, -1)
                     batch_mask = label['class_masks'].view(B, -1, H, W)
+
+                if 'weight' in label:
+                    raise NotImplementedError
 
                 for bx in range(B):
                     flags = batch_flags[bx]
@@ -316,23 +322,27 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3,
             else:
                 class_masks = None
 
+            from bioharn._hacked_distributed import ItemContainer
             dets = dets.tensor()
             label = {
-                'tlbr': dets.boxes.to_tlbr().data.float(),
-                'class_idxs': dets.class_idxs,
+                'tlbr': ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
+                'class_idxs': ItemContainer(dets.class_idxs, stack=False),
+                'weight': ItemContainer(torch.FloatTensor(rng.rand(len(dets))), stack=False)
             }
 
             if with_mask:
-                label['class_masks'] = class_masks
-                label['has_mask'] = has_mask
+                label['class_masks'] = ItemContainer(class_masks, stack=False)
+                label['has_mask'] = ItemContainer(has_mask, stack=False)
 
             item = {
-                'im': imgs[bx],
+                'im': ItemContainer(imgs[bx], stack=True),
                 'label': label,
             }
             batch_items.append(item)
 
     import netharn as nh
+    # from bioharn._hacked_distributed import container_collate
+    # batch = container_collate(batch_items, num_devices=1)
     batch = nh.data.collate.padded_collate(batch_items)
     return batch
 
@@ -622,6 +632,17 @@ class MM_Detector(nh.layers.Module):
                     batch_results, stack=False, cpu_only=True)
         return outputs
 
+    def _init_backbone_from_pretrained(self, filename):
+        """
+        Loads pretrained backbone weights
+        """
+        model_state = _load_mmcv_weights(filename)
+        info = nh.initializers.functional.load_partial_state(
+            self.detector.backbone, model_state, verbose=1,
+            mangle=True, leftover='kaiming_normal',
+        )
+        return info
+
 
 class MM_RetinaNet(MM_Detector):
     """
@@ -697,13 +718,13 @@ class MM_RetinaNet(MM_Detector):
         # model settings
         mm_config = dict(
             type='RetinaNet',
-            pretrained='torchvision://resnet50',
+            pretrained=None,
             backbone=dict(
                 type='ResNet',
                 depth=50,
                 num_stages=4,
                 out_indices=(0, 1, 2, 3),
-                frozen_stages=0,
+                frozen_stages=-1,
                 style='pytorch'),
             neck=dict(
                 type='FPN',
@@ -743,7 +764,7 @@ class MM_RetinaNet(MM_Detector):
                 pos_iou_thr=0.5,
                 neg_iou_thr=0.4,
                 min_pos_iou=0,
-                ignore_iof_thr=-1),
+                ignore_iof_thr=0.5),
             allowed_border=-1,
             pos_weight=-1,
             debug=False)
@@ -842,7 +863,7 @@ class MM_CascadeRCNN(MM_Detector):
         else:
             num_classes = len(classes) + 1
 
-        pretrained = 'open-mmlab://resnext101_32x4d'
+        # pretrained = 'open-mmlab://resnext101_32x4d'
         # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_64x4d_fpn_1x_20181218-e2dc376a.pth'
         # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_32x4d_fpn_1x_20190501-af628be5.pth'
 
@@ -853,7 +874,7 @@ class MM_CascadeRCNN(MM_Detector):
             type='CascadeRCNN',
             num_stages=3,
             # pretrained='open-mmlab://resnext101_32x4d',
-            pretrained=pretrained,
+            pretrained=None,
             backbone=dict(
                 type='ResNeXt',
                 depth=101,
@@ -861,7 +882,7 @@ class MM_CascadeRCNN(MM_Detector):
                 base_width=4,
                 num_stages=4,
                 out_indices=(0, 1, 2, 3),
-                frozen_stages=1,
+                frozen_stages=-1,
                 style='pytorch',
                 in_channels=in_channels
             ),
@@ -936,7 +957,7 @@ class MM_CascadeRCNN(MM_Detector):
                     pos_iou_thr=0.7,
                     neg_iou_thr=0.3,
                     min_pos_iou=0.3,
-                    ignore_iof_thr=-1),
+                    ignore_iof_thr=0.5),
                 sampler=dict(
                     type='RandomSampler',
                     num=256,
@@ -960,7 +981,7 @@ class MM_CascadeRCNN(MM_Detector):
                         pos_iou_thr=0.5,
                         neg_iou_thr=0.5,
                         min_pos_iou=0.5,
-                        ignore_iof_thr=-1),
+                        ignore_iof_thr=0.5),
                     sampler=dict(
                         type='RandomSampler',
                         num=512,
@@ -976,7 +997,7 @@ class MM_CascadeRCNN(MM_Detector):
                         pos_iou_thr=0.6,
                         neg_iou_thr=0.6,
                         min_pos_iou=0.6,
-                        ignore_iof_thr=-1),
+                        ignore_iof_thr=0.5),
                     sampler=dict(
                         type='RandomSampler',
                         num=512,
@@ -992,7 +1013,7 @@ class MM_CascadeRCNN(MM_Detector):
                         pos_iou_thr=0.7,
                         neg_iou_thr=0.7,
                         min_pos_iou=0.7,
-                        ignore_iof_thr=-1),
+                        ignore_iof_thr=0.5),
                     sampler=dict(
                         type='RandomSampler',
                         num=512,
@@ -1063,20 +1084,20 @@ class MM_MaskRCNN(MM_Detector):
         else:
             num_classes = len(classes) + 1
 
-        pretrained = 'torchvision://resnet50'
+        # pretrained = 'torchvision://resnet50'
         self.in_channels = in_channels
 
         # model settings
         mm_config = dict(
             type='MaskRCNN',
-            pretrained=pretrained,
+            pretrained=None,
             backbone=dict(
                 type='ResNet',
                 depth=50,
                 num_stages=4,
                 in_channels=in_channels,
                 out_indices=(0, 1, 2, 3),
-                frozen_stages=1,
+                frozen_stages=-1,
                 style='pytorch'),
             neck=dict(
                 type='FPN',
@@ -1134,7 +1155,7 @@ class MM_MaskRCNN(MM_Detector):
                     pos_iou_thr=0.7,
                     neg_iou_thr=0.3,
                     min_pos_iou=0.3,
-                    ignore_iof_thr=-1),
+                    ignore_iof_thr=0.5),
                 sampler=dict(
                     type='RandomSampler',
                     num=256,
@@ -1157,7 +1178,7 @@ class MM_MaskRCNN(MM_Detector):
                     pos_iou_thr=0.5,
                     neg_iou_thr=0.5,
                     min_pos_iou=0.5,
-                    ignore_iof_thr=-1),
+                    ignore_iof_thr=0.5),
                 sampler=dict(
                     type='RandomSampler',
                     num=512,
@@ -1186,3 +1207,39 @@ class MM_MaskRCNN(MM_Detector):
         super(MM_MaskRCNN, self).__init__(mm_config, train_cfg=train_cfg,
                                           test_cfg=test_cfg, classes=classes,
                                           input_stats=input_stats)
+
+
+def _load_mmcv_weights(filename, map_location=None):
+    import os
+    from mmcv.runner.checkpoint import (
+        get_torchvision_models, load_url_dist, open_mmlab_model_urls
+    )
+    # load checkpoint from modelzoo or file or url
+    if filename.startswith('modelzoo://'):
+        warnings.warn('The URL scheme of "modelzoo://" is deprecated, please '
+                      'use "torchvision://" instead')
+        model_urls = get_torchvision_models()
+        model_name = filename[11:]
+        checkpoint = load_url_dist(model_urls[model_name])
+    elif filename.startswith('torchvision://'):
+        model_urls = get_torchvision_models()
+        model_name = filename[14:]
+        checkpoint = load_url_dist(model_urls[model_name])
+    elif filename.startswith('open-mmlab://'):
+        model_name = filename[13:]
+        checkpoint = load_url_dist(open_mmlab_model_urls[model_name])
+    elif filename.startswith(('http://', 'https://')):
+        checkpoint = load_url_dist(filename)
+    else:
+        if not os.path.isfile(filename):
+            raise IOError('{} is not a checkpoint file'.format(filename))
+        checkpoint = torch.load(filename, map_location=map_location)
+    # get state_dict from checkpoint
+    if isinstance(checkpoint, OrderedDict):
+        state_dict = checkpoint
+    elif isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+        state_dict = checkpoint['state_dict']
+    else:
+        raise RuntimeError(
+            'No state_dict found in checkpoint file {}'.format(filename))
+    return state_dict
