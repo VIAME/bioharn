@@ -13,9 +13,11 @@ from bioharn import detect_predict
 
 class DetectEvaluateConfig(scfg.Config):
     default = {
-        'deployed': scfg.Value(
-            '/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip',
-            help='deployed network filepath'),
+        'deployed': scfg.Value(None, help='deployed network filepath'),
+
+        # Evaluation dataset
+        'dataset': scfg.Value(None, help='path to an mscoco dataset'),
+        'workdir': scfg.Path('~/work/bioharn', help='Dump all results in your workdir'),
 
         'batch_size': scfg.Value(4, help=(
             'number of images that run through the network at a time')),
@@ -40,12 +42,13 @@ class DetectEvaluateConfig(scfg.Config):
 
         'xpu': scfg.Value('argv', help='a CUDA device or a CPU'),
 
-        'dataset': scfg.Value('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'),
-        'workdir': scfg.Path('~/work/bioharn', help='Dump all results in your workdir'),
 
         'out_dpath': scfg.Path('./detect_eval_out/', help='folder to send the output'),
 
         'eval_in_train_dpath': scfg.Path(True, help='write eval results into the training directory if its known'),
+
+        'draw': scfg.Value(10, help='number of images with predictions to draw'),
+        'enable_cache': scfg.Value(True, help='writes predictions to disk'),
     }
 
 
@@ -271,8 +274,9 @@ class DetectEvaluator(object):
 
         out_dpath = evaluator.paths['base']
         gid_to_pred, gid_to_pred_fpath = detect_predict._cached_predict(
-            predictor, sampler, out_dpath, gids=None, draw=10,
-            enable_cache=True)
+            predictor, sampler, out_dpath, gids=None,
+            draw=evaluator.config['draw'],
+            enable_cache=evaluator.config['enable_cache'])
         return gid_to_pred
 
     def evaluate(evaluator):
@@ -315,12 +319,6 @@ class DetectEvaluator(object):
         if errors:
             raise Exception('\n'.join(errors))
 
-        # import xdev
-        # xdev.embed()
-        # xdev.fix_embed_globals()
-        # import xdev
-        # globals().update(**xdev.get_func_kwargs(dmet.confusion_vectors))
-
         # Build true dets
         gid_to_truth = {}
         for gid in gid_to_pred.keys():
@@ -359,22 +357,29 @@ class DetectEvaluator(object):
         print('roc_result = {!r}'.format(roc_result))
         print('pr_result = {!r}'.format(pr_result))
 
-        voc_info = dmet.score_voc(ignore_class='ignore')
-        print('voc_info = {!r}'.format(voc_info))
-        import xdev
-        xdev.embed()
+        if evaluator.config['draw']:
+            import kwplot
+            kwplot.autompl()
 
-        import kwplot
-        kwplot.autompl()
+            fig = kwplot.figure(fnum=1, pnum=(1, 2, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            pr_result.draw()
 
-        pr_result.draw()
-        roc_result.draw()
+            # TODO: MCC / G-score / F-score vs threshold
+
+            kwplot.figure(fnum=1, pnum=(1, 2, 2))
+            roc_result.draw()
+
+            fig_fpath = join(evaluator.paths['metrics'], 'pr_roc.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
 
         # print(dmet.score_voc())
         # print(dmet.score_coco(verbose=1))
         # dmet.score_netharn()
-
-        print('evaluator.predcfg_tag = {!r}'.format(evaluator.predcfg_tag))
 
         # CascadeRCNN 512
         # 'voc_mAP':  0.8379016325674102,
@@ -399,18 +404,33 @@ class DetectEvaluator(object):
         # Give the DetectionMetrics code an entry point that just takes two
         # coco files and scores them.
 
-        # import json
-        # metrics = {
-        #     'dset_tag': self.dset_tag,
-        #     'model_tag': self.model_tag,
-        #     'predcfg_tag': self.predcfg_tag,
-        #     'coco_score': coco_score,
-        #     'voc_score': voc_score,
-        #     'netharn_score': netharn_score,
-        # }
-        # metrics_fpath = join(self.paths['metrics'], 'metrics.json')
-        # with open(metrics_fpath, 'w') as file:
-        #     json.dump(nh.hyperparams._ensure_json_serializable(metrics), file)
+        import json
+        metrics = {
+            'dset_tag': evaluator.dset_tag,
+            'model_tag': evaluator.model_tag,
+            'predcfg_tag': evaluator.predcfg_tag,
+            'roc_result': roc_result,
+            'pr_result': pr_result,
+        }
+
+        if 0:
+            voc_info = dmet.score_voc(ignore_class='ignore')
+            print('voc_info = {!r}'.format(voc_info))
+            metrics['voc_info'] = voc_info
+
+        # Not sure why using only one doesnt work.
+        metrics = nh.hyperparams._ensure_json_serializable(
+            metrics, normalize_containers=True, verbose=0)
+        metrics = nh.hyperparams._ensure_json_serializable(
+            metrics, normalize_containers=False, verbose=0)
+        metrics = nh.hyperparams._ensure_json_serializable(
+            metrics, normalize_containers=True, verbose=0)
+
+        metrics_fpath = join(evaluator.paths['metrics'], 'metrics.json')
+        with open(metrics_fpath, 'w') as file:
+            json.dump(metrics, file)
+
+        return metrics_fpath
 
 
 class CocoEvaluator(object):
@@ -431,80 +451,6 @@ class CocoEvaluator(object):
             pass
 
 
-def eval_coco(true_dataset, pred_dataset):
-    """
-    Ignore:
-        >>> true_dataset = ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json')
-        >>> pred_dataset = '/home/joncrall/work/bioharn/habcam_test_out/pred/detections.mscoco.json'
-    """
-    import ndsampler
-    pred_coco = ndsampler.CocoDataset(pred_dataset)
-    true_coco = ndsampler.CocoDataset(true_dataset)
-
-    import netharn as nh
-    dmet = nh.metrics.DetectionMetrics.from_coco(true_coco, pred_coco)
-    print(dmet.score_coco(verbose=1))
-    print(dmet.score_voc())
-    print(dmet.score_voc(method='sklearn'))
-    print(dmet.score_voc(method='voc2012'))
-    print(dmet.score_voc(method='voc2007'))
-    print(dmet.score_netharn())
-
-    z = dmet.score_voc(method='sklearn')
-
-    gid = 23
-    gid = 61
-
-    for gid in ub.ProgIter(true_coco.imgs.keys()):
-        # gid = 24
-        t = true_coco.subset([gid])
-        p = pred_coco.subset([gid])
-
-        if len(t.anns) > 10:
-            continue
-
-        dmet2 = nh.metrics.DetectionMetrics.from_coco(t, p)
-        nh_info = dmet2.score_netharn()
-        voc_info = dmet2.score_voc()
-
-        voc_info['perclass']
-        nh_info['peritem']
-
-        cfsn_vecs = dmet2.confusion_vectors()
-        ovr_vecs = cfsn_vecs.binarize_ovr(mode=1)
-        ovr_vecs.cx_to_binvecs[0].data._pandas()
-
-        ovr_vecs.precision_recall()
-        dmet2.score_voc(method='sklearn')
-
-        ap1 = nh_info['peritem']['ap']
-        ap3 = voc_info['perclass'][0]['ap']
-
-        print(dmet2.score_netharn())
-        print(dmet2.score_voc(method='sklearn'))
-        print(dmet2.score_voc(method='voc2012'))
-        print(dmet2.score_voc(method='voc2007'))
-
-        nh_info['peritem']['ppv'][::-1]
-        nh_info['peritem']['tpr'][::-1]
-
-        voc_info['perclass'][0]['prec']
-        voc_info['perclass'][0]['rec']
-
-        if abs(ap1 - ap3) > 0.1:
-            break
-
-
-#    pred_raw  pred  true  score  weight     iou  txs  pxs  gid
-# 0         0     0     0 0.9797  0.9000  0.8887    2    1   61
-# 1         0     0     0 0.9704  0.9000  0.8866    0    0   61
-# 2         0     0    -1 0.8839  1.0000 -1.0000   -1    2   61
-# 3         0     0    -1 0.7681  1.0000 -1.0000   -1    3   61
-# 4         0     0    -1 0.4356  1.0000 -1.0000   -1    6   61
-# 5         0     0    -1 0.2764  1.0000 -1.0000   -1    5   61
-# 6         0     0    -1 0.1799  1.0000 -1.0000   -1    4   61
-# 7        -1    -1     0 0.0000  0.9000 -1.0000    1   -1   61
-
 if __name__ == '__main__':
     """
     python ~/code/bioharn/bioharn/detect_eval.py --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/manual-snapshots/_epoch_00000006.pt
@@ -514,6 +460,15 @@ if __name__ == '__main__':
 
     python ~/code/bioharn/bioharn/detect_eval.py --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000044.pt
     ~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/
+
+
+        python ~/code/ndsampler/ndsampler/make_demo_coco.py
+
+        dpath=/home/joncrall/work/bioharn/fit/nice/bioharn_shapes_example/torch_snapshots
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --deployed=${dpath}/_epoch_00000000.pt,${dpath}/_epoch_00000009.pt,${dpath}/_epoch_00000011.pt \
+            --dataset=/home/joncrall/.cache/coco-demo/shapes256.mscoco.json
+
     """
 
     evaluate_models()
