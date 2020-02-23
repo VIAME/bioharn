@@ -819,7 +819,7 @@ if __name__ == '__main__':
 
         python ~/code/bioharn/bioharn/detect_eval.py \
             --deployed=$HOME/work/bioharn/fit/nice/bioharn_shapes_example/best_snapshot.pt \
-            --dataset=special:shapes128
+            --dataset=/home/joncrall/.cache/coco-demo/shapes256.mscoco.json
 
         python -m bioharn.detect_fit \
             --nice=detect-singleclass-cascade-v4 \

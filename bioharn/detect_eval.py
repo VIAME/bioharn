@@ -134,6 +134,22 @@ def evaluate_models(**kw):
             predictor = evaluator.predictor
             sampler = evaluator.sampler
 
+    rows = []
+    import json
+    for fpath in ub.ProgIter(metric_fpaths, desc='gather summary'):
+        metrics = json.load(open(fpath, 'r'))
+        row = {}
+        row['model_tag'] = metrics['model_tag']
+        row['predcfg_tag'] = metrics['predcfg_tag']
+        row['ap'] = metrics['pr_result']['ap']
+        row['auc'] = metrics['roc_result']['auc']
+        rows.append(row)
+
+    import pandas as pd
+    pd.set_option('max_colwidth', 256)
+    df = pd.DataFrame(rows)
+    print(df.to_string(float_format=lambda x: '%0.2f' % x))
+
 
 class DetectEvaluator(object):
     """
@@ -183,10 +199,15 @@ class DetectEvaluator(object):
         # Load model
         deployed = nh.export.DeployedModel.coerce(evaluator.config['deployed'])
         nice = deployed.train_info()['nice']
-        if deployed.path is None:
-            model_tag = nice + '_' + ub.augpath(deployed._info['snap_fpath'], dpath='', ext='', multidot=True)
+
+        # hack together a model tag
+        if hasattr(deployed, 'model_tag'):
+            model_tag = deployed.model_tag
         else:
-            model_tag = nice + '_' + ub.augpath(deployed.path, dpath='', ext='', multidot=True)
+            if deployed.path is None:
+                model_tag = nice + '_' + ub.augpath(deployed._info['snap_fpath'], dpath='', ext='', multidot=True)
+            else:
+                model_tag = nice + '_' + ub.augpath(deployed.path, dpath='', ext='', multidot=True)
 
         evaluator.model_tag = model_tag
         evaluator.dset_tag = evaluator.sampler.dset.tag.rstrip('.json')
@@ -243,10 +264,13 @@ class DetectEvaluator(object):
                 # NOTE: the train_dpath in the info directory is wrt to the
                 # machine the model was trained on. Used the deployed model to
                 # grab that path instead wrt to the current machine.
-                if deployed.path is None:
-                    train_dpath = dirname(deployed.info['train_info_fpath'])
+                if hasattr(deployed, 'train_dpath'):
+                    train_dpath = deployed.train_dpath
                 else:
-                    train_dpath = dirname(deployed.path)
+                    if deployed.path is None:
+                        train_dpath = dirname(deployed.info['train_info_fpath'])
+                    else:
+                        train_dpath = dirname(deployed.path)
                 print('train_dpath = {!r}'.format(train_dpath))
                 eval_dpath = join(train_dpath, 'eval', evaluator.dset_tag,
                                   evaluator.model_tag, evaluator.pred_cfg)
