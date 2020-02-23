@@ -490,8 +490,21 @@ if __name__ == '__main__':
 
         dpath=/home/joncrall/work/bioharn/fit/nice/bioharn_shapes_example/torch_snapshots
         python ~/code/bioharn/bioharn/detect_eval.py \
-            --deployed=${dpath}/_epoch_00000000.pt,${dpath}/_epoch_00000009.pt,${dpath}/_epoch_00000011.pt \
             --dataset=/home/joncrall/.cache/coco-demo/shapes256.mscoco.json
+            --deployed=${dpath}/_epoch_00000000.pt,${dpath}/_epoch_00000009.pt,${dpath}/_epoch_00000011.pt \
+
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.test.json
+            --deployed=[ \
+                ./bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000000.pt, \
+                ./bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000030.pt, \
+                ./bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000046.pt, \
+                ./bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000050.pt, \
+                ./bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000055.pt, \
+                ./bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000056.pt \
+            ]
+
 
     """
 
