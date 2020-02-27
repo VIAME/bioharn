@@ -263,7 +263,7 @@ class DetectPredictor(object):
         else:
             shift_xy_ = shift_xy
 
-        if 'disparity' in batch and predictor.model.module.in_channels > 3:
+        if 'disparity' in batch and getattr(predictor.model.module, 'in_channels', 3) > 3:
             batch = batch.copy()
             batch['im'] = torch.cat([batch['im'], batch['disparity']], dim=1)
 
