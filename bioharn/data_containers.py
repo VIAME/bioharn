@@ -12,7 +12,6 @@ FIXME 0 dimension tensors
 """
 import torch.utils.data as torch_data
 import torch
-import warnings
 import ubelt as ub
 import numpy as np  # NOQA
 import re
@@ -20,21 +19,12 @@ import collections
 import torch.nn.functional as F
 # from torch.nn.parallel import DataParallel
 from itertools import chain
-from netharn.device import DataParallel, XPU, DataSerial
+from netharn.device import DataParallel, DataSerial, XPU
 from torch.nn.parallel._functions import _get_stream
 from torch.nn.parallel._functions import Scatter as OrigScatter
 from torch.nn.parallel._functions import Gather as OrigGather
-
-# if six.PY2:
-#     import collections
-#     container_abcs = collections
-# elif six.PY3:
-#     import collections.abc
-#     container_abcs = collections.abc
-# string_classes = six.string_types
-# int_classes = six.integer_types
 from torch._six import container_abcs
-from torch._six import string_classes, int_classes
+from torch._six import int_classes, string_classes
 default_collate = torch_data.dataloader.default_collate
 
 
@@ -311,14 +301,14 @@ def container_collate(inbatch, num_devices=None):
     Ignore:
         >>> # DISABLE_DOCTSET
         >>> from bioharn.detect_dataset import *  # NOQA
-        >>> from bioharn._hacked_distributed import *  # NOQA
+        >>> from bioharn.data_containers import *  # NOQA
         >>> dataset = DetectFitDataset.demo(key='shapes8', augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
 
         >>> inbatch = [dataset[0], dataset[1], dataset[2]]
         >>> raw_batch = container_collate(inbatch)
 
         >>> target_gpus = [0]
-        >>> inputs, kwargs = hack_scatter_kwargs(raw_batch, {}, target_gpus)
+        >>> inputs, kwargs = container_scatter_kwargs(raw_batch, {}, target_gpus)
 
         >>> loader = torch.utils.data.DataLoader(dataset, collate_fn=container_collate, num_workers=0)
 
@@ -377,6 +367,7 @@ def container_collate(inbatch, num_devices=None):
         return default_collate(inbatch)
         # return _collate_else(inbatch, container_collate)
 
+
 def _collate_else(batch, collate_func):
     """
     Handles recursion in the else case for these special collate functions
@@ -431,182 +422,6 @@ def _collate_else(batch, collate_func):
         return [collate_func(samples) for samples in transposed]
     else:
         raise TypeError((error_msg.format(type(batch[0]))))
-
-
-def list_collate(inbatch):
-    """
-    Collates batches containing items with non-uniform data sizes
-
-    Used for detection datasets with boxes.
-
-    Args:
-        inbatch: a list of items returned by __getitem__ for each item in the
-            batch
-
-    Example:
-        >>> import torch
-        >>> rng = np.random.RandomState(0)
-        >>> inbatch = []
-        >>> bsize = 4
-        >>> for i in range(bsize):
-        >>>     # add an image and some dummy bboxes to the batch
-        >>>     img = torch.rand(3, 4, 4)  # dummy 4x4 image
-        >>>     boxes = torch.LongTensor([[0, 0, 1, 1]] * i)
-        >>>     item = (img, boxes)
-        >>>     inbatch.append(item)
-        >>> out_batch = list_collate(inbatch)
-        >>> assert len(out_batch) == 2
-        >>> batch_img, batch_boxes = out_batch
-        >>> assert list(out_batch[0].shape) == [bsize, 3, 4, 4]
-        >>> assert len(out_batch[1]) == bsize
-        >>> assert len(out_batch[1][0]) == 0
-        >>> assert len(out_batch[1][1]) == 1
-        >>> assert len(out_batch[1][2]) == 2
-
-    Example:
-        >>> import torch
-        >>> rng = np.random.RandomState(0)
-        >>> inbatch = []
-        >>> bsize = 4
-        >>> for _ in range(bsize):
-        >>>     # add an image and some dummy bboxes to the batch
-        >>>     img = torch.rand(3, 8, 8)  # dummy 8x8 image
-        >>>     boxes = torch.FloatTensor()
-        >>>     item = (img, [boxes])
-        >>>     inbatch.append(item)
-        >>> out_batch = list_collate(inbatch)
-        >>> assert len(out_batch) == 2
-        >>> assert list(out_batch[0].shape) == [bsize, 3, 8, 8]
-        >>> assert len(out_batch[1][0]) == bsize
-    """
-    try:
-        if torch.is_tensor(inbatch[0]):
-            num_items = [len(item) for item in inbatch]
-            if ub.allsame(num_items):
-                if len(num_items) == 0 or num_items[0] == 0:
-                    batch = inbatch
-                else:
-                    batch = default_collate(inbatch)
-            else:
-                batch = inbatch
-        else:
-            batch = _collate_else(inbatch, list_collate)
-    except Exception as ex:
-        if not isinstance(ex, CollateException):
-            raise CollateException(
-                'Failed to collate inbatch={}. Reason: {!r}'.format(inbatch, ex))
-        else:
-            raise
-    return batch
-
-
-def padded_collate(inbatch, fill_value=-1):
-    """
-    Used for detection datasets with boxes.
-
-    Example:
-        >>> import torch
-        >>> rng = np.random.RandomState(0)
-        >>> inbatch = []
-        >>> bsize = 7
-        >>> for i in range(bsize):
-        >>>     # add an image and some dummy bboxes to the batch
-        >>>     img = torch.rand(3, 8, 8)  # dummy 8x8 image
-        >>>     n = 11 if i == 3 else rng.randint(0, 11)
-        >>>     boxes = torch.rand(n, 4)
-        >>>     item = (img, boxes)
-        >>>     inbatch.append(item)
-        >>> out_batch = padded_collate(inbatch)
-        >>> assert len(out_batch) == 2
-        >>> assert list(out_batch[0].shape) == [bsize, 3, 8, 8]
-        >>> assert list(out_batch[1].shape) == [bsize, 11, 4]
-
-    Example:
-        >>> import torch
-        >>> rng = np.random.RandomState(0)
-        >>> inbatch = []
-        >>> bsize = 4
-        >>> for _ in range(bsize):
-        >>>     # add an image and some dummy bboxes to the batch
-        >>>     img = torch.rand(3, 8, 8)  # dummy 8x8 image
-        >>>     #boxes = torch.empty(0, 4)
-        >>>     boxes = torch.FloatTensor()
-        >>>     item = (img, [boxes])
-        >>>     inbatch.append(item)
-        >>> out_batch = padded_collate(inbatch)
-        >>> assert len(out_batch) == 2
-        >>> assert list(out_batch[0].shape) == [bsize, 3, 8, 8]
-        >>> #assert list(out_batch[1][0].shape) == [bsize, 0, 4]
-        >>> assert list(out_batch[1][0].shape) in [[0], []]  # torch .3 a .4
-
-    Example:
-        >>> inbatch = [torch.rand(4, 4), torch.rand(8, 4),
-        >>>            torch.rand(0, 4), torch.rand(3, 4),
-        >>>            torch.rand(0, 4), torch.rand(1, 4)]
-        >>> out_batch = padded_collate(inbatch)
-        >>> assert list(out_batch.shape) == [6, 8, 4]
-    """
-    try:
-        if torch.is_tensor(inbatch[0]):
-            num_items = [len(item) for item in inbatch]
-            if ub.allsame(num_items):
-                if len(num_items) == 0:
-                    batch = torch.FloatTensor()
-                elif num_items[0] == 0:
-                    batch = torch.FloatTensor()
-                else:
-                    batch = default_collate(inbatch)
-            else:
-                max_size = max(num_items)
-                real_tail_shape = None
-                for item in inbatch:
-                    if item.numel():
-                        tail_shape = item.shape[1:]
-                        if real_tail_shape is not None:
-                            assert real_tail_shape == tail_shape
-                        real_tail_shape = tail_shape
-
-                padded_inbatch = []
-                for item in inbatch:
-                    n_extra = max_size - len(item)
-                    if n_extra > 0:
-                        shape = (n_extra,) + tuple(real_tail_shape)
-                        if torch.__version__.startswith('0.3'):
-                            extra = torch.Tensor(np.full(shape, fill_value=fill_value))
-                        else:
-                            extra = torch.full(shape, fill_value=fill_value,
-                                               dtype=item.dtype)
-                        padded_item = torch.cat([item, extra], dim=0)
-                        padded_inbatch.append(padded_item)
-                    else:
-                        padded_inbatch.append(item)
-                batch = inbatch
-                batch = default_collate(padded_inbatch)
-        else:
-            batch = _collate_else(inbatch, padded_collate)
-    except Exception as ex:
-        if not isinstance(ex, CollateException):
-            try:
-                _debug_inbatch_shapes(inbatch)
-            except Exception:
-                pass
-            raise CollateException(
-                'Failed to collate inbatch={}. Reason: {!r}'.format(inbatch, ex))
-        else:
-            raise
-    return batch
-
-
-def _debug_inbatch_shapes(inbatch):
-    import ubelt as ub
-    print('len(inbatch) = {}'.format(len(inbatch)))
-    extensions = ub.util_format.FormatterExtensions()
-
-    @extensions.register((torch.Tensor, np.ndarray))
-    def format_shape(data, **kwargs):
-        return ub.repr2(dict(type=str(type(data)), shape=data.shape), nl=1, sv=1)
-
-    print('inbatch = ' + ub.repr2(inbatch, extensions=extensions, nl=True))
 
 
 # ----
@@ -668,7 +483,7 @@ def get_input_device(input):
         raise Exception('Unknown type {}.'.format(type(input)))
 
 
-class HackedScatter(object):
+class ContainerScatter(object):
 
     @staticmethod
     def forward(target_gpus, input):
@@ -688,11 +503,11 @@ class HackedScatter(object):
 # ----
 
 
-class Hacked_DataParallel(DataParallel):
+class ContainerDataParallel(DataParallel):
     """
 
     Ignore:
-        from bioharn._hacked_distributed import *  # NOQA
+        from bioharn.data_containers import *  # NOQA
 
         import torch
         from torch.nn.parallel import DataParallel
@@ -733,14 +548,14 @@ class Hacked_DataParallel(DataParallel):
         replicas = par_model.replicate(par_model.module, par_model.device_ids[:len(s1)])
         outputs = par_model.parallel_apply(replicas, s1, k1)
 
-        hack_scatter(inputs, [0, 1])[0]
+        container_scatter(inputs, [0, 1])[0]
 
         inbatch = [ItemContainer.demo('img', shape=(1, 1, 1)) for _ in range(5)]
         im = ItemContainer._collate(inbatch, 5)
 
         im = torch.zeros(1, 1, 1, 1).to(0)
         inputs = (im,)
-        self = Hacked_DataParallel(raw_model, device_ids=[0, 1], output_device=0)
+        self = ContainerDataParallel(raw_model, device_ids=[0, 1], output_device=0)
         self.forward(*inputs, **kwargs)
     """
 
@@ -765,16 +580,16 @@ class Hacked_DataParallel(DataParallel):
         return self.gather(outputs, self.output_device)
 
     def scatter(self, inputs, kwargs, device_ids):
-        return hack_scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
+        return container_scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
 
     def gather(self, outputs, output_device):
         # not part of mmcv's original impl
-        return hack_gather(outputs, output_device, dim=self.dim)
+        return container_gather(outputs, output_device, dim=self.dim)
 
 # ----
 
 
-def hack_scatter(inputs, target_gpus, dim=0):
+def container_scatter(inputs, target_gpus, dim=0):
     """Scatter inputs to target gpus.
 
     from mmcv.parallel.scatter_gather
@@ -790,7 +605,7 @@ def hack_scatter(inputs, target_gpus, dim=0):
             if obj.cpu_only:
                 return obj.data
             else:
-                return HackedScatter.forward(target_gpus, obj.data)
+                return ContainerScatter.forward(target_gpus, obj.data)
         if isinstance(obj, tuple) and len(obj) > 0:
             return list(zip(*map(scatter_map, obj)))
         if isinstance(obj, list) and len(obj) > 0:
@@ -812,7 +627,7 @@ def hack_scatter(inputs, target_gpus, dim=0):
         scatter_map = None
 
 
-def hack_scatter_kwargs(inputs, kwargs, target_gpus, dim=0):
+def container_scatter_kwargs(inputs, kwargs, target_gpus, dim=0):
     """
     Scatter with support for kwargs dictionary
 
@@ -821,16 +636,16 @@ def hack_scatter_kwargs(inputs, kwargs, target_gpus, dim=0):
         >>> inputs = [torch.rand(1, 1, 1, 1)]
         >>> kwargs = dict(a=1, b=2)
         >>> target_gpus = [0, 1]
-        >>> a1, k1 = hack_scatter_kwargs(inputs, kwargs, target_gpus)
+        >>> a1, k1 = container_scatter_kwargs(inputs, kwargs, target_gpus)
 
         >>> # xdoctest: +REQUIRES(--multi-gpu)
         >>> inputs = [torch.rand(1, 1, 1, 1)]
         >>> kwargs = dict(a=torch.rand(1, 1, 1, 1), b=2)
         >>> target_gpus = [0, 1]
-        >>> a1, k1 = hack_scatter_kwargs(inputs, kwargs, target_gpus)
+        >>> a1, k1 = container_scatter_kwargs(inputs, kwargs, target_gpus)
     """
-    inputs = hack_scatter(inputs, target_gpus, dim) if inputs else []
-    kwargs = hack_scatter(kwargs, target_gpus, dim) if kwargs else []
+    inputs = container_scatter(inputs, target_gpus, dim) if inputs else []
+    kwargs = container_scatter(kwargs, target_gpus, dim) if kwargs else []
 
     if len(inputs) < len(kwargs):
         inputs.extend([() for _ in range(len(kwargs) - len(inputs))])
@@ -852,7 +667,7 @@ def hack_scatter_kwargs(inputs, kwargs, target_gpus, dim=0):
     return inputs, kwargs
 
 
-def hack_gather(outputs, target_device, dim=0):
+def container_gather(outputs, target_device, dim=0):
     r"""
     Gathers tensors from different GPUs on a specified device
       (-1 means the CPU).
@@ -861,7 +676,7 @@ def hack_gather(outputs, target_device, dim=0):
     :type:`BatchContainer`.
 
     Ignore:
-        >>> from bioharn._hacked_distributed import *  # NOQA
+        >>> from bioharn.data_containers import *  # NOQA
         >>> import kwarray
         >>> rng = kwarray.ensure_rng(0)
         >>> outputs = [
@@ -889,7 +704,7 @@ def hack_gather(outputs, target_device, dim=0):
         >>> _report_data_shape(outputs)
         >>> target_device = 0
         >>> dim = 0
-        >>> gathered = hack_gather(outputs, target_device, dim)
+        >>> gathered = container_gather(outputs, target_device, dim)
         >>> _report_data_shape(gathered)
     """
     def gather_map(outputs_):
@@ -938,7 +753,7 @@ def hack_gather(outputs, target_device, dim=0):
 # ---
 
 
-class Hacked_XPU(XPU):
+class ContainerXPU(XPU):
 
     def mount(xpu, model):
         """
@@ -960,7 +775,7 @@ class Hacked_XPU(XPU):
         model = xpu.raw(model)
         model = xpu.move(model)
         if xpu._device_ids and len(xpu._device_ids) > 1:
-            model = Hacked_DataParallel(
+            model = ContainerDataParallel(
                 model, device_ids=xpu._device_ids,
                 output_device=xpu._main_device_id)
         else:
@@ -1011,3 +826,15 @@ def nestshape(data):
 def _report_data_shape(data):
     d = nestshape(data)
     print('d = {}'.format(ub.repr2(d, nl=-2)))
+
+
+def _debug_inbatch_shapes(inbatch):
+    import ubelt as ub
+    print('len(inbatch) = {}'.format(len(inbatch)))
+    extensions = ub.util_format.FormatterExtensions()
+
+    @extensions.register((torch.Tensor, np.ndarray))
+    def format_shape(data, **kwargs):
+        return ub.repr2(dict(type=str(type(data)), shape=data.shape), nl=1, sv=1)
+
+    print('inbatch = ' + ub.repr2(inbatch, extensions=extensions, nl=True))

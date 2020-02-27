@@ -322,7 +322,7 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3,
             else:
                 class_masks = None
 
-            from bioharn._hacked_distributed import ItemContainer
+            from bioharn.data_containers import ItemContainer
             dets = dets.tensor()
             label = {
                 'tlbr': ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
@@ -341,7 +341,7 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3,
             batch_items.append(item)
 
     import netharn as nh
-    # from bioharn._hacked_distributed import container_collate
+    # from bioharn.data_containers import container_collate
     # batch = container_collate(batch_items, num_devices=1)
     batch = nh.data.collate.padded_collate(batch_items)
     return batch
@@ -402,7 +402,7 @@ class MM_Coder(object):
         batch_results = outputs['batch_results']
         batch_dets = []
 
-        from bioharn._hacked_distributed import BatchContainer
+        from bioharn.data_containers import BatchContainer
         if isinstance(batch_results, BatchContainer):
             batch_results = batch_results.data
 
@@ -538,7 +538,7 @@ class MM_Detector(nh.layers.Module):
             Dict: containing results and losses depending on if return_loss and
                 return_result were specified.
         """
-        from bioharn._hacked_distributed import BatchContainer
+        from bioharn.data_containers import BatchContainer
         if 'img_metas' in batch and 'imgs' in batch:
             # already in mm_inputs format
             orig_mm_inputs = batch
@@ -547,7 +547,7 @@ class MM_Detector(nh.layers.Module):
 
         mm_inputs = orig_mm_inputs.copy()
 
-        # from bioharn._hacked_distributed import _report_data_shape
+        # from bioharn.data_containers import _report_data_shape
         # print('--------------')
         # print('--------------')
         # _report_data_shape(mm_inputs)

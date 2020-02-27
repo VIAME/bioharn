@@ -318,7 +318,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         index = torch.LongTensor([index])
         bg_weight = torch.FloatTensor([1.0])
 
-        from ._hacked_distributed import ItemContainer
+        from .data_containers import ItemContainer
 
         label = {
             'cxywh': ItemContainer(torch.FloatTensor(cxwh.data), stack=False),
@@ -409,7 +409,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 reseed_(self.augmenter, rng)
 
         # torch.utils.data.sampler.WeightedRandomSampler
-        from bioharn._hacked_distributed import container_collate
+        from bioharn.data_containers import container_collate
         from functools import partial
 
         if xpu is None:

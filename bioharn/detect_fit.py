@@ -199,7 +199,7 @@ class DetectHarn(nh.FitHarn):
 
             batch = batch.copy()
             batch.pop('tr')
-            from bioharn._hacked_distributed import BatchContainer
+            from bioharn.data_containers import BatchContainer
 
             if harn.script_config['use_disparity']:
                 batch = batch.copy()
@@ -213,51 +213,6 @@ class DetectHarn(nh.FitHarn):
                     else:
                         disparity = batch['disparity'].data
                     batch['im'] = torch.cat([orig_im, disparity], dim=1)
-
-            if False:
-
-                from bioharn._hacked_distributed import _report_data_shape
-                _report_data_shape(batch)
-
-                from bioharn.models import mm_models
-                mm_inputs = mm_models._batch_to_mm_inputs(batch)
-                _report_data_shape(mm_inputs)
-
-                _report_data_shape(batch)
-
-                self = harn.model
-                _inputs, _kwargs = self.scatter([mm_inputs], dict(return_loss=True, return_result=True), self.device_ids)
-                _report_data_shape(_inputs)
-                replicas = self.replicate(self.module, self.device_ids[:len(_inputs)])
-
-                if 0:
-                    out0 = replicas[0](*_inputs[0], **_kwargs[0])
-                    out1 = replicas[1](*_inputs[1], **_kwargs[1])
-                    out2 = replicas[2](*_inputs[2], **_kwargs[2])
-                    out3 = replicas[3](*_inputs[3], **_kwargs[3])
-
-                if 0:
-                    _single_out = self.module(_inputs[0][0], **_kwargs[0])
-                    _report_data_shape(_single_out)
-
-                _outputs = self.parallel_apply(replicas, _inputs, _kwargs)
-                _gathered = self.gather(_outputs, self.output_device)
-                _report_data_shape(_gathered)
-
-                _report_data_shape(_outputs)
-
-                self.module(*_inputs[0], **_kwargs[0])
-                batch = _inputs[0][0]
-
-                _report_data_shape(_inputs)
-
-                _inputs, _kwargs = self.scatter(batch, dict(return_loss=True, return_result=True), self.device_ids)
-                _report_data_shape(_inputs)
-
-                _inputs, _kwargs = self.scatter(mm_inputs, dict(return_loss=True, return_result=True), self.device_ids)
-                outputs = harn.model.forward(mm_inputs, return_loss=True,
-                                             return_result=return_result)
-                _report_data_shape(outputs)
 
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', 'indexing with dtype')
@@ -575,8 +530,8 @@ def setup_harn(cmdline=True, **kw):
         for tag, sampler in samplers.items()
     }
 
-    from bioharn._hacked_distributed import Hacked_XPU
-    xpu = Hacked_XPU.coerce(config['xpu'])
+    from bioharn.data_containers import ContainerXPU
+    xpu = ContainerXPU.coerce(config['xpu'])
     print('xpu = {!r}'.format(xpu))
 
     print('make loaders')
@@ -599,7 +554,7 @@ def setup_harn(cmdline=True, **kw):
         input_stats = cacher.tryload()
         if input_stats is None:
             # Use parallel workers to load data faster
-            from bioharn._hacked_distributed import container_collate
+            from bioharn.data_containers import container_collate
             # collate_fn = container_collate
             from functools import partial
             collate_fn = partial(container_collate, num_devices=1)

@@ -201,13 +201,12 @@ class DetectPredictor(object):
     def _prepare_image(predictor, full_rgb):
         full_dims = tuple(full_rgb.shape[0:2])
 
-        if predictor.config['window_dims'] == 'full':
-            window_dims = full_dims
-        else:
-            # could do this more efficiently
+        if predictor.config['window_dims'] == 'native':
             native = predictor._infer_native(predictor.config)
             window_dims = native['window_dims']
-            # window_dims = predictor.config['window_dims']
+
+        if window_dims == 'full':
+            window_dims = full_dims
 
         # Pad small images to be at least the minimum window_dims size
         dims_delta = np.array(full_dims) - np.array(window_dims)
@@ -267,7 +266,6 @@ class DetectPredictor(object):
         if 'disparity' in batch and predictor.model.module.in_channels > 3:
             batch = batch.copy()
             batch['im'] = torch.cat([batch['im'], batch['disparity']], dim=1)
-            pass
 
         # All GPU work happens in this line
         if hasattr(predictor.model.module, 'detector'):
