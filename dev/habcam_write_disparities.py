@@ -10,6 +10,9 @@ def main():
     from ndsampler.utils import util_futures
 
     dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
+    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
+
+    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json'))
     jobs = util_futures.JobPool(mode='thread', max_workers=8)
 
     for gid, img in ub.ProgIter(list(dset.imgs.items())):
@@ -42,8 +45,8 @@ def _ensure_habcam_disparity_frame(dset, gid):
     img = dset.imgs[gid]
     image_fname = img['file_name']
 
-    disp_dpath = ub.ensuredir((dset.img_root, 'disparities'))
-    disp_fname = ub.augpath(image_fname, suffix='_left_disp_v7', ext='.cog.tif')
+    disp_dpath = ub.ensuredir((dset.img_root))
+    disp_fname = join('disparities', ub.augpath(image_fname, suffix='_left_disp_v7', ext='.cog.tif'))
     disp_fpath = join(disp_dpath, disp_fname)
     ub.ensuredir(dirname(disp_fpath))
 
