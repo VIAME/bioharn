@@ -30,7 +30,6 @@ def main():
                 'dims': data_dims,
             }
         ]
-        # /home/joncrall/work/bioharn/_cache/_disp_v6/220e187f5ec648e7bb0f273e282cd3af27881120_disp_v6.cog.tif,
 
     dset.fpath = dset.fpath.replace('_v2_', '_v3_')
     dset.dump(dset.fpath, newlines=True)
