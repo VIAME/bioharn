@@ -9,7 +9,7 @@ def main():
     import ndsampler
     from ndsampler.utils import util_futures
 
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json'))
+    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
     jobs = util_futures.JobPool(mode='thread', max_workers=8)
 
     for gid, img in ub.ProgIter(list(dset.imgs.items())):
