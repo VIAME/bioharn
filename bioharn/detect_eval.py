@@ -475,6 +475,15 @@ class CocoEvaluator(object):
             pass
 
 
+def _check_imgs():
+    import ndsampler
+    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json'))
+
+    for gid in ub.ProgIter(list(dset.imgs.keys())):
+        data = dset.load_image(gid)
+        pass
+
+
 if __name__ == '__main__':
     """
     python ~/code/bioharn/bioharn/detect_eval.py --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/manual-snapshots/_epoch_00000006.pt
@@ -495,21 +504,24 @@ if __name__ == '__main__':
 
         python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 \
             --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json \
-            --deployed=~/work/bioharn/fit/runs/bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP.zip
+            --deployed=~/work/bioharn/fit/runs/bioharn-det-v14-cascade/iawztlag/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip
+
+        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 \
+            --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json \
+            --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/deploy_MM_CascadeRCNN_ogenzvgt_059_QBGWCT.zip
 
 
-./bioharn-det-v9-test-cascade/zjolejwz/deploy_MM_CascadeRCNN_zjolejwz_010_LUAKQJ.zip
-./bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP.zip
-./bioharn-test-yolo-v5/sxfhhhwy/deploy_Yolo2_sxfhhhwy_002_QTVZHQ.zip
-./bioharn-det-v6-test-retinanet/rioggtso/deploy_MM_RetinaNet_rioggtso_050_MLFGKZ.zip
-./bioharn-det-v10-test-retinanet/daodqsmy/deploy_MM_RetinaNet_daodqsmy_010_QRNNNW.zip
-./bioharn-det-v11-test-cascade/ovphtcvk/deploy_MM_CascadeRCNN_ovphtcvk_037_HZUJKO.zip
-./bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip
-./bioharn-det-v14-cascade/iawztlag/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip
-./DEMO_bioharn-det-v13-cascade/ogenzvgt/deploy_MM_CascadeRCNN_ogenzvgt_006_IQLOXO.zip
-./bioharn-det-v8-test-retinanet/opgoqmpg/deploy_MM_RetinaNet_opgoqmpg_000_MKJZNW.zip
-./bioharn-det-v12-test-retinanet/mrepnniz/deploy_MM_RetinaNet_mrepnniz_094_ODCGUT.zip
-./bioharn-det-v13-cascade/ogenzvgt/deploy_MM_CascadeRCNN_ogenzvgt_059_QBGWCT.zip
+~/work/bioharn/fit/runs/bioharn-test-yolo-v5/sxfhhhwy/deploy_Yolo2_sxfhhhwy_002_QTVZHQ.zip
+~/work/bioharn/fit/runs/bioharn-det-v9-test-cascade/zjolejwz/deploy_MM_CascadeRCNN_zjolejwz_010_LUAKQJ.zip
+~/work/bioharn/fit/runs/bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP.zip
+~/work/bioharn/fit/runs/bioharn-det-v6-test-retinanet/rioggtso/deploy_MM_RetinaNet_rioggtso_050_MLFGKZ.zip
+~/work/bioharn/fit/runs/bioharn-det-v10-test-retinanet/daodqsmy/deploy_MM_RetinaNet_daodqsmy_010_QRNNNW.zip
+~/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/ovphtcvk/deploy_MM_CascadeRCNN_ovphtcvk_037_HZUJKO.zip
+~/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip
+~/work/bioharn/fit/runs/bioharn-det-v14-cascade/iawztlag/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip
+~/work/bioharn/fit/runs/DEMO_bioharn-det-v13-cascade/ogenzvgt/deploy_MM_CascadeRCNN_ogenzvgt_006_IQLOXO.zip
+~/work/bioharn/fit/runs/bioharn-det-v8-test-retinanet/opgoqmpg/deploy_MM_RetinaNet_opgoqmpg_000_MKJZNW.zip
+~/work/bioharn/fit/runs/bioharn-det-v12-test-retinanet/mrepnniz/deploy_MM_RetinaNet_mrepnniz_094_ODCGUT.zip
 
 
 
