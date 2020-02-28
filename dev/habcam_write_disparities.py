@@ -11,7 +11,7 @@ def main():
 
     dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json'))
 
-    jobs = util_futures.JobPool(mode='thread', max_workers=0)
+    jobs = util_futures.JobPool(mode='thread', max_workers=4)
 
     for gid, img in ub.ProgIter(list(dset.imgs.items())):
         if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
@@ -20,8 +20,11 @@ def main():
 
     for job in ub.ProgIter(jobs, desc='collect results', verbose=3):
         gid = job.gid
-        disp_fpath = job.result()
-        print('disp_fpath = {!r}'.format(disp_fpath))
+        disp_dpath, disp_fname = job.result()
+        img = dset.imgs[gid]
+        img['aux'] = [
+            {'bands': 'disparity', 'file_name': disp_fname}
+        ]
 
 
 def _ensure_habcam_disparity_frame(dset, gid):
@@ -48,4 +51,4 @@ def _ensure_habcam_disparity_frame(dset, gid):
         kwimage.imwrite(disp_fpath, img_disparity, backend='gdal',
                         compress='DEFLATE')
 
-    return disp_fpath
+    return disp_dpath, disp_fname
