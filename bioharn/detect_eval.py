@@ -494,7 +494,7 @@ if __name__ == '__main__':
             --deployed=${dpath}/_epoch_00000000.pt,${dpath}/_epoch_00000009.pt,${dpath}/_epoch_00000011.pt \
 
         python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=0 \
-            --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json \
+            --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json \
             --deployed=~/work/bioharn/fit/runs/bioharn-det-v14-cascade/iawztlag/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip
 
         python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=0 \
@@ -503,7 +503,11 @@ if __name__ == '__main__':
 
         python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=0 \
             --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json \
-            --deployed=~/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip
+            --deployed=~/work/bioharn/fit/runs/bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP.zip
+
+        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=0 \
+            --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json \
+            --deployed=/home/joncrall/.cache/viame/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip
 
 
 ~/work/bioharn/fit/runs/bioharn-test-yolo-v5/sxfhhhwy/deploy_Yolo2_sxfhhhwy_002_QTVZHQ.zip

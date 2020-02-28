@@ -9,11 +9,13 @@ def main():
     import ndsampler
     from ndsampler.utils import util_futures
 
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
+    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json'))
 
     dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json'))
-    jobs = util_futures.JobPool(mode='thread', max_workers=8)
+
+    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
+
+    jobs = util_futures.JobPool(mode='thread', max_workers=0)
 
     for gid, img in ub.ProgIter(list(dset.imgs.items())):
         if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
