@@ -12,6 +12,13 @@ import torch
 import six
 import scriptconfig as scfg
 import kwimage
+import warnings
+from bioharn.channel_spec import ChannelSpec
+
+try:
+    from xdev import profile
+except Exception:
+    profile = ub.identity
 
 
 class DetectPredictConfig(scfg.Config):
@@ -28,6 +35,11 @@ class DetectPredictConfig(scfg.Config):
 
         'overlap': scfg.Value(0.0, help='overlap of the sliding window'),
 
+        'channels': scfg.Value(
+            'native',
+            help='list of channels needed by the model. '
+            'Typically this can be inferred from the model'),
+
         # Note: these dont work exactly correct due to mmdetection model
         # differences
         'nms_thresh': 0.4,
@@ -42,10 +54,19 @@ class DetectPredictor(object):
     A detector API for bioharn trained models
 
     Example:
-        >>> path_or_image = kwimage.imread('/home/joncrall/data/noaa/2015_Habcam_photos/201503.20150522.131445618.413800.png')[:, :1360]
-        >>> full_rgb = path_or_image
+        >>> import ubelt as ub
+        >>> url = 'https://data.kitware.com/api/v1/file/5dd3eb8eaf2e2eed3508d604/download'
+        >>> deployed_fpath = ub.grabdata(
+        >>>     url, fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip',
+        >>>     appname='viame', hash_prefix='22a1eeb18c9e5706f6578e66abda1e97',
+        >>>     hasher='sha512')
+        >>> url = 'https://data.kitware.com/api/v1/file/5dcf0d1faf2e2eed35fad5d1/download'
+        >>> image_fpath = ub.grabdata(
+        >>>     url, fname='scallop.jpg', appname='viame',
+        >>>     hash_prefix='3bd290526c76453bec7', hasher='sha512')
+        >>> path_or_image = full_rgb = kwimage.imread(image_fpath)
         >>> config = dict(
-        >>>     deployed='/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip',
+        >>>     deployed=deployed_fpath,
         >>>     window_dims=(512, 512),
         >>>     input_dims=(256, 256),
         >>> )
@@ -78,6 +99,7 @@ class DetectPredictor(object):
         native_defaults = {
             'input_dims': (512, 512),
             'window_dims': 'full',
+            'channels': 'hack_old_method'
         }
         @ub.memoize
         def _native_config():
@@ -91,14 +113,14 @@ class DetectPredictor(object):
                 native_config.update(eval(
                     deployed.train_info()['extra']['config'], {}))
             return native_config
+
         native = {}
+        native_config = _native_config()
         for key in list(native_defaults.keys()):
             if config[key] == 'native':
                 try:
-                    native_config = _native_config()
                     native[key] = native_config[key]
                 except Exception:
-                    import warnings
                     warnings.warn((
                         'WARNING: Unable to determine native {} from model. '
                         'Defaulting to {}! Please ensure this is OK.').format(
@@ -107,6 +129,15 @@ class DetectPredictor(object):
                     native[key] = native_defaults[key]
             else:
                 native[key] = config[key]
+
+        if native['channels'] == 'hack_old_method':
+            # Hueristic to determine what channels an older model wants.
+            # This should not be necessary for newer models which directly
+            # encode this.
+            native['channels'] = 'rgb'
+            if native_config.get('use_disparity', False):
+                native['channels'] += '|disparity'
+
         return native
 
     def _ensure_model(predictor):
@@ -143,6 +174,14 @@ class DetectPredictor(object):
         Returns:
             kwimage.Detections: a wrapper around predicted boxes, scores,
                 and class indices. See the `.data` attribute for more info.
+
+        SeeAlso:
+            :method:`predict_sampler` - this can be a faster alternative to
+            predict, but it requires that your dataset is formatted as a
+            sampler.
+
+        TODO:
+            - [ ] Handle auxillary inputs
         """
         predictor.info('Begin detection prediction')
 
@@ -198,12 +237,115 @@ class DetectPredictor(object):
         predictor.info('Finished prediction')
         return final_dets
 
+    @profile
+    def predict_sampler(predictor, sampler, gids=None):
+        """
+        Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
+
+        Args:
+            sampler (ndsampler.CocoDataset): dset wrapped in a sampler
+            gids (List[int], default=None): if specified, then only predict
+                on these image ids.
+
+        Yields:
+            Tuple[int, Detections] : image_id, detection pairs
+
+        SeeAlso:
+            :method:`predict` - this is a simpler alternative to
+            predict_sampler. It only requires that you pass your data in as an
+            image.
+        """
+        native = predictor._infer_native(predictor.config)
+        input_dims = native['input_dims']
+        window_dims = native['window_dims']
+        channels = native['channels']
+
+        torch_dset = WindowedSamplerDataset(sampler, window_dims=window_dims,
+                                            input_dims=input_dims,
+                                            channels=channels, gids=gids)
+        if len(torch_dset) == 0:
+            return
+        slider_loader = torch.utils.data.DataLoader(
+            torch_dset, shuffle=False, num_workers=predictor.config['workers'],
+            batch_size=predictor.config['batch_size'])
+
+        prog = ub.ProgIter(slider_loader, total=len(slider_loader),
+                           chunksize=predictor.config['batch_size'],
+                           desc='predict', enabled=predictor.config['verbose'] > 1)
+
+        xpu = predictor.xpu
+
+        # raw_batch = ub.peek(prog)
+        with torch.set_grad_enabled(False):
+
+            # ----
+            buffer_gids = []
+            buffer_dets = []
+
+            for raw_batch in prog:
+                batch = {
+                    'tf_chip_to_full': raw_batch['tf_chip_to_full'],
+                }
+                if 'im' in batch:
+                    batch['im'] = xpu.move(raw_batch['im'])
+
+                batch_gids = raw_batch['gid'].view(-1).numpy()
+                batch_dets = list(predictor._predict_batch(batch))
+
+                # Determine if we have finished an image (assuming images are
+                # passed in sequentially in order)
+                can_yield = (
+                    np.any(np.diff(batch_gids)) or
+                    (len(buffer_gids) and buffer_gids[-1] != batch_gids[0])
+                )
+
+                buffer_gids.extend(batch_gids)
+                buffer_dets.extend(batch_dets)
+
+                if can_yield:
+                    ready_idx = max(np.where(np.diff(buffer_gids))[0]) + 1
+                    ready_gids = buffer_gids[:ready_idx]
+                    ready_dets = buffer_dets[:ready_idx]
+
+                    #
+                    buffer_gids = buffer_gids[ready_idx:]
+                    buffer_dets = buffer_dets[ready_idx:]
+                    for gid, dets in predictor._finalize_dets(ready_dets, ready_gids):
+                        yield gid, dets
+            # ----
+
+            # Finalize anything that remains
+            ready_gids = buffer_gids
+            ready_dets = buffer_dets
+            for gid, dets in predictor._finalize_dets(ready_dets, ready_gids):
+                yield gid, dets
+
+    @profile
+    def _finalize_dets(predictor, ready_dets, ready_gids):
+        """ Helper for predict_sampler """
+        gid_to_ready_dets = ub.group_items(ready_dets, ready_gids)
+        for gid, dets_list in gid_to_ready_dets.items():
+            if len(dets_list) == 0:
+                dets = kwimage.Detections.concatenate([])
+            elif len(dets_list) == 1:
+                dets = dets_list[0]
+            elif len(dets_list) > 1:
+                dets = kwimage.Detections.concatenate(dets_list)
+                keep = dets.non_max_supression(
+                    thresh=predictor.config['nms_thresh'],
+                )
+                dets = dets.take(keep)
+            yield (gid, dets)
+
+    @profile
     def _prepare_image(predictor, full_rgb):
         full_dims = tuple(full_rgb.shape[0:2])
 
         if predictor.config['window_dims'] == 'native':
             native = predictor._infer_native(predictor.config)
             window_dims = native['window_dims']
+        else:
+            window_dims = predictor.config['window_dims']
 
         if window_dims == 'full':
             window_dims = full_dims
@@ -231,7 +373,12 @@ class DetectPredictor(object):
         return full_rgb, pad_offset_rc, window_dims
 
     def _make_dataset(predictor, full_rgb, window_dims):
+        """ helper for predict """
         full_dims = tuple(full_rgb.shape[0:2])
+
+        native = predictor._infer_native(predictor.config)
+
+        assert native['channels'] == 'rgb', 'cant handle non-rgb yet'
 
         # Break large images into chunks to fit on the GPU
         slider = nh.util.SlidingWindow(full_dims, window=window_dims,
@@ -245,6 +392,7 @@ class DetectPredictor(object):
         slider_dataset = SingleImageDataset(full_rgb, slider, input_dims)
         return slider_dataset
 
+    @profile
     def _predict_batch(predictor, batch):
         """
         Runs the torch network on a single batch and postprocesses the outputs
@@ -262,10 +410,6 @@ class DetectPredictor(object):
             shift_xy_ = shift_xy - pad_offset_xy[None, :]
         else:
             shift_xy_ = shift_xy
-
-        if 'disparity' in batch and getattr(predictor.model.module, 'in_channels', 3) > 3:
-            batch = batch.copy()
-            batch['im'] = torch.cat([batch['im'], batch['disparity']], dim=1)
 
         # All GPU work happens in this line
         if hasattr(predictor.model.module, 'detector'):
@@ -293,97 +437,6 @@ class DetectPredictor(object):
             # Fix type issue
             det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
             yield det
-
-    def predict_sampler(predictor, sampler, gids=None):
-        """
-        Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
-
-        Args:
-            sampler (ndsampler.CocoDataset): dset wrapped in a sampler
-            gids (List[int], default=None): if specified, then only predict
-                on these images.
-
-        Yields:
-            Tuple[int, Detections] : image_id, detection pairs
-        """
-        native = predictor._infer_native(predictor.config)
-        input_dims = native['input_dims']
-        window_dims = native['window_dims']
-
-        torch_dset = WindowedSamplerDataset(sampler, window_dims=window_dims,
-                                            input_dims=input_dims, gids=gids)
-        if len(torch_dset) == 0:
-            return
-        slider_loader = torch.utils.data.DataLoader(
-            torch_dset, shuffle=False, num_workers=predictor.config['workers'],
-            batch_size=predictor.config['batch_size'])
-
-        prog = ub.ProgIter(slider_loader, total=len(slider_loader),
-                           chunksize=predictor.config['batch_size'],
-                           desc='predict', enabled=predictor.config['verbose'] > 1)
-
-        def finalize_dets(ready_dets, ready_gids):
-            gid_to_ready_dets = ub.group_items(ready_dets, ready_gids)
-            for gid, dets_list in gid_to_ready_dets.items():
-                if len(dets_list) == 0:
-                    dets = kwimage.Detections.concatenate([])
-                elif len(dets_list) == 1:
-                    dets = dets_list[0]
-                elif len(dets_list) > 1:
-                    dets = kwimage.Detections.concatenate(dets_list)
-                    keep = dets.non_max_supression(
-                        thresh=predictor.config['nms_thresh'],
-                    )
-                    dets = dets.take(keep)
-                yield (gid, dets)
-
-        xpu = predictor.xpu
-
-        # raw_batch = ub.peek(prog)
-        with torch.set_grad_enabled(False):
-
-            # ----
-            buffer_gids = []
-            buffer_dets = []
-
-            for raw_batch in prog:
-                batch = {
-                    'im': xpu.move(raw_batch['im']),
-                    'tf_chip_to_full': raw_batch['tf_chip_to_full'],
-                }
-                if 'disparity' in raw_batch:
-                    batch['disparity'] = xpu.move(raw_batch['disparity'])
-
-                batch_gids = raw_batch['gid'].view(-1).numpy()
-                batch_dets = list(predictor._predict_batch(batch))
-
-                # Determine if we have finished an image (assuming images are
-                # passed in sequentially in order)
-                can_yield = (
-                    np.any(np.diff(batch_gids)) or
-                    (len(buffer_gids) and buffer_gids[-1] != batch_gids[0])
-                )
-
-                buffer_gids.extend(batch_gids)
-                buffer_dets.extend(batch_dets)
-
-                if can_yield:
-                    ready_idx = max(np.where(np.diff(buffer_gids))[0]) + 1
-                    ready_gids = buffer_gids[:ready_idx]
-                    ready_dets = buffer_dets[:ready_idx]
-
-                    #
-                    buffer_gids = buffer_gids[ready_idx:]
-                    buffer_dets = buffer_dets[ready_idx:]
-                    for gid, dets in finalize_dets(ready_dets, ready_gids):
-                        yield gid, dets
-            # ----
-
-            # Finalize anything that remains
-            ready_gids = buffer_gids
-            ready_dets = buffer_dets
-            for gid, dets in finalize_dets(ready_dets, ready_gids):
-                yield gid, dets
 
 
 class SingleImageDataset(torch_data.Dataset):
@@ -475,11 +528,12 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
     """
 
     def __init__(self, sampler, window_dims='full', input_dims='native',
-                 window_overlap=0.0, gids=None):
+                 window_overlap=0.0, gids=None, channels='rgb'):
         self.sampler = sampler
         self.input_dims = input_dims
         self.window_dims = window_dims
         self.window_overlap = window_overlap
+        self.channels = ChannelSpec.coerce(channels)
         self.subindex = None
         self.gids = gids
         self._build_sliders()
@@ -540,6 +594,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
     def __len__(self):
         return len(self.subindex)
 
+    @profile
     def __getitem__(self, index):
         """
         Example:
@@ -555,7 +610,6 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         Ignore:
             import netharn as nh
             nh.data.collate.padded_collate([self[0], self[1], self[2]])
-
             self = WindowedSamplerDataset.demo(window_dims='full', input_dims=(512, 512))
             kwplot.imshow(self[19]['im'])
         """
@@ -565,6 +619,11 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         slices = slider[inner]
 
         tr = {'gid': gid, 'slices': slices}
+
+        # for now load sample only returns rgb
+        unique_channels = self.channels.unique()
+
+        assert 'rgb' in unique_channels
         sample = self.sampler.load_sample(tr, with_annots=False)
         chip_hwc = kwimage.atleast_3channels(sample['im'])
 
@@ -588,7 +647,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
-        tensor_chip = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
+        tensor_rgb = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
         offset_xy = torch.FloatTensor([slices[1].start, slices[0].start])
 
         # To apply a transform we first scale then shift
@@ -611,7 +670,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             'shift_xy': -tf_full_to_chip['shift_xy'] * (1.0 / tf_full_to_chip['scale_xy']),
         }
         item = {
-            'im': tensor_chip,
+            'rgb': tensor_rgb,
             'gid': torch.LongTensor([gid]),
             'tf_chip_to_full': tf_chip_to_full,
         }
@@ -619,7 +678,8 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         sampler = self.sampler
         img = sampler.dset.imgs[gid]
 
-        if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
+        # if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
+        if 'disparity' in unique_channels:
             from bioharn.detect_dataset import _cached_habcam_disparity_frame
             import xdev
             with xdev.embed_on_exception_context:
@@ -642,6 +702,12 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             else:
                 disp_im = disp_im.transpose(2, 0, 1)
             item['disparity'] = torch.FloatTensor(disp_im)
+
+        inputs = self.channels.compose(item, drop=True)
+        # hack:
+        # item['inputs'] = inputs
+        assert len(inputs) == 1
+        item['im'] = ub.peek(inputs.values())
         return item
 
 
@@ -707,6 +773,7 @@ def _coerce_sampler(config):
     return sampler
 
 
+@profile
 def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
                     draw=False, enable_cache=True, async_buffer=False,
                     verbose=1):

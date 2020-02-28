@@ -42,6 +42,10 @@ class DetectEvaluateConfig(scfg.Config):
 
         'xpu': scfg.Value('argv', help='a CUDA device or a CPU'),
 
+        'channels': scfg.Value(
+            'native',
+            help='list of channels needed by the model. '
+            'Typically this can be inferred from the model'),
 
         'out_dpath': scfg.Path('./detect_eval_out/', help='folder to send the output'),
 
@@ -497,7 +501,7 @@ if __name__ == '__main__':
             --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json \
             --deployed="[~/work/bioharn/fit/runs/bioharn-det-v14-cascade/iawztlag/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip,\
                 ~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/deploy_MM_CascadeRCNN_ogenzvgt_059_QBGWCT.zip,\
-                ~/work/bioharn/fit/runs/bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP.zip, \
+                ~/work/bioharn/fit/runs/bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP, \
                 $HOME/.cache/viame/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip,]"
 
 
