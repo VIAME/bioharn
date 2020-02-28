@@ -505,7 +505,7 @@ if __name__ == '__main__':
             --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json \
             --deployed=~/work/bioharn/fit/runs/bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP.zip
 
-        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=0 \
+        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=4 \
             --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json \
             --deployed=/home/joncrall/.cache/viame/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip
 
