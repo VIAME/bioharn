@@ -618,10 +618,12 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
         sampler = self.sampler
         img = sampler.dset.imgs[gid]
+
         if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
             from bioharn.detect_dataset import _cached_habcam_disparity_frame
             disp_frame = _cached_habcam_disparity_frame(sampler, gid)
-            data_dims = ((img['width'] // 2), img['height'])
+            disp_frame.shape[0:2]
+            data_dims = (img['height'], (img['width'] // 2))
             pad = 0
             data_slice, extra_padding, st_dims = sampler._rectify_tr(
                 tr, data_dims, window_dims=None, pad=pad)

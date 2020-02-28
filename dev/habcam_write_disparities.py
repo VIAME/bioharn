@@ -9,9 +9,8 @@ def main():
     import ndsampler
     from ndsampler.utils import util_futures
 
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json'))
-
-    jobs = util_futures.JobPool(mode='thread', max_workers=4)
+    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json'))
+    jobs = util_futures.JobPool(mode='thread', max_workers=8)
 
     for gid, img in ub.ProgIter(list(dset.imgs.items())):
         if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
@@ -22,9 +21,19 @@ def main():
         gid = job.gid
         disp_dpath, disp_fname = job.result()
         img = dset.imgs[gid]
+        data_dims = ((img['width'] // 2), img['height'])
+        # Add auxillary channel information
         img['aux'] = [
-            {'bands': 'disparity', 'file_name': disp_fname}
+            {
+                'bands': ['disparity'],
+                'file_name': disp_fname,
+                'dims': data_dims,
+            }
         ]
+        # /home/joncrall/work/bioharn/_cache/_disp_v6/220e187f5ec648e7bb0f273e282cd3af27881120_disp_v6.cog.tif,
+
+    dset.fpath = dset.fpath.replace('_v2_', '_v3_')
+    dset.dump(dset.fpath, newlines=True)
 
 
 def _ensure_habcam_disparity_frame(dset, gid):

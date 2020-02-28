@@ -197,7 +197,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             if DO_HABCAM_DISPARITY:
                 disp_frame = _cached_habcam_disparity_frame(self.sampler, gid)
 
-                data_dims = ((img['width'] // 2), img['height'])
+                data_dims = (img['height'], (img['width'] // 2))
                 data_slice, extra_padding, st_dims = self.sampler._rectify_tr(
                     tr, data_dims, window_dims=None, pad=pad)
                 # Load the image data
@@ -1170,7 +1170,19 @@ def multipass_disparity(img_left, img_right, outlier_percent=3,
 
 
 def _cached_habcam_disparity_frame(sampler, gid):
+    from ndsampler.utils import util_gdal
     import ndsampler
+
+    # First check if the dataset defines a proper disparity channel
+    img = sampler.dset.imgs[gid]
+    if 'aux' in img:
+        for aux in img['aux']:
+            if aux['bands'] == ['disparity']:
+                disp_fpath = join(sampler.dset.img_root, aux['file_name'])
+                disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
+                return disp_frame
+
+    # Otherwise do the hacked habcam computation
     img_hashid = sampler.frames._lookup_hashid(gid)
     disp_cache_dpath = ub.ensuredir((sampler.frames.workdir, '_cache', '_disp_v6'))
     disp_cache_fpath = join(disp_cache_dpath, img_hashid + '_disp_v6.cog.tif')
@@ -1185,5 +1197,5 @@ def _cached_habcam_disparity_frame(sampler, gid):
 
         ndsampler.utils.util_gdal._imwrite_cloud_optimized_geotiff(
             disp_cache_fpath, img_disparity, compress='DEFLATE')
-    disp_frame = ndsampler.utils.util_gdal.LazyGDalFrameFile(disp_cache_fpath)
+    disp_frame = util_gdal.LazyGDalFrameFile(disp_cache_fpath)
     return disp_frame
