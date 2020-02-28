@@ -475,15 +475,6 @@ class CocoEvaluator(object):
             pass
 
 
-def _check_imgs():
-    import ndsampler
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json'))
-
-    for gid in ub.ProgIter(list(dset.imgs.keys())):
-        data = dset.load_image(gid)
-        pass
-
-
 if __name__ == '__main__':
     """
     python ~/code/bioharn/bioharn/detect_eval.py --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/manual-snapshots/_epoch_00000006.pt
@@ -502,11 +493,11 @@ if __name__ == '__main__':
             --dataset=/home/joncrall/.cache/coco-demo/shapes256.mscoco.json
             --deployed=${dpath}/_epoch_00000000.pt,${dpath}/_epoch_00000009.pt,${dpath}/_epoch_00000011.pt \
 
-        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 \
+        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=0 \
             --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json \
             --deployed=~/work/bioharn/fit/runs/bioharn-det-v14-cascade/iawztlag/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip
 
-        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 \
+        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=0 \
             --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json \
             --deployed=~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/deploy_MM_CascadeRCNN_ogenzvgt_059_QBGWCT.zip
 

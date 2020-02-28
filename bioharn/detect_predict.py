@@ -619,27 +619,25 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         sampler = self.sampler
         img = sampler.dset.imgs[gid]
         if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
-            import xdev
-            with xdev.embed_on_exception_context:
-                from bioharn.detect_dataset import _cached_habcam_disparity_frame
-                disp_frame = _cached_habcam_disparity_frame(sampler, gid)
-                data_dims = ((img['width'] // 2), img['height'])
-                pad = 0
-                data_slice, extra_padding, st_dims = sampler._rectify_tr(
-                    tr, data_dims, window_dims=None, pad=pad)
-                # Load the image data
-                disp_im = disp_frame[data_slice]
-                if extra_padding:
-                    if disp_im.ndim != len(extra_padding):
-                        extra_padding = extra_padding + [(0, 0)]  # Handle channels
-                    disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
-                if letterbox is not None:
-                    disp_im = letterbox.augment_image(disp_im)
-                if len(disp_im.shape) == 2:
-                    disp_im = disp_im[None, :, :]
-                else:
-                    disp_im = disp_im.transpose(2, 0, 1)
-                item['disparity'] = torch.FloatTensor(disp_im)
+            from bioharn.detect_dataset import _cached_habcam_disparity_frame
+            disp_frame = _cached_habcam_disparity_frame(sampler, gid)
+            data_dims = ((img['width'] // 2), img['height'])
+            pad = 0
+            data_slice, extra_padding, st_dims = sampler._rectify_tr(
+                tr, data_dims, window_dims=None, pad=pad)
+            # Load the image data
+            disp_im = disp_frame[data_slice]
+            if extra_padding:
+                if disp_im.ndim != len(extra_padding):
+                    extra_padding = extra_padding + [(0, 0)]  # Handle channels
+                disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
+            if letterbox is not None:
+                disp_im = letterbox.augment_image(disp_im)
+            if len(disp_im.shape) == 2:
+                disp_im = disp_im[None, :, :]
+            else:
+                disp_im = disp_im.transpose(2, 0, 1)
+            item['disparity'] = torch.FloatTensor(disp_im)
         return item
 
 
