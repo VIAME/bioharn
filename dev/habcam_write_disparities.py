@@ -18,9 +18,10 @@ def main():
             job = jobs.submit(_ensure_habcam_disparity_frame, dset, gid)
             job.gid = gid
 
-    for job in ub.ProgIter(jobs, desc='collect results'):
+    for job in ub.ProgIter(jobs, desc='collect results', verbose=3):
         gid = job.gid
-        job.result()
+        disp_fpath = job.result()
+        print('disp_fpath = {!r}'.format(disp_fpath))
 
 
 def _ensure_habcam_disparity_frame(dset, gid):
