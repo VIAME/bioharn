@@ -803,7 +803,7 @@ if __name__ == '__main__':
             --init=noop \
             --workdir=/home/joncrall/work/bioharn \
             --arch=cascade \
-            --use_disparity=True \
+            --use_disparity=False \
             --optim=sgd \
             --lr=1e-3 \
             --input_dims=window \
