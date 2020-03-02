@@ -221,7 +221,6 @@ class DetectHarn(nh.FitHarn):
                 # with xdev.embed_on_exception_context:
                 outputs = harn.model.forward(batch, return_loss=True,
                                              return_result=return_result)
-                print(outputs.keys())
 
             # Hack away the BatchContainer in the DataSerial case
             if 'batch_results' in outputs:
