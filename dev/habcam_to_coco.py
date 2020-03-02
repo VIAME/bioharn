@@ -7,6 +7,7 @@ ln -s ~/data/raid/public ~/data/public
 rsync -vrltD /tmp/software /nas10 | pv -lep -s 42
 
 rsync -avrP --stats --human-readable --info=progress2  viame:data/public/Benthic/US_NE_2015_NEFSC_HABCAM/./Corrected $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM
+rsync -avrP --stats --human-readable --info=progress2  $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/./disparities viame:data/public/Benthic/US_NE_2015_NEFSC_HABCAM
 rsync -avrP --stats --human-readable --info=progress2  $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/./cog viame:data/public/Benthic/US_NE_2015_NEFSC_HABCAM
 
 rsync -avP --stats --human-readable  viame:data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.habcam_csv $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.habcam_csv
@@ -17,13 +18,8 @@ from os.path import basename
 from os.path import join
 import numpy as np
 import ubelt as ub
-import warnings
 from os.path import dirname
 from os.path import exists
-
-from sklearn.utils.validation import check_array
-from sklearn.externals.six.moves import zip
-from sklearn.model_selection._split import (_BaseKFold,)
 
 
 def main():
@@ -285,7 +281,7 @@ def main():
             gid = job.gid
             cog_fname = job.result()
             img = coco_dset.imgs[gid]
-            # Add auxillary channel information
+            # Hack so the a the main image is a cog file.
             if cog_fname != img['file_name']:
                 img['file_name'] = cog_fname
                 img['width'] = img['width'] // 2
@@ -361,6 +357,7 @@ def _ensure_habcam_rgb_cogs(dset, gid):
         imgL = img3[:, 0:img3.shape[1] // 2]
         kwimage.imwrite(cog_fpath, imgL, backend='gdal',
                         compress='DEFLATE')
+    return cog_fname
 
 
 def _ensure_habcam_disparity_frame(dset, gid):

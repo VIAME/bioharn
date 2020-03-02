@@ -3,6 +3,7 @@ Notes:
     https://github.com/open-mmlab/mmdetection/blob/master/docs/MODEL_ZOO.md
 """
 import numpy as np
+import ubelt as ub
 import netharn as nh
 import torch
 import kwimage
@@ -10,6 +11,7 @@ import kwarray
 from collections import OrderedDict
 from distutils.version import LooseVersion
 import warnings  # NOQA
+from bioharn.channel_spec import ChannelSpec
 
 
 def _hack_mm_backbone_in_channels(backbone_cfg):
@@ -248,102 +250,80 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3,
     Input data for testing this detector
 
     Example:
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> from bioharn.models.mm_models import _demo_batch
         >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
         >>> globals().update(**xdev.get_func_kwargs(_demo_batch))
         >>> batch = _demo_batch(with_mask=False)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
-    USE_PHOTOS = False
     rng = kwarray.ensure_rng(0)
-    if USE_PHOTOS:
-        import ndsampler
-        coco_dset = ndsampler.CocoDataset.demo('photos')
-        sampler = ndsampler.CocoSampler(coco_dset)
-
-        batch_items = []
-
-        for gid in [1]:
-            img, annots = sampler.load_image_with_annots(gid)
-            annots = [ann for ann in annots if 'bbox' in ann]
-            hwc = img['imdata'][:]
-            xywh = kwimage.Boxes([ann['bbox'] for ann in annots], 'xywh')
-            cids = [ann['category_id'] for ann in annots]
-
-            label = {
-                'tlbr': torch.FloatTensor(xywh.to_tlbr().data),
-                'class_idxs': torch.LongTensor(cids),
-            }
-            item = {
-                'im': torch.FloatTensor(hwc.transpose(2, 0, 1) / 255),
-                'label': label,
-            }
-            batch_items.append(item)
-
+    from bioharn.data_containers import ItemContainer
+    from bioharn.data_containers import container_collate
+    if isinstance(bsize, list):
+        item_sizes = bsize
+        bsize = len(item_sizes)
     else:
-        if isinstance(bsize, list):
-            item_sizes = bsize
-            bsize = len(item_sizes)
-        else:
-            item_sizes = [rng.randint(0, 10) for bx in range(bsize)]
+        item_sizes = [rng.randint(0, 10) for bx in range(bsize)]
 
-        input_shape = B, C, H, W = (bsize, in_channels, h, w)
-        imgs = torch.rand(*input_shape)
+    input_shape = B, C, H, W = (bsize, in_channels, h, w)
+    imgs = torch.rand(*input_shape)
 
-        batch_items = []
-        for bx in range(B):
+    batch_items = []
+    for bx in range(B):
 
-            item_sizes[bx]
+        item_sizes[bx]
 
-            dets = kwimage.Detections.random(num=item_sizes[bx],
-                                             classes=classes,
-                                             segmentations=True)
-            dets = dets.scale((W, H))
+        dets = kwimage.Detections.random(num=item_sizes[bx],
+                                         classes=classes,
+                                         segmentations=True)
+        dets = dets.scale((W, H))
 
-            # Extract segmentations if they exist
-            if with_mask:
-                has_mask_list = []
-                class_mask_list = []
-                for sseg in dets.data['segmentations']:
-                    if sseg is not None:
-                        mask = sseg.to_mask(dims=(H, W))
-                        c_mask = mask.to_c_mask().data
-                        mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
-                        class_mask_list.append(mask_tensor[None, :])
-                        has_mask_list.append(1)
-                    else:
-                        class_mask_list.append(None)
-                        has_mask_list.append(-1)
-
-                has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
-                if len(class_mask_list) == 0:
-                    class_masks = torch.empty((0, H, W), dtype=torch.uint8)
+        # Extract segmentations if they exist
+        if with_mask:
+            has_mask_list = []
+            class_mask_list = []
+            for sseg in dets.data['segmentations']:
+                if sseg is not None:
+                    mask = sseg.to_mask(dims=(H, W))
+                    c_mask = mask.to_c_mask().data
+                    mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
+                    class_mask_list.append(mask_tensor[None, :])
+                    has_mask_list.append(1)
                 else:
-                    class_masks = torch.cat(class_mask_list, dim=0)
+                    class_mask_list.append(None)
+                    has_mask_list.append(-1)
+
+            has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+            if len(class_mask_list) == 0:
+                class_masks = torch.empty((0, H, W), dtype=torch.uint8)
             else:
-                class_masks = None
+                class_masks = torch.cat(class_mask_list, dim=0)
+        else:
+            class_masks = None
 
-            from bioharn.data_containers import ItemContainer
-            dets = dets.tensor()
-            label = {
-                'tlbr': ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
-                'class_idxs': ItemContainer(dets.class_idxs, stack=False),
-                'weight': ItemContainer(torch.FloatTensor(rng.rand(len(dets))), stack=False)
-            }
+        dets = dets.tensor()
+        label = {
+            'tlbr': ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
+            'class_idxs': ItemContainer(dets.class_idxs, stack=False),
+            'weight': ItemContainer(torch.FloatTensor(rng.rand(len(dets))), stack=False)
+        }
 
-            if with_mask:
-                label['class_masks'] = ItemContainer(class_masks, stack=False)
-                label['has_mask'] = ItemContainer(has_mask, stack=False)
+        if with_mask:
+            label['class_masks'] = ItemContainer(class_masks, stack=False)
+            label['has_mask'] = ItemContainer(has_mask, stack=False)
 
-            item = {
-                'im': ItemContainer(imgs[bx], stack=True),
-                'label': label,
-            }
-            batch_items.append(item)
+        item = {
+            # Inputs0
+            'im': ItemContainer(imgs[bx], stack=True),
+            'label': label,
+        }
+        batch_items.append(item)
 
-    import netharn as nh
+    # import netharn as nh
     # from bioharn.data_containers import container_collate
-    # batch = container_collate(batch_items, num_devices=1)
-    batch = nh.data.collate.padded_collate(batch_items)
+    batch = container_collate(batch_items, num_devices=1)
+    # batch = nh.data.collate.padded_collate(batch_items)
     return batch
 
 
@@ -685,7 +665,7 @@ class MM_RetinaNet(MM_Detector):
         print(ub.repr2(list(ours.keys()),nl=1))
     """
 
-    def __init__(self, classes, in_channels=3, input_stats=None):
+    def __init__(self, classes, channels='rgb', input_stats=None):
 
         # from mmcv.runner.checkpoint import load_url_dist
         # url =
@@ -712,7 +692,9 @@ class MM_RetinaNet(MM_Detector):
         else:
             num_classes = len(classes) + 1
 
-        self.in_channels = in_channels
+        chann_norm = self.channels.normalize()
+        assert len(chann_norm) == 1
+        in_channels = len(ub.peek(chann_norm.values()))
 
         # model settings
         mm_config = dict(
@@ -798,62 +780,19 @@ class MM_CascadeRCNN(MM_Detector):
         >>> outputs = self.forward(batch)
         >>> batch_dets = self.coder.decode_batch(outputs)
 
-        import kwplot
-        kwplot.autompl()
-        kwplot.imshow(batch['im'].cpu()[0])
-        batch_dets[0].draw()
-
-        >>> #batch = xpu.move(batch)
-
-        >>> #filename = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth'
-        >>> #_ = mmcv.runner.checkpoint.load_checkpoint(self.detector, filename)
-
-
-        >>> mm_inputs = _batch_to_mm_inputs(batch)
-        >>> gt_bboxes = mm_inputs['gt_bboxes']
-        >>> gt_labels = mm_inputs['gt_labels']
-        >>> img = mm_inputs.pop('imgs')
-        >>> img_meta = mm_inputs.pop('img_metas')
-        >>> imgs_hack = [g[None, :] for g in img]
-
-        >>> losses = self.detector.forward(img, img_meta, **mm_inputs, return_loss=True)
-        >>> outputs = self.detector.forward(imgs_hack, img_meta, return_loss=False)
-
-
-        >>> results = self.detector.simple_test(imgs[0], img_meta)
-        >>> proposals=None
-        >>> rescale=False
-        >>> self = self.detector
-
-        outputs = self.detector.extract_feat(inputs)
-
-        >>> from bioharn.models.mm_models import *  # NOQA
-        >>> import torch
-        >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
-        >>> xpu = nh.XPU(None)
-        >>> self = MM_CascadeRCNN(classes).to(xpu.main_device)
-        >>> batch = _demo_batch([0, 0, 0], h=256, w=256)
-        >>> batch = xpu.move(batch)
-        >>> outputs = self.forward(batch)
-
-        >>> self = self.detector
-        >>> img = mm_inputs['imgs']
-        >>> img_meta = mm_inputs['img_metas']
-
-
     Example:
         >>> # Test multiple channels
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> import torch
         >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
         >>> xpu = nh.XPU('cpu')
-        >>> self = MM_CascadeRCNN(classes, in_channels=4).to(xpu.main_device)
+        >>> self = MM_CascadeRCNN(classes, channels='rgb|d').to(xpu.main_device)
         >>> batch = self.demo_batch(bsize=1, h=256, w=256)
         >>> batch = xpu.move(batch)
         >>> outputs = self.forward(batch)
         >>> batch_dets = self.coder.decode_batch(outputs)
     """
-    def __init__(self, classes, in_channels=3, input_stats=None):
+    def __init__(self, classes, channels='rgb', input_stats=None):
         import ndsampler
         classes = ndsampler.CategoryTree.coerce(classes)
         if 'background' in classes:
@@ -862,6 +801,11 @@ class MM_CascadeRCNN(MM_Detector):
         else:
             num_classes = len(classes) + 1
 
+        self.channels = ChannelSpec.coerce(channels)
+
+        chann_norm = self.channels.normalize()
+        assert len(chann_norm) == 1
+        in_channels = len(ub.peek(chann_norm.values()))
         # pretrained = 'open-mmlab://resnext101_32x4d'
         # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_64x4d_fpn_1x_20181218-e2dc376a.pth'
         # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_32x4d_fpn_1x_20190501-af628be5.pth'
@@ -1074,7 +1018,7 @@ class MM_MaskRCNN(MM_Detector):
         >>> batch_dets = self.coder.decode_batch(outputs)
         >>> batch_dets[0].data['segmentations'][0]
     """
-    def __init__(self, classes, in_channels=3, input_stats=None):
+    def __init__(self, classes, channels='rgb', input_stats=None):
         import ndsampler
         classes = ndsampler.CategoryTree.coerce(classes)
         if 'background' in classes:
@@ -1084,7 +1028,9 @@ class MM_MaskRCNN(MM_Detector):
             num_classes = len(classes) + 1
 
         # pretrained = 'torchvision://resnet50'
-        self.in_channels = in_channels
+        chann_norm = self.channels.normalize()
+        assert len(chann_norm) == 1
+        in_channels = len(ub.peek(chann_norm.values()))
 
         # model settings
         mm_config = dict(

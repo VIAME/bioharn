@@ -31,10 +31,17 @@ class ChannelSpec(ub.NiceRepr):
         >>> print('self.info = {}'.format(ub.repr2(self.info, nl=1)))
     """
 
+    _known = {
+        'rgb': 'r|g|b'
+    }
+
     def __init__(self, spec):
         self.spec = spec
 
     def __nice__(self):
+        return self.spec
+
+    def __json__(self):
         return self.spec
 
     @property
@@ -43,6 +50,7 @@ class ChannelSpec(ub.NiceRepr):
             'spec': self.spec,
             'parsed': self.parse(),
             'unique': self.unique(),
+            'normed': self.normalize(),
         }
 
     @classmethod
@@ -60,6 +68,16 @@ class ChannelSpec(ub.NiceRepr):
         # commas break inputs into multiple streams
         stream_specs = self.spec.split(',')
         parsed = {ss: ss.split('|') for ss in stream_specs}
+        return parsed
+
+    def normalize(self):
+        spec = self.spec
+        stream_specs = spec.split(',')
+        parsed = {ss: ss for ss in stream_specs}
+        for k1 in parsed.keys():
+            for k, v in self._known.items():
+                parsed[k1] = parsed[k1].replace(k, v)
+        parsed = {k: v.split('|') for k, v in parsed.items()}
         return parsed
 
     def unique(self):

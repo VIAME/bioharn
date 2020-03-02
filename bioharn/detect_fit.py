@@ -52,7 +52,7 @@ class DetectFitConfig(scfg.Config):
         'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'low', 'simple', 'complex', None]),
         'gravity': scfg.Value(0.0, help='how often to assume gravity vector for augmentation'),
 
-        'use_disparity': False,
+        'channels': scfg.Value('rgb', help='special channel code. See ChannelSpec'),
 
         'ovthresh': 0.5,
 
@@ -168,7 +168,7 @@ class DetectHarn(nh.FitHarn):
         Ignore:
             >>> from bioharn.detect_fit import *  # NOQA
             >>> harn = setup_harn(bsize=2, datasets='special:habcam',
-            >>>     arch='cascade', init='noop', xpu=0, use_disparity=True,
+            >>>     arch='cascade', init='noop', xpu=0, channels='rgb|disparity',
             >>>     workers=0, normalize_inputs=False, sampler_backend=None)
 
         Example:
@@ -588,17 +588,15 @@ def setup_harn(cmdline=True, **kw):
     arch = config['arch']
     classes = samplers['train'].classes
 
-    if config['use_disparity']:
-        in_channels = 4
-    else:
-        in_channels = 3
+    from bioharn.utils import ChannelSpec
+    channels = ChannelSpec.coerce(config['channels'])
 
     criterion_ = None
     if arch == 'retinanet':
         from bioharn.models import mm_models
         initkw = dict(
             classes=classes,
-            in_channels=in_channels,
+            channels=config['channels'],
             input_stats=input_stats,
         )
         model = mm_models.MM_RetinaNet(**initkw)
@@ -608,7 +606,7 @@ def setup_harn(cmdline=True, **kw):
         from xviewharn.models import mm_models
         initkw = dict(
             classes=classes,
-            in_channels=in_channels,
+            channels=config['channels'],
             input_stats=input_stats,
         )
         model = mm_models.MM_MaskRCNN(**initkw)
@@ -617,7 +615,7 @@ def setup_harn(cmdline=True, **kw):
         from bioharn.models import mm_models
         initkw = dict(
             classes=classes,
-            in_channels=in_channels,
+            channels=config['channels'],
             input_stats=input_stats,
         )
         model = mm_models.MM_CascadeRCNN(**initkw)
@@ -797,14 +795,14 @@ if __name__ == '__main__':
 
         python -m bioharn.detect_fit \
             --nice=bioharn-det-v19-cascade-mc-rgb \
-            --train_dataset=/home/joncrall/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.train.json \
-            --vali_dataset=/home/joncrall/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.validation.json \
+            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.train.json \
+            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.validation.json \
             --schedule=ReduceLROnPlateau-p2-c2 \
             --augment=complex \
             --init=noop \
             --workdir=/home/joncrall/work/bioharn \
             --arch=cascade \
-            --use_disparity=False \
+            --channels=rgb \
             --optim=sgd \
             --lr=1e-3 \
             --input_dims=window \
@@ -815,7 +813,8 @@ if __name__ == '__main__':
             --workers=4 \
             --xpu=0 \
             --batch_size=2 \
-            --bstep=8 --num_draw=0 --draw_interval=0
+            --bstep=8
+        --num_draw=0 --draw_interval=0
 
 
     """
