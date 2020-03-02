@@ -34,7 +34,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
     """
     def __init__(self, sampler, augment='simple', window_dims=[512, 512],
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
-                 factor=32, use_segmentation=True, gravity=0.0):
+                 factor=32, use_segmentation=True, gravity=0.0,
+                 use_disparity=False):
         super(DetectFitDataset, self).__init__()
 
         self.sampler = sampler
@@ -43,6 +44,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             input_dims = window_dims
 
         self.use_segmentation = use_segmentation
+        self.use_disparity = use_disparity
 
         self.factor = factor  # downsample factor of yolo grid
         self.input_dims = np.array(input_dims, dtype=np.int)
@@ -188,7 +190,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         img = self.sampler.dset.imgs[gid]
         disp_im = None
-        if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
+        if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo'] and self.use_disparity:
             # Hack: dont pad next to the habcam border
             maxpad = ((img['width'] // 2) - slices[1].stop)
             pad = min(maxpad, pad)
