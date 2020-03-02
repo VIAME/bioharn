@@ -192,8 +192,8 @@ class DetectHarn(nh.FitHarn):
             # need to hack do draw here, because we need to call
             # mmdet forward in a special way
 
-            harn._hack_do_draw = (harn.batch_index <= harn.script_config['num_draw'])
-            harn._hack_do_draw |= (harn._draw_timer.toc() > 60 * harn.script_config['draw_interval'])
+            harn._hack_do_draw = (harn.batch_index < harn.script_config['num_draw'])
+            harn._hack_do_draw |= ((harn._draw_timer.toc() > 60 * harn.script_config['draw_interval']) and (harn.script_config['draw_interval'] > 0))
 
             return_result = harn._hack_do_draw
 
@@ -815,7 +815,7 @@ if __name__ == '__main__':
             --workers=4 \
             --xpu=0 \
             --batch_size=2 \
-            --bstep=1
+            --bstep=8 --num_draw=0 --draw_interval=0
 
 
     """
