@@ -9,11 +9,11 @@ def main():
     import ndsampler
     from ndsampler.utils import util_futures
 
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json'))
+    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_train.mscoco.json'))
 
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_test.mscoco.json'))
+    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json'))
 
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
+    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_vali.mscoco.json'))
 
     jobs = util_futures.JobPool(mode='thread', max_workers=0)
 
@@ -36,7 +36,7 @@ def main():
             }
         ]
 
-    dset.fpath = dset.fpath.replace('_v2_', '_v3_')
+    dset.fpath = dset.fpath.replace('_v3_', '_v4_')
     dset.dump(dset.fpath, newlines=True)
 
 

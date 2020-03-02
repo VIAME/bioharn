@@ -220,7 +220,8 @@ class DetectHarn(nh.FitHarn):
                 # import xdev
                 # with xdev.embed_on_exception_context:
                 outputs = harn.model.forward(batch, return_loss=True,
-                                             return_result=False)
+                                             return_result=return_result)
+                print(outputs.keys())
 
             # Hack away the BatchContainer in the DataSerial case
             if 'batch_results' in outputs:
@@ -808,14 +809,14 @@ if __name__ == '__main__':
             --optim=sgd \
             --lr=1e-3 \
             --input_dims=window \
-            --window_dims=1024,1024 \
+            --window_dims=920,920 \
             --window_overlap=0.0 \
             --multiscale=True \
             --normalize_inputs=False \
             --workers=4 \
             --xpu=0 \
-            --batch_size=4 \
-            --bstep=4
+            --batch_size=2 \
+            --bstep=1
 
 
     """

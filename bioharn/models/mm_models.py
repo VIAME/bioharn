@@ -6,6 +6,7 @@ import numpy as np
 import netharn as nh
 import torch
 import kwimage
+import kwarray
 from collections import OrderedDict
 from distutils.version import LooseVersion
 import warnings  # NOQA
@@ -253,7 +254,6 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3,
         >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
     USE_PHOTOS = False
-    import kwarray
     rng = kwarray.ensure_rng(0)
     if USE_PHOTOS:
         import ndsampler
@@ -586,7 +586,6 @@ class MM_Detector(nh.layers.Module):
             if self.detector.with_mask:
                 if 'gt_masks' in mm_inputs:
                     # mmdet only allows numpy inputs
-                    import kwarray
                     numpy_masks = [kwarray.ArrayAPI.numpy(mask)
                                    for mask in mm_inputs['gt_masks']]
                     trainkw['gt_masks'] = numpy_masks
@@ -803,7 +802,6 @@ class MM_CascadeRCNN(MM_Detector):
         kwplot.autompl()
         kwplot.imshow(batch['im'].cpu()[0])
         batch_dets[0].draw()
-
 
         >>> #batch = xpu.move(batch)
 
