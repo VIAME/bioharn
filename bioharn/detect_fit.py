@@ -805,11 +805,11 @@ if __name__ == '__main__':
             --init=noop \
             --workdir=/home/joncrall/work/bioharn \
             --arch=cascade \
-            --use_disparity=True \
+            --use_disparity=False \
             --optim=sgd \
             --lr=1e-3 \
             --input_dims=window \
-            --window_dims=920,920 \
+            --window_dims=1024,1024 \
             --window_overlap=0.0 \
             --multiscale=True \
             --normalize_inputs=False \
