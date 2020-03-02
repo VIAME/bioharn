@@ -70,7 +70,7 @@ class DetectFitConfig(scfg.Config):
         'decay': scfg.Value(1e-4, help='weight decay'),
 
         'schedule': scfg.Value('ReduceLROnPlateau', help='learning rate / momentum scheduler'),
-        'max_epoch': scfg.Value(200, help='Maximum number of epochs'),
+        'max_epoch': scfg.Value(50, help='Maximum number of epochs'),
         'patience': scfg.Value(10, help='Maximum number of bad epochs on validation before stopping'),
         'min_lr': scfg.Value(1e-9, help='minimum learning rate before termination'),
 
@@ -793,6 +793,29 @@ if __name__ == '__main__':
             --normalize_inputs=True \
             --min_lr=1e-6 \
             --workers=4 --xpu=1,0 --batch_size=8 --bstep=1
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-v19-cascade-mc-rgb \
+            --train_dataset=/home/joncrall/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.train.json \
+            --vali_dataset=/home/joncrall/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.validation.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --workdir=/home/joncrall/work/bioharn \
+            --arch=cascade \
+            --use_disparity=True \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=1024,1024 \
+            --window_overlap=0.0 \
+            --multiscale=True \
+            --normalize_inputs=False \
+            --workers=4 \
+            --xpu=0 \
+            --batch_size=4 \
+            --bstep=4
+
 
     """
     import warnings

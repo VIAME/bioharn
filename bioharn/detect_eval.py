@@ -186,7 +186,7 @@ def evaluate_models(**kw):
             'normalize_inputs', 'window_dims',
         }
         for k, vs in list(key_basis.items()):
-            if len(vs) > 1 and k not in force_include_keys:
+            if len(vs) > 1 or k in force_include_keys:
                 varied_basis[k] = set(vs)
         return varied_basis
 
@@ -200,9 +200,6 @@ def evaluate_models(**kw):
     pd.set_option('max_colwidth', 256)
     df = pd.DataFrame(rows)
     print(df.to_string(float_format=lambda x: '%0.3f' % x))
-
-    import xdev
-    xdev.embed()
 
 
 class DetectEvaluator(object):

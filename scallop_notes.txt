@@ -1,0 +1,58 @@
+
+
+
+# NAMEK RUN:
+Note the evaluation dataset run here were slightly different than the ones run on VIAME.
+
+python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=3 --batch_size=64 \
+    --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json \
+    --deployed="[~/work/bioharn/fit/runs/bioharn-det-v14-cascade/iawztlag/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip,\
+        ~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/deploy_MM_CascadeRCNN_ogenzvgt_059_QBGWCT.zip,\
+        ~/work/bioharn/fit/runs/bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP, \
+        $HOME/.cache/viame/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip,]" --profile
+
+
+                                                                     model_tag         predcfg_tag   ap  auc
+0            bioharn-det-v14-cascade_deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH  i=window,w=512,512 0.89 0.89
+1            bioharn-det-v13-cascade_deploy_MM_CascadeRCNN_ogenzvgt_059_QBGWCT  i=window,w=512,512 0.88 0.89
+2            bioharn-det-v16-cascade_deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP  i=window,w=512,512 0.88 0.88 **disparity**
+3  bioharn-det-v11-test-cascade_deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3    i=512,512,w=full 0.84 0.81
+
+                                                                     model_tag         predcfg_tag    ap   auc  window_overlap  batch_size  augment        init  bstep  input_dims    lr use_disparity  multiscale  normalize_inputs window_dims
+0            bioharn-det-v14-cascade_deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH  i=window,w=512,512 0.890 0.885           0.300           8  complex        noop      4      window 0.003           NaN        True              True  [512, 512]
+1            bioharn-det-v13-cascade_deploy_MM_CascadeRCNN_ogenzvgt_059_QBGWCT  i=window,w=512,512 0.881 0.887           0.000           4  complex        noop      1      window 0.000           NaN        True              True  [512, 512]
+2            bioharn-det-v16-cascade_deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP  i=window,w=512,512 0.876 0.877           0.300           8  complex  pretrained      4      window 0.003          True        True             False  [512, 512]
+3  bioharn-det-v11-test-cascade_deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3    i=512,512,w=full 0.841 0.813             nan           4   medium  pretrained      1  [512, 512] 0.001           NaN       False             False         NaN
+
+
+
+# VIAME EVALS:
+
+# NOTE: this VIAME model was trained using a multi-class objective, so
+# non-scallop things like fish and lobster are evaluated in this run.
+
+python ~/code/bioharn/bioharn/detect_eval.py \
+    --dataset=~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.test.json \
+    --deployed="[$HOME/work/bioharn/fit/runs/bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000000.pt,\
+    $HOME/work/bioharn/fit/runs/bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000030.pt,\
+    $HOME/work/bioharn/fit/runs/bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000046.pt,\
+    $HOME/work/bioharn/fit/runs/bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000050.pt,\
+    $HOME/work/bioharn/fit/runs/bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000055.pt,\
+    $HOME/work/bioharn/fit/runs/bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000056.pt,]"
+
+                                         model_tag           predcfg_tag   ap  auc
+0  bioharn-det-v18-cascade-mc-disp__epoch_00000000  i=window,w=1024,1024 0.61 0.70
+1  bioharn-det-v18-cascade-mc-disp__epoch_00000030  i=window,w=1024,1024 0.86 0.86
+2  bioharn-det-v18-cascade-mc-disp__epoch_00000046  i=window,w=1024,1024 0.86 0.86
+3  bioharn-det-v18-cascade-mc-disp__epoch_00000050  i=window,w=1024,1024 0.86 0.86
+4  bioharn-det-v18-cascade-mc-disp__epoch_00000055  i=window,w=1024,1024 0.86 0.86
+5  bioharn-det-v18-cascade-mc-disp__epoch_00000056  i=window,w=1024,1024 0.86 0.86
+
+
+                                         model_tag           predcfg_tag    ap   auc  augment  bstep  window_overlap  batch_size input_dims   window_dims  use_disparity  normalize_inputs  init    lr  multiscale
+0  bioharn-det-v18-cascade-mc-disp__epoch_00000000  i=window,w=1024,1024 0.612 0.701  complex      4           0.000           4     window  [1024, 1024]           True             False  noop 0.001        True
+1  bioharn-det-v18-cascade-mc-disp__epoch_00000030  i=window,w=1024,1024 0.855 0.856  complex      4           0.000           4     window  [1024, 1024]           True             False  noop 0.001        True
+2  bioharn-det-v18-cascade-mc-disp__epoch_00000046  i=window,w=1024,1024 0.861 0.860  complex      4           0.000           4     window  [1024, 1024]           True             False  noop 0.001        True
+3  bioharn-det-v18-cascade-mc-disp__epoch_00000050  i=window,w=1024,1024 0.861 0.860  complex      4           0.000           4     window  [1024, 1024]           True             False  noop 0.001        True
+4  bioharn-det-v18-cascade-mc-disp__epoch_00000055  i=window,w=1024,1024 0.861 0.860  complex      4           0.000           4     window  [1024, 1024]           True             False  noop 0.001        True
+5  bioharn-det-v18-cascade-mc-disp__epoch_00000056  i=window,w=1024,1024 0.861 0.860  complex      4           0.000           4     window  [1024, 1024]           True             False  noop 0.001        True
