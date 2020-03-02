@@ -217,10 +217,13 @@ class DetectHarn(nh.FitHarn):
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', 'indexing with dtype')
                 # warnings.filterwarnings('ignore', 'asked to gather along dimension 0')
+                # import xdev
+                # with xdev.embed_on_exception_context:
                 import xdev
-                with xdev.embed_on_exception_context:
-                    outputs = harn.model.forward(batch, return_loss=True,
-                                                 return_result=return_result)
+                xdev.embed()
+
+                outputs = harn.model.forward(batch, return_loss=True,
+                                             return_result=return_result)
 
             # Hack away the BatchContainer in the DataSerial case
             if 'batch_results' in outputs:
@@ -526,6 +529,7 @@ def setup_harn(cmdline=True, **kw):
             window_overlap=config['window_overlap'] if (tag == 'train') else 0.0,
             augment=config['augment'] if (tag == 'train') else False,
             gravity=config['gravity'],
+            use_disparity=config['use_disparity'],
         )
         for tag, sampler in samplers.items()
     }
@@ -803,7 +807,7 @@ if __name__ == '__main__':
             --init=noop \
             --workdir=/home/joncrall/work/bioharn \
             --arch=cascade \
-            --use_disparity=False \
+            --use_disparity=True \
             --optim=sgd \
             --lr=1e-3 \
             --input_dims=window \
