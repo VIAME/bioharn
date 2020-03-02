@@ -131,9 +131,9 @@ class DetectPredictor(object):
                 native[key] = config[key]
 
         if native['channels'] == 'hack_old_method':
-            # Hueristic to determine what channels an older model wants.
-            # This should not be necessary for newer models which directly
-            # encode this.
+            # Hueristic to determine what channels an older model wants.  This
+            # should not be necessary for newer models which directly encode
+            # this.
             native['channels'] = 'rgb'
             if native_config.get('use_disparity', False):
                 native['channels'] += '|disparity'
@@ -286,8 +286,10 @@ class DetectPredictor(object):
                 batch = {
                     'tf_chip_to_full': raw_batch['tf_chip_to_full'],
                 }
-                if 'im' in batch:
+                if 'im' in raw_batch:
                     batch['im'] = xpu.move(raw_batch['im'])
+                else:
+                    raise NotImplementedError
 
                 batch_gids = raw_batch['gid'].view(-1).numpy()
                 batch_dets = list(predictor._predict_batch(batch))
@@ -449,11 +451,12 @@ class SingleImageDataset(torch_data.Dataset):
     particular window and that chip's offset in the original image.
     """
 
-    def __init__(self, full_image, slider, input_dims):
+    def __init__(self, full_image, slider, input_dims, channels='rgb'):
         self.full_image = full_image
         self.slider = slider
         self.input_dims = input_dims
         self.window_dims = self.slider.window
+        self.channels = ChannelSpec.coerce(channels)
 
     def __len__(self):
         return self.slider.n_total
@@ -484,7 +487,7 @@ class SingleImageDataset(torch_data.Dataset):
 
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
-        tensor_chip = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
+        tensor_rgb = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
         offset_xy = torch.FloatTensor([slice_[1].start, slice_[0].start])
 
         # To apply a transform we first scale then shift
@@ -506,8 +509,11 @@ class SingleImageDataset(torch_data.Dataset):
             'scale_xy': 1.0 / tf_full_to_chip['scale_xy'],
             'shift_xy': -tf_full_to_chip['shift_xy'] * (1.0 / tf_full_to_chip['scale_xy']),
         }
+
+        assert self.channels.spec == 'rgb'
+
         return {
-            'im': tensor_chip,
+            'im': tensor_rgb,
             'tf_chip_to_full': tf_chip_to_full,
         }
 
@@ -703,7 +709,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
                 disp_im = disp_im.transpose(2, 0, 1)
             item['disparity'] = torch.FloatTensor(disp_im)
 
-        inputs = self.channels.compose(item, drop=True)
+        inputs = self.channels.encode(item, drop=True)
         # hack:
         # item['inputs'] = inputs
         assert len(inputs) == 1

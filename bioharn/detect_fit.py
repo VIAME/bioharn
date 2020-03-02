@@ -33,7 +33,7 @@ class DetectFitConfig(scfg.Config):
         'xpu': scfg.Value('argv', help='a CUDA device or a CPU'),
 
         # Data (the hardest part of machine learning)
-        'datasets': scfg.Value('special:shapes1024', help='special dataset key'),
+        'datasets': scfg.Value(None, help='special dataset key. Mutex with train_dataset, etc..'),
         'train_dataset': scfg.Value(None, help='override train with a custom coco dataset'),
         'vali_dataset': scfg.Value(None, help='override vali with a custom coco dataset'),
         'test_dataset': scfg.Value(None, help='override test with a custom coco dataset'),

@@ -68,7 +68,7 @@ class ChannelSpec(ub.NiceRepr):
         """
         return set(ub.flatten(self.parse().values()))
 
-    def compose(self, item, axis=0, drop=False):
+    def encode(self, item, axis=0, drop=False):
         """
         Given a dictionary containing preloaded components of the network
         inputs, build a concatenated network representations of each input
@@ -95,12 +95,12 @@ class ChannelSpec(ub.NiceRepr):
             >>> }
             >>> # Complex Case
             >>> self = ChannelSpec('rgb,disparity,rgb|disparity|flowx|flowy,flowx|flowy')
-            >>> inputs = self.compose(item)
+            >>> inputs = self.encode(item)
             >>> input_shapes = ub.map_vals(lambda x: x.shape, inputs)
             >>> print('input_shapes = {}'.format(ub.repr2(input_shapes, nl=1)))
             >>> # Simpler case
             >>> self = ChannelSpec('rgb|disparity')
-            >>> inputs = self.compose(item)
+            >>> inputs = self.encode(item)
             >>> input_shapes = ub.map_vals(lambda x: x.shape, inputs)
             >>> print('input_shapes = {}'.format(ub.repr2(input_shapes, nl=1)))
         """

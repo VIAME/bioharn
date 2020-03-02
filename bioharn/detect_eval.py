@@ -44,7 +44,7 @@ class DetectEvaluateConfig(scfg.Config):
 
         'channels': scfg.Value(
             'native',
-            help='list of channels needed by the model. '
+            help='a specification of channels needed by this model. See ChannelSpec for details. '
             'Typically this can be inferred from the model'),
 
         'out_dpath': scfg.Path('./detect_eval_out/', help='folder to send the output'),
@@ -139,7 +139,9 @@ def evaluate_models(**kw):
             sampler = evaluator.sampler
 
     rows = []
+    train_config_rows = []
     import json
+    import ast
     for fpath in ub.ProgIter(metric_fpaths, desc='gather summary'):
         metrics = json.load(open(fpath, 'r'))
         row = {}
@@ -147,12 +149,54 @@ def evaluate_models(**kw):
         row['predcfg_tag'] = metrics['predcfg_tag']
         row['ap'] = metrics['pr_result']['ap']
         row['auc'] = metrics['roc_result']['auc']
+
+        # Hack to get train config params
+        train_config = ast.literal_eval(metrics['train_info']['extra']['config'])
+        train_config_rows.append(train_config)
         rows.append(row)
 
     import pandas as pd
     pd.set_option('max_colwidth', 256)
     df = pd.DataFrame(rows)
-    print(df.to_string(float_format=lambda x: '%0.2f' % x))
+    print(df.to_string(float_format=lambda x: '%0.3f' % x))
+
+    def find_varied_params(train_config_rows):
+        all_keys = set()
+        for c in train_config_rows:
+            all_keys.update(set(c))
+        ignore_keys = {
+            'datasets', 'focus', 'max_epoch', 'nice', 'ovthresh', 'patience',
+            'workdir', 'workers', 'xpu', 'sampler_backend', 'visible_thresh',
+            'warmup_iters', 'pretrained', 'grad_norm_type', 'grad_norm_max',
+            'warmup_ratio',
+        }
+        valid_keys = all_keys - ignore_keys
+        key_basis = ub.ddict(set)
+        for c in train_config_rows:
+            for k in valid_keys:
+                v = c.get(k, ub.NoParam)
+                if isinstance(v, list):
+                    v = tuple(v)
+                key_basis[k].add(v)
+        varied_basis = {}
+        for k, vs in list(key_basis.items()):
+            if len(vs) > 1:
+                varied_basis[k] = set(vs)
+        return varied_basis
+
+    varied_basis = find_varied_params(train_config_rows)
+
+    for row, config in zip(rows, train_config_rows):
+        subcfg = ub.dict_subset(config, set(varied_basis), default=np.nan)
+        row.update(subcfg)
+
+    import pandas as pd
+    pd.set_option('max_colwidth', 256)
+    df = pd.DataFrame(rows)
+    print(df.to_string(float_format=lambda x: '%0.3f' % x))
+
+    import xdev
+    xdev.embed()
 
 
 class DetectEvaluator(object):
@@ -203,6 +247,8 @@ class DetectEvaluator(object):
         # Load model
         deployed = nh.export.DeployedModel.coerce(evaluator.config['deployed'])
         nice = deployed.train_info()['nice']
+
+        evaluator.train_info = deployed.train_info()
 
         # hack together a model tag
         if hasattr(deployed, 'model_tag'):
@@ -439,6 +485,9 @@ class DetectEvaluator(object):
             'predcfg_tag': evaluator.predcfg_tag,
             'roc_result': roc_result,
             'pr_result': pr_result,
+
+            'eval_config': evaluator.config.asdict(),
+            'train_info': evaluator.train_info,
         }
 
         if 0:
@@ -497,12 +546,16 @@ if __name__ == '__main__':
             --dataset=/home/joncrall/.cache/coco-demo/shapes256.mscoco.json
             --deployed=${dpath}/_epoch_00000000.pt,${dpath}/_epoch_00000009.pt,${dpath}/_epoch_00000011.pt \
 
-        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=0 \
+        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=3 --batch_size=64 \
             --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json \
             --deployed="[~/work/bioharn/fit/runs/bioharn-det-v14-cascade/iawztlag/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip,\
                 ~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/deploy_MM_CascadeRCNN_ogenzvgt_059_QBGWCT.zip,\
                 ~/work/bioharn/fit/runs/bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP, \
-                $HOME/.cache/viame/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip,]"
+                $HOME/.cache/viame/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip,]" --profile
+
+        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=4 --batch_size=64 \
+            --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json \
+            --deployed=~/work/bioharn/fit/runs/bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP --profile
 
 
 ~/work/bioharn/fit/runs/bioharn-test-yolo-v5/sxfhhhwy/deploy_Yolo2_sxfhhhwy_002_QTVZHQ.zip
