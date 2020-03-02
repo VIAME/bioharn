@@ -179,8 +179,14 @@ def evaluate_models(**kw):
                     v = tuple(v)
                 key_basis[k].add(v)
         varied_basis = {}
+
+        force_include_keys = {
+            'window_overlap',  'batch_size',  'augment', 'init',  'bstep',
+            'input_dims', 'lr', 'use_disparity',  'multiscale',
+            'normalize_inputs', 'window_dims',
+        }
         for k, vs in list(key_basis.items()):
-            if len(vs) > 1:
+            if len(vs) > 1 and k not in force_include_keys:
                 varied_basis[k] = set(vs)
         return varied_basis
 
