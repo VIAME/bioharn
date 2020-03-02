@@ -219,11 +219,8 @@ class DetectHarn(nh.FitHarn):
                 # warnings.filterwarnings('ignore', 'asked to gather along dimension 0')
                 # import xdev
                 # with xdev.embed_on_exception_context:
-                import xdev
-                xdev.embed()
-
                 outputs = harn.model.forward(batch, return_loss=True,
-                                             return_result=return_result)
+                                             return_result=False)
 
             # Hack away the BatchContainer in the DataSerial case
             if 'batch_results' in outputs:
