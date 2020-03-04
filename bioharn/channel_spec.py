@@ -16,6 +16,7 @@ class ChannelSpec(ub.NiceRepr):
 
     TODO:
         - [ ] : normalize representations? e.g: rgb = r|g|b?
+        - [ ] : rename to BandsSpec or SensorSpec?
 
     Example:
         >>> from bioharn.channel_spec import *  # NOQA
@@ -35,8 +36,13 @@ class ChannelSpec(ub.NiceRepr):
         'rgb': 'r|g|b'
     }
 
+    _size_lut = {
+        'rgb': 3,
+    }
+
     def __init__(self, spec):
         self.spec = spec
+        self._info = {}
 
     def __nice__(self):
         return self.spec
@@ -44,14 +50,25 @@ class ChannelSpec(ub.NiceRepr):
     def __json__(self):
         return self.spec
 
+    def __contains__(self, key):
+        """
+        Example:
+            >>> 'disparity' in ChannelSpec('rgb,disparity,flowx|flowy')
+            True
+            >>> 'gray' in ChannelSpec('rgb,disparity,flowx|flowy')
+            False
+        """
+        return key in self.unique()
+
     @property
     def info(self):
-        return {
+        self._info = {
             'spec': self.spec,
             'parsed': self.parse(),
             'unique': self.unique(),
             'normed': self.normalize(),
         }
+        return self._info
 
     @classmethod
     def coerce(cls, data):
@@ -80,13 +97,33 @@ class ChannelSpec(ub.NiceRepr):
         parsed = {k: v.split('|') for k, v in parsed.items()}
         return parsed
 
+    def keys(self):
+        spec = self.spec
+        stream_specs = spec.split(',')
+        for spec in stream_specs:
+            yield spec
+
+    def sizes(self):
+        """
+        Number of dimensions for each fused stream channel
+
+        Example:
+            >>> self = ChannelSpec('rgb|disparity,flowx|flowy')
+            >>> self.sizes()
+        """
+        sizes = {
+            key: sum(self._size_lut.get(part, 1) for part in vals)
+            for key, vals in self.parse().items()
+        }
+        return sizes
+
     def unique(self):
         """
         Returns the unique channels that will need to be given or loaded
         """
         return set(ub.flatten(self.parse().values()))
 
-    def encode(self, item, axis=0, drop=False):
+    def encode(self, item, axis=0):
         """
         Given a dictionary containing preloaded components of the network
         inputs, build a concatenated network representations of each input
@@ -95,8 +132,6 @@ class ChannelSpec(ub.NiceRepr):
         Args:
             item (dict): a batch item
             axis (int, default=0): concatenation dimension
-            drop (bool, default=False): if True, drop the unprocessed
-                components of the input.
 
         Returns:
             Dict[str, Tensor]: mapping between input stream and its early fused
@@ -126,10 +161,40 @@ class ChannelSpec(ub.NiceRepr):
         inputs = {}
         parsed = self.parse()
         unique = self.unique()
-        if drop:
-            components = {k: item.pop(k) for k in unique}
-        else:
-            components = {k: item[k] for k in unique}
+        components = {k: item[k] for k in unique}
         for key, parts in parsed.items():
             inputs[key] = torch.cat([components[k] for k in parts], dim=axis)
         return inputs
+
+    def decode(self, inputs, axis=1):
+        """
+        break an early fused item into its components
+
+        Example:
+            >>> import torch
+            >>> dims = (4, 4)
+            >>> components = {
+            >>>     'rgb': torch.rand(3, *dims),
+            >>>     'ir': torch.rand(1, *dims),
+            >>> }
+            >>> self = ChannelSpec('rgb|ir')
+            >>> inputs = self.encode(components)
+            >>> from bioharn import data_containers
+            >>> item = {k: data_containers.ItemContainer(v, stack=True)
+            >>>         for k, v in inputs.items()}
+            >>> batch = data_containers.container_collate([item, item])
+            >>> components = self.decode(batch)
+        """
+        parsed = self.parse()
+        components = {}
+        for key, parts in parsed.items():
+            idx1 = 0
+            for part in parts:
+                size = self._size_lut.get(part, 1)
+                idx2 = idx1 + size
+                fused = inputs[key]
+                index = ([slice(None)] * axis + [slice(idx1, idx2)])
+                component = fused[index]
+                components[part] = component
+                idx1 = idx2
+        return components

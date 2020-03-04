@@ -7,6 +7,7 @@ import ubelt as ub
 import kwarray
 import kwimage
 import torch.utils.data.sampler as torch_sampler
+from bioharn.channel_spec import ChannelSpec
 
 
 class DetectFitDataset(torch.utils.data.Dataset):
@@ -18,24 +19,32 @@ class DetectFitDataset(torch.utils.data.Dataset):
         >>> import sys, ubelt
         >>> sys.path.append(ubelt.expandpath('~/code/bioharn'))
         >>> from bioharn.detect_dataset import *  # NOQA
-        >>> self = DetectFitDataset.demo(augment='heavy', window_dims=(256, 256))
+        >>> self = DetectFitDataset.demo(key='shapes', channels='rgb|disparity', augment='heavy', window_dims=(390, 390))
         >>> index = 15
         >>> item = self[index]
         >>> # xdoc: +REQUIRES(--show)
         >>> import kwplot
         >>> kwplot.figure(doclf=True, fnum=1)
         >>> kwplot.autompl()  # xdoc: +SKIP
-        >>> hwc01 = item['im'].numpy().transpose(1, 2, 0)
-        >>> boxes = kwimage.Boxes(item['label']['cxywh'].numpy(), 'cxywh')
-        >>> canvas = kwimage.ensure_uint255(hwc01)
-        >>> canvas = boxes.draw_on(canvas)
-        >>> kwplot.imshow(canvas)
+        >>> components = self.channels.decode(item['inputs'], axis=0)
+        >>> rgb01 = components['rgb'].data.numpy().transpose(1, 2, 0)
+        >>> boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
+        >>> canvas_rgb = np.ascontiguousarray(kwimage.ensure_uint255(rgb01))
+        >>> canvas_rgb = boxes.draw_on(canvas_rgb)
+        >>> kwplot.imshow(canvas_rgb, pnum=(1, 2, 1), fnum=1)
+        >>> if 'disparity' in components:
+        >>>     disp = components['disparity'].data.numpy().transpose(1, 2, 0)
+        >>>     disp_canvs = np.ascontiguousarray(disp.copy())
+        >>>     disp_canvs = disp_canvs - disp_canvs.min()
+        >>>     disp_canvs = disp_canvs / disp_canvs.max()
+        >>>     disp_canvs = boxes.draw_on(disp_canvs)
+        >>>     kwplot.imshow(disp_canvs, pnum=(1, 2, 2), fnum=1)
         >>> kwplot.show_if_requested()
     """
     def __init__(self, sampler, augment='simple', window_dims=[512, 512],
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
                  factor=32, use_segmentation=True, gravity=0.0,
-                 use_disparity=False):
+                 channels='rgb'):
         super(DetectFitDataset, self).__init__()
 
         self.sampler = sampler
@@ -44,7 +53,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             input_dims = window_dims
 
         self.use_segmentation = use_segmentation
-        self.use_disparity = use_disparity
+        self.channels = ChannelSpec.coerce(channels)
 
         self.factor = factor  # downsample factor of yolo grid
         self.input_dims = np.array(input_dims, dtype=np.int)
@@ -101,7 +110,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         self.chosen_regions = chosen_regions
 
     @classmethod
-    def demo(cls, key='habcam', augment='simple', window_dims=(512, 512), **kw):
+    def demo(cls, key='habcam', augment='simple', channels='rgb', window_dims=(512, 512), **kw):
         """
         self = DetectFitDataset.demo()
         """
@@ -113,8 +122,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
             config = DetectFitConfig()
             sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
         else:
-            sampler = ndsampler.CocoSampler.demo(key, **kw)
-        self = cls(sampler, augment=augment, window_dims=window_dims)
+            sampler = ndsampler.CocoSampler.demo(key, aux='disparity', **kw)
+        self = cls(sampler, augment=augment, window_dims=window_dims, channels=channels)
         return self
 
     def __len__(self):
@@ -132,7 +141,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> index = 0
             >>> spec = {'index': index, 'input_dims': (120, 120)}
             >>> item = self[spec]
-            >>> hwc01 = item['im'].data.numpy().transpose(1, 2, 0)
+            >>> hwc01 = item['inputs']['rgb'].data.numpy().transpose(1, 2, 0)
             >>> print(hwc01.shape)
             >>> boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
             >>> # xdoc: +REQUIRES(--show)
@@ -150,7 +159,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> self = DetectFitDataset.demo(key='habcam', augment='complex')
             >>> spec = {'index': 954, 'input_dims': (300, 300)}
             >>> item = self[spec]
-            >>> hwc01 = item['im'].data.numpy().transpose(1, 2, 0)
+            >>> hwc01 = item['inputs']['rgb'].data.numpy().transpose(1, 2, 0)
             >>> disparity = item['disparity'].data
             >>> boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
             >>> # xdoc: +REQUIRES(--show)
@@ -189,17 +198,22 @@ class DetectFitDataset(torch.utils.data.Dataset):
         pad = int((slices[0].stop - slices[0].start) * 0.3)
 
         img = self.sampler.dset.imgs[gid]
+
         disp_im = None
-        if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo'] and self.use_disparity:
-            # Hack: dont pad next to the habcam border
-            maxpad = ((img['width'] // 2) - slices[1].stop)
-            pad = min(maxpad, pad)
+        if 'disparity' in self.channels:
 
-            DO_HABCAM_DISPARITY = True
-            if DO_HABCAM_DISPARITY:
-                disp_frame = _cached_habcam_disparity_frame(self.sampler, gid)
+            sampler = self.sampler
+            # First check if the dataset defines a proper disparity channel
+            if 'aux' in img:
+                for aux in img['aux']:
+                    hackval = aux.get('channels', aux.get('bands'))
+                    if hackval == ['disparity']:
+                        from ndsampler.utils import util_gdal
+                        disp_fpath = join(sampler.dset.img_root, aux['file_name'])
+                        disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
+                        break
 
-                data_dims = (img['height'], (img['width'] // 2))
+                data_dims = (img['height'], img['width'])
                 data_slice, extra_padding, st_dims = self.sampler._rectify_tr(
                     tr, data_dims, window_dims=None, pad=pad)
                 # Load the image data
@@ -209,10 +223,12 @@ class DetectFitDataset(torch.utils.data.Dataset):
                         extra_padding = extra_padding + [(0, 0)]  # Handle channels
                     disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
 
-                # disp_im = disp_im / 256
-                # disp_im[disp_im < 0] = 0
                 if disp_im.max() > 1.0:
                     raise AssertionError('gid={} {}'.format(gid, kwarray.stats_dict(disp_im)))
+
+            if disp_im is None:
+                raise Exception('no auxillary disparity')
+                disp_im = np.zeros()
 
         with_annots = ['boxes']
         if self.use_segmentation:
@@ -357,17 +373,24 @@ class DetectFitDataset(torch.utils.data.Dataset):
             label['class_masks'] = ItemContainer(class_masks, stack=False)
             label['has_mask'] = ItemContainer(has_mask, stack=False)
 
+        compoments = {
+            'rgb': chw01,
+        }
+        if disp_im is not None:
+            disp_im = kwarray.atleast_nd(disp_im, 3)
+            compoments['disparity'] = torch.FloatTensor(
+                disp_im.transpose(2, 0, 1))
+
+        inputs = {
+            k: ItemContainer(v, stack=True)
+            for k, v in self.channels.encode(compoments).items()
+        }
+
         item = {
-            'im': ItemContainer(chw01, stack=True),
+            'inputs': inputs,
             'label': label,
             'tr': ItemContainer(sample['tr'], stack=False),
         }
-
-        if disp_im is not None:
-            item['disparity'] = ItemContainer(
-                torch.FloatTensor(disp_im[None, :, :]),
-                stack=True)
-
         return item
 
     def make_loader(self, batch_size=16, num_workers=0, shuffle=False,
@@ -382,7 +405,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> # training batches should have multiple shapes
             >>> shapes = set()
             >>> for raw_batch in ub.ProgIter(iter(loader), total=len(loader)):
-            >>>     inputs = raw_batch['im']
+            >>>     inputs = raw_batch['inputs']['rgb']
             >>>     # test to see multiscale works
             >>>     shapes.add(inputs.shape[-1])
             >>>     if len(shapes) > 1:
@@ -1179,7 +1202,7 @@ def _cached_habcam_disparity_frame(sampler, gid):
     img = sampler.dset.imgs[gid]
     if 'aux' in img:
         for aux in img['aux']:
-            if aux['bands'] == ['disparity']:
+            if aux['channels'] == ['disparity']:
                 disp_fpath = join(sampler.dset.img_root, aux['file_name'])
                 disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
                 return disp_frame

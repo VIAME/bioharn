@@ -9,6 +9,7 @@ rsync -vrltD /tmp/software /nas10 | pv -lep -s 42
 rsync -avrP --stats --human-readable --info=progress2  viame:data/public/Benthic/US_NE_2015_NEFSC_HABCAM/./Corrected $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM
 rsync -avrP --stats --human-readable --info=progress2  $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/./disparities viame:data/public/Benthic/US_NE_2015_NEFSC_HABCAM
 rsync -avrP --stats --human-readable --info=progress2  $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/./cog viame:data/public/Benthic/US_NE_2015_NEFSC_HABCAM
+rsync -avrP --stats --human-readable --info=progress2  $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/./_dev viame:data/public/Benthic/US_NE_2015_NEFSC_HABCAM
 
 rsync -avP --stats --human-readable  viame:data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.habcam_csv $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.habcam_csv
 
@@ -262,7 +263,7 @@ def main():
             # Add auxillary channel information
             img['aux'] = [
                 {
-                    'bands': ['disparity'],
+                    'channels': ['disparity'],
                     'file_name': disp_fname,
                     'dims': data_dims,
                 }

@@ -62,8 +62,7 @@ class DetectFitConfig(scfg.Config):
             # choices=['yolo2']
         ),
 
-        'optim': scfg.Value('sgd', help='torch optimizer',
-                            choices=['sgd', 'adam', 'adamw']),
+        'optim': scfg.Value('sgd', help='torch optimizer, sgd, adam, adamw, etc...'),
         'batch_size': scfg.Value(4, help='number of images that run through the network at a time'),
         'bstep': scfg.Value(8, help='num batches before stepping'),
         'lr': scfg.Value(1e-3, help='learning rate'),  # 1e-4,
@@ -75,9 +74,10 @@ class DetectFitConfig(scfg.Config):
         'min_lr': scfg.Value(1e-9, help='minimum learning rate before termination'),
 
         # Initialization
-        'init': scfg.Value('imagenet', help='initialization strategy'),
+        'init': scfg.Value('noop', help='initialization strategy'),
+        'pretrained': scfg.Path(None, help='path to a netharn deploy file'),
 
-        'pretrained': scfg.Path(help='path to a netharn deploy file'),
+        'backbone_init': scfg.Value('url', help='path to backbone weights for mmdetection initialization'),
 
         # Loss Terms
         'focus': scfg.Value(0.0, help='focus for Focal Loss'),
@@ -201,19 +201,6 @@ class DetectHarn(nh.FitHarn):
             batch.pop('tr')
             from bioharn.data_containers import BatchContainer
 
-            if harn.script_config['use_disparity']:
-                batch = batch.copy()
-                # hack in 4th channel
-                orig_im = batch['im']
-                if isinstance(orig_im, BatchContainer):
-                    batch['im'] = BatchContainer.cat([orig_im, batch['disparity']], dim=1)
-                else:
-                    if len(batch['disparity'].data.shape) == 3:
-                        disparity = batch['disparity'].data.unsqueeze(1)
-                    else:
-                        disparity = batch['disparity'].data
-                    batch['im'] = torch.cat([orig_im, disparity], dim=1)
-
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', 'indexing with dtype')
                 # warnings.filterwarnings('ignore', 'asked to gather along dimension 0')
@@ -301,7 +288,7 @@ class DetectHarn(nh.FitHarn):
             >>> # DISABLE_DOCTSET
             >>> from bioharn.detect_fit import *  # NOQA
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
-            >>> harn = setup_harn(bsize=1, datasets='special:habcam', arch='cascade', pretrained='/home/joncrall/work/bioharn/fit/nice/bioharn-det-v14-cascade/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip', normalize_inputs=False, use_disparity=True, sampler_backend=None)
+            >>> harn = setup_harn(bsize=1, datasets='special:habcam', arch='cascade', pretrained='/home/joncrall/work/bioharn/fit/nice/bioharn-det-v14-cascade/deploy_MM_CascadeRCNN_iawztlag_032_ETMZBH.zip', normalize_inputs=False, channels='rgb|disparity', sampler_backend=None)
             >>> #harn = setup_harn(bsize=1, datasets='special:shapes8', arch='cascade', xpu=[1])
             >>> #harn = setup_harn(bsize=1, datasets='special:shapes8', arch='cascade', xpu=[1, 0])
             >>> harn.initialize()
@@ -324,8 +311,11 @@ class DetectHarn(nh.FitHarn):
         """
 
         # hack for data container
-        im_batch = batch['im'].data
-        im_batch = torch.cat(im_batch, dim=0)
+        inputs = batch['inputs']
+
+        channels = harn.raw_model.channels
+        components = channels.decode(inputs)
+        rgb_batch = torch.cat(components['rgb'].data, dim=0)
 
         labels = {
             k: v.data for k, v in batch['label'].items()
@@ -334,15 +324,16 @@ class DetectHarn(nh.FitHarn):
 
         # TODO: FIX YOLO SO SCALE IS NOT NEEDED
 
-        if harn.script_config['use_disparity'] and 'disparity' in batch:
-            batch_disparity = kwarray.ArrayAPI.numpy(torch.cat(batch['disparity'].data, dim=0))
+        if 'disparity' in components:
+            batch_disparity = kwarray.ArrayAPI.numpy(
+                torch.cat(components['disparity'].data, dim=0))
         else:
             batch_disparity = None
 
         classes = harn.datasets['train'].sampler.classes
 
         if idx is None:
-            bsize = len(im_batch)
+            bsize = len(rgb_batch)
             # Get a varied sample of the batch
             # (the idea is ensure that we show things on the non-dominat gpu)
             num_want = harn.script_config['draw_per_batch']
@@ -359,54 +350,29 @@ class DetectHarn(nh.FitHarn):
 
         imgs = []
         for idx in idxs:
-            chw01 = im_batch[idx]
+            chw01 = rgb_batch[idx]
 
-            if 1:
-                class_idxs = list(ub.flatten(labels['class_idxs']))
-                cxywh = list(ub.flatten(labels['cxywh']))
-                weights = list(ub.flatten(labels['weight']))
-                # Convert true batch item to detections object
-                true_dets = kwimage.Detections(
-                    boxes=kwimage.Boxes(cxywh[idx], 'cxywh'),
-                    class_idxs=class_idxs[idx],
-                    weights=weights[idx],
-                    classes=classes,
-                )
-                if 'class_masks' in labels:
-                    # Add in truth segmentation masks
-                    try:
-                        masks = list(ub.flatten(labels['class_masks']))
-                        item_masks = masks[idx]
-                        ssegs = []
-                        for mask in item_masks:
-                            ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
-                        true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
-                    except Exception as ex:
-                        harn.warn('issue building sseg viz due to {!r}'.format(ex))
-            else:
-                # Convert true batch item to detections object
-                _true_cidxs = labels['class_idxs'][idx].view(-1)
-                flags = _true_cidxs > -1
-                true_dets = kwimage.Detections(
-                    boxes=kwimage.Boxes(labels['cxywh'][idx][flags], 'cxywh'),
-                    class_idxs=_true_cidxs[flags],
-                    weights=labels['weight'][idx][flags],
-                    classes=classes,
-                )
-                if 'has_mask' in labels:
-                    # Add in truth segmentation masks
-                    try:
-                        mask_flags = labels['has_mask'][idx][flags] > 0
-                        item_masks = labels['class_masks'][idx][flags]
-                        ssegs = []
-                        for mask, flag in zip(item_masks, mask_flags):
-                            if flag:
-                                ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
-                            else:
-                                ssegs.append(None)
-                        true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
-                    except Exception as ex:
-                        harn.warn('issue building sseg viz due to {!r}'.format(ex))
+            class_idxs = list(ub.flatten(labels['class_idxs']))
+            cxywh = list(ub.flatten(labels['cxywh']))
+            weights = list(ub.flatten(labels['weight']))
+            # Convert true batch item to detections object
+            true_dets = kwimage.Detections(
+                boxes=kwimage.Boxes(cxywh[idx], 'cxywh'),
+                class_idxs=class_idxs[idx],
+                weights=weights[idx],
+                classes=classes,
+            )
+            if 'class_masks' in labels:
+                # Add in truth segmentation masks
+                try:
+                    masks = list(ub.flatten(labels['class_masks']))
+                    item_masks = masks[idx]
+                    ssegs = []
+                    for mask in item_masks:
+                        ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
+                    true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
+                except Exception as ex:
+                    harn.warn('issue building sseg viz due to {!r}'.format(ex))
             true_dets = true_dets.numpy()
 
             # Read out the predicted detections
@@ -526,7 +492,7 @@ def setup_harn(cmdline=True, **kw):
             window_overlap=config['window_overlap'] if (tag == 'train') else 0.0,
             augment=config['augment'] if (tag == 'train') else False,
             gravity=config['gravity'],
-            use_disparity=config['use_disparity'],
+            channels=config['channels'],
         )
         for tag, sampler in samplers.items()
     }
@@ -546,12 +512,15 @@ def setup_harn(cmdline=True, **kw):
         for tag, dset in torch_datasets.items()
     }
 
+    from bioharn.channel_spec import ChannelSpec
+    channels = ChannelSpec.coerce(config['channels'])
+
     if config['normalize_inputs']:
         # Get stats on the dataset (todo: turn off augmentation for this)
         _dset = torch_datasets['train']
         stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(1000, len(_dset))]
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
-        cacher = ub.Cacher('dset_mean', cfgstr=_dset.input_id + 'v2')
+        cacher = ub.Cacher('dset_mean', cfgstr=_dset.input_id + 'v3')
         input_stats = cacher.tryload()
         if input_stats is None:
             # Use parallel workers to load data faster
@@ -565,18 +534,31 @@ def setup_harn(cmdline=True, **kw):
                 collate_fn=collate_fn,
                 num_workers=config['workers'],
                 shuffle=True, batch_size=config['batch_size'])
-            # Track moving average
-            running = nh.util.RunningStats()
+
+            # Track moving average of each fused channel stream
+            channel_stats = {key: nh.util.RunningStats()
+                             for key in channels.keys()}
+            assert len(channel_stats) == 1, (
+                'only support one fused stream for now')
             for batch in ub.ProgIter(loader, desc='estimate mean/std'):
-                try:
-                    for im in batch['im'].data:
-                        running.update(im.numpy())
-                except ValueError:  # final batch broadcast error
-                    pass
-            input_stats = {
-                'std': running.simple(axis=None)['mean'].round(3),
-                'mean': running.simple(axis=None)['std'].round(3),
-            }
+                for key, val in batch['inputs'].items():
+                    try:
+                        for batch_part in val.data:
+                            for part in batch_part.numpy():
+                                channel_stats[key].update(part)
+                    except ValueError:  # final batch broadcast error
+                        pass
+
+            perchan_input_stats = {}
+            for key, running in channel_stats.items():
+                running = ub.peek(channel_stats.values())
+                perchan_stats = running.simple(axis=(1, 2))
+                perchan_input_stats[key] = {
+                    'std': perchan_stats['mean'].round(3),
+                    'mean': perchan_stats['std'].round(3),
+                }
+
+            input_stats = ub.peek(perchan_input_stats.values())
             cacher.save(input_stats)
     else:
         input_stats = None
@@ -588,9 +570,6 @@ def setup_harn(cmdline=True, **kw):
     arch = config['arch']
     classes = samplers['train'].classes
 
-    from bioharn.utils import ChannelSpec
-    channels = ChannelSpec.coerce(config['channels'])
-
     criterion_ = None
     if arch == 'retinanet':
         from bioharn.models import mm_models
@@ -601,7 +580,10 @@ def setup_harn(cmdline=True, **kw):
         )
         model = mm_models.MM_RetinaNet(**initkw)
         model._initkw = initkw
-        model._init_backbone_from_pretrained('torchvision://resnet50')
+        if config['backbone_init'] == 'url':
+            model._init_backbone_from_pretrained('torchvision://resnet50')
+        elif config['backbone_init'] is not None:
+            model._init_backbone_from_pretrained(config['backbone_init'])
     elif arch == 'maskrcnn':
         from xviewharn.models import mm_models
         initkw = dict(
@@ -611,6 +593,10 @@ def setup_harn(cmdline=True, **kw):
         )
         model = mm_models.MM_MaskRCNN(**initkw)
         model._initkw = initkw
+        if config['backbone_init'] == 'url':
+            model._init_backbone_from_pretrained('torchvision://resnet50')
+        elif config['backbone_init'] is not None:
+            model._init_backbone_from_pretrained(config['backbone_init'])
     elif arch == 'cascade':
         from bioharn.models import mm_models
         initkw = dict(
@@ -620,6 +606,11 @@ def setup_harn(cmdline=True, **kw):
         )
         model = mm_models.MM_CascadeRCNN(**initkw)
         model._initkw = initkw
+
+        if config['backbone_init'] == 'url':
+            model._init_backbone_from_pretrained('open-mmlab://resnext101_32x4d')
+        elif config['backbone_init'] is not None:
+            model._init_backbone_from_pretrained(config['backbone_init'])
     elif arch == 'yolo2':
         if False:
             dset = samplers['train'].dset
@@ -739,8 +730,35 @@ def setup_harn(cmdline=True, **kw):
 def fit():
     harn = setup_harn()
     harn.initialize()
-    with harn.xpu:
-        harn.run()
+
+    if ub.argflag('--lrtest'):
+        """
+        """
+        # Undocumented hidden feature,
+        # Perform an LR-test, then resetup the harness. Optionally draw the
+        # results using matplotlib.
+        from netharn.prefit.lr_tests import lr_range_test
+
+        result = lr_range_test(
+            harn, init_value=1e-4, final_value=0.5, beta=0.3,
+            explode_factor=10, num_iters=200)
+
+        if ub.argflag('--show'):
+            import kwplot
+            plt = kwplot.autoplt()
+            result.draw()
+            plt.show()
+
+        # Recreate a new version of the harness with the recommended LR.
+        config = harn.script_config.asdict()
+        config['lr'] = (result.recommended_lr * 10)
+        harn = setup_harn(**config)
+        harn.initialize()
+
+    # This starts the main loop which will run until the monitor's terminator
+    # criterion is satisfied. If the initialize step loaded a checkpointed that
+    # already met the termination criterion, then this will simply return.
+    harn.run()
 
 
 if __name__ == '__main__':
@@ -794,26 +812,27 @@ if __name__ == '__main__':
             --workers=4 --xpu=1,0 --batch_size=8 --bstep=1
 
         python -m bioharn.detect_fit \
-            --nice=bioharn-det-v19-cascade-mc-rgb \
-            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.train.json \
-            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.validation.json \
-            --schedule=ReduceLROnPlateau-p2-c2 \
+            --nice=bioharn-det-mc-cascade-rgbd-v21 \
+            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
+            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
+            --schedule=step-10-20 \
             --augment=complex \
             --init=noop \
             --workdir=/home/joncrall/work/bioharn \
+            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
             --arch=cascade \
-            --channels=rgb \
+            --channels="rgb|disparity" \
             --optim=sgd \
             --lr=1e-3 \
             --input_dims=window \
-            --window_dims=1024,1024 \
+            --window_dims=512,512 \
             --window_overlap=0.0 \
             --multiscale=True \
-            --normalize_inputs=False \
+            --normalize_inputs=True \
             --workers=4 \
             --xpu=0 \
-            --batch_size=2 \
-            --bstep=8
+            --batch_size=4 \
+            --bstep=4
         --num_draw=0 --draw_interval=0
 
 

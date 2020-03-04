@@ -69,7 +69,12 @@ class BatchContainer(ub.NiceRepr):
 
     def __nice__(self):
         shape_repr = ub.repr2(nestshape(self.data), nl=-2)
-        return 'nestshape(data)={}, **{}'.format(shape_repr, ub.repr2(self.meta, nl=0))
+        # return 'nestshape(data)={}, **{}'.format(shape_repr, ub.repr2(self.meta, nl=0))
+        return 'nestshape(data)={}'.format(shape_repr)
+
+    def __getitem__(self, index):
+        cls = self.__class__
+        return cls([d[index] for d in self.data], **self.meta)
 
     @property
     def cpu_only(self):
@@ -133,7 +138,8 @@ class ItemContainer(ub.NiceRepr):
 
     def __nice__(self):
         shape_repr = ub.repr2(nestshape(self.data), nl=-2)
-        return 'nestshape(data)={}, **{}'.format(shape_repr, ub.repr2(self.meta, nl=0))
+        return 'nestshape(data)={}'.format(shape_repr)
+        # return 'nestshape(data)={}, **{}'.format(shape_repr, ub.repr2(self.meta, nl=0))
 
     @classmethod
     def demo(cls, key='img', rng=None, **kwargs):
@@ -155,6 +161,11 @@ class ItemContainer(ub.NiceRepr):
         else:
             raise KeyError(key)
         return self
+
+    def __getitem__(self, index):
+        assert self.stack, 'can only index into stackable items'
+        cls = self.__class__
+        return cls(self.data[index], **self.meta)
 
     @property
     def data(self):
@@ -809,7 +820,7 @@ def nestshape(data):
             return d.shape
         elif isinstance(d, np.ndarray):
             return d.shape
-        elif isinstance(d, str):
+        elif isinstance(d, (str, bytes)):
             return d
         elif isinstance(d, (int, float)):
             return d

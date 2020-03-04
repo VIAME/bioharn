@@ -12,6 +12,7 @@ from collections import OrderedDict
 from distutils.version import LooseVersion
 import warnings  # NOQA
 from bioharn.channel_spec import ChannelSpec
+from bioharn import data_containers
 
 
 def _hack_mm_backbone_in_channels(backbone_cfg):
@@ -56,17 +57,22 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
         >>> batch = _demo_batch(bsize)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
+    if isinstance(batch['inputs'], dict):
+        assert len(batch['inputs']) == 1, ('only early fusion for now')
+        inputs = ub.peek(batch['inputs'].values())
+    else:
+        inputs = batch['inputs']
 
-    if type(batch['im']).__name__ in ['BatchContainer']:
+    if type(inputs).__name__ in ['BatchContainer']:
         # Things are already in data containers
 
         # Get the number of batch items for each GPU / group
-        groupsizes = [item.shape[0] for item in batch['im'].data]
+        groupsizes = [item.shape[0] for item in inputs.data]
 
-        B = len(batch['im'].data)
-        C, H, W = batch['im'].data[0].shape[1:]
+        B = len(inputs.data)
+        C, H, W = inputs.data[0].shape[1:]
 
-        DC = type(batch['im'])
+        DC = type(inputs)
 
         # hack in img meta
         img_metas = DC([
@@ -85,16 +91,12 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
         ], stack=False, cpu_only=True)
 
         mm_inputs = {
-            'imgs': batch['im'],
+            'imgs': inputs,
             'img_metas': img_metas,
         }
 
         # Handled pad collated batches. Ensure shapes are correct.
         if 'label' in batch:
-            gt_bboxes = []
-            gt_labels = []
-            gt_masks = []
-
             label = batch['label']
             mm_inputs['gt_labels'] = DC(
                 [
@@ -117,10 +119,10 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                     label['tlbr'].stack,
                     label['tlbr'].padding_value)
 
-            if 'has_mask' in label:
-                # TODO
-                if gt_masks:
-                    mm_inputs['gt_masks'] = gt_masks
+            if 'class_masks' in label:
+                mm_inputs['gt_masks'] = label['class_masks']
+                # .data
+                # [mask for mask in label['class_masks'].data]
 
             if 'weight' in label:
                 ignore_flags = DC(
@@ -143,7 +145,8 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                                                    label['weight'].stack)
 
     else:
-        B, C, H, W = batch['im'].shape
+        raise NotImplementedError
+        B, C, H, W = inputs.shape
 
         # hack in img meta
         img_metas = [
@@ -159,7 +162,7 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
         ]
 
         mm_inputs = {
-            'imgs': batch['im'],
+            'imgs': inputs,
             'img_metas': img_metas,
         }
 
@@ -244,17 +247,18 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
     return mm_inputs
 
 
-def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3,
+def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
                 with_mask=True):
     """
     Input data for testing this detector
 
     Example:
         >>> from bioharn.models.mm_models import *  # NOQA
-        >>> from bioharn.models.mm_models import _demo_batch
-        >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
+        >>> from bioharn.models.mm_models import _demo_batch, _batch_to_mm_inputs
         >>> globals().update(**xdev.get_func_kwargs(_demo_batch))
-        >>> batch = _demo_batch(with_mask=False)
+        >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
+        >>> channels = ChannelSpec.coerce('rgb|d')
+        >>> batch = _demo_batch(with_mask=False, channels=channels)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
     rng = kwarray.ensure_rng(0)
@@ -266,8 +270,17 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3,
     else:
         item_sizes = [rng.randint(0, 10) for bx in range(bsize)]
 
-    input_shape = B, C, H, W = (bsize, in_channels, h, w)
-    imgs = torch.rand(*input_shape)
+    channels = ChannelSpec.coerce(channels)
+    B, H, W = bsize, h, w
+
+    input_shapes = {
+        key: (B, c, H, W)
+        for key, c in channels.sizes().items()
+    }
+    inputs = {
+        key: torch.rand(*shape)
+        for key, shape in input_shapes.items()
+    }
 
     batch_items = []
     for bx in range(B):
@@ -314,8 +327,10 @@ def _demo_batch(bsize=1, in_channels=3, h=256, w=256, classes=3,
             label['has_mask'] = ItemContainer(has_mask, stack=False)
 
         item = {
-            # Inputs0
-            'im': ItemContainer(imgs[bx], stack=True),
+            'inputs': {
+                key: ItemContainer(vals[bx], stack=True)
+                for key, vals in inputs.items()
+            },
             'label': label,
         }
         batch_items.append(item)
@@ -360,10 +375,9 @@ class MM_Coder(object):
             >>> from bioharn.models.mm_models import *  # NOQA
             >>> import torch
             >>> classes = ['a', 'b', 'c']
-            >>> xpu = nh.XPU('cpu')
+            >>> xpu = data_containers.ContainerXPU('cpu')
             >>> model = MM_CascadeRCNN(classes).to(xpu.main_device)
             >>> batch = model.demo_batch(bsize=1, h=256, w=256)
-            >>> batch = xpu.move(batch)
             >>> outputs = model.forward(batch)
             >>> self = model.coder
             >>> batch_dets = model.coder.decode_batch(outputs)
@@ -371,10 +385,9 @@ class MM_Coder(object):
         Example:
             >>> from bioharn.models.mm_models import *  # NOQA
             >>> classes = ['a', 'b', 'c']
-            >>> xpu = nh.XPU(0)
-            >>> model = MM_MaskRCNN(classes, in_channels=4).to(xpu.main_device)
+            >>> xpu = data_containers.ContainerXPU(0)
+            >>> model = MM_MaskRCNN(classes, channels='rgb|d').to(xpu.main_device)
             >>> batch = model.demo_batch(bsize=1, h=256, w=256)
-            >>> batch = xpu.move(batch)
             >>> outputs = model.forward(batch)
             >>> self = model.coder
             >>> batch_dets = model.coder.decode_batch(outputs)
@@ -382,8 +395,7 @@ class MM_Coder(object):
         batch_results = outputs['batch_results']
         batch_dets = []
 
-        from bioharn.data_containers import BatchContainer
-        if isinstance(batch_results, BatchContainer):
+        if isinstance(batch_results, data_containers.BatchContainer):
             batch_results = batch_results.data
 
         # HACK for the way mmdet handles background
@@ -470,8 +482,7 @@ class MM_Detector(nh.layers.Module):
 
         self.coder = MM_Coder(self.classes)
 
-    def demo_batch(self, bsize=3, in_channels=None, h=256, w=256,
-                   with_mask=None):
+    def demo_batch(self, bsize=3, h=256, w=256, with_mask=None):
         """
         Input data for testing this detector
 
@@ -480,13 +491,10 @@ class MM_Detector(nh.layers.Module):
         >>> globals().update(**xdev.get_func_kwargs(MM_Detector.demo_batch))
         >>> self.demo_batch()
         """
-        if in_channels is None:
-            # use native in_channels if possible
-            in_channels = getattr(self, 'in_channels', 3)
         if with_mask is None:
             with_mask = getattr(self.detector, 'with_mask', False)
-
-        batch = _demo_batch(bsize, in_channels, h, w, with_mask=with_mask)
+        channels = self.channels
+        batch = _demo_batch(bsize, channels, h, w, with_mask=with_mask)
         return batch
 
     def forward(self, batch, return_loss=True, return_result=True):
@@ -518,7 +526,6 @@ class MM_Detector(nh.layers.Module):
             Dict: containing results and losses depending on if return_loss and
                 return_result were specified.
         """
-        from bioharn.data_containers import BatchContainer
         if 'img_metas' in batch and 'imgs' in batch:
             # already in mm_inputs format
             orig_mm_inputs = batch
@@ -539,7 +546,7 @@ class MM_Detector(nh.layers.Module):
         xpu = nh.XPU.from_data(self)
         for key in mm_inputs.keys():
             value = mm_inputs[key]
-            if isinstance(value, BatchContainer):
+            if isinstance(value, data_containers.BatchContainer):
                 if len(value.data) != 1:
                     raise ValueError('data not scattered correctly')
                 if value.cpu_only:
@@ -607,7 +614,7 @@ class MM_Detector(nh.layers.Module):
                     result = self.detector.forward([one_img], [[one_meta]],
                                                    return_loss=False)
                     batch_results.append(result)
-                outputs['batch_results'] = BatchContainer(
+                outputs['batch_results'] = data_containers.BatchContainer(
                     batch_results, stack=False, cpu_only=True)
         return outputs
 
@@ -640,19 +647,19 @@ class MM_RetinaNet(MM_Detector):
         >>> classes = ['class_{:0d}'.format(i) for i in range(80)]
         >>> self = MM_RetinaNet(classes)
         >>> head = self.detector.bbox_head
+        >>> batch = self.demo_batch()
 
         >>> xpu = nh.XPU(0)
         >>> self = self.to(xpu.main_device)
         >>> filename = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth'
         >>> _ = mmcv.runner.checkpoint.load_checkpoint(self.detector, filename)
-        >>> batch = self.demo_batch()
         >>> batch = xpu.move(batch)
         >>> outputs = self.forward(batch)
 
         import kwplot
         kwplot.autompl()
 
-        kwplot.imshow(batch['im'][0])
+        kwplot.imshow(batch['inputs']['rgb'][0])
         det = outputs['batch_dets'][0]
         det.draw()
 
@@ -692,6 +699,7 @@ class MM_RetinaNet(MM_Detector):
         else:
             num_classes = len(classes) + 1
 
+        self.channels = ChannelSpec.coerce(channels)
         chann_norm = self.channels.normalize()
         assert len(chann_norm) == 1
         in_channels = len(ub.peek(chann_norm.values()))
@@ -1011,9 +1019,8 @@ class MM_MaskRCNN(MM_Detector):
         >>> import torch
         >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
         >>> xpu = nh.XPU(0)
-        >>> self = MM_MaskRCNN(classes, in_channels=4).to(xpu.main_device)
+        >>> self = MM_MaskRCNN(classes, channels='rgb|d').to(xpu.main_device)
         >>> batch = self.demo_batch(bsize=1, h=256, w=256)
-        >>> batch = xpu.move(batch)
         >>> outputs = self.forward(batch)
         >>> batch_dets = self.coder.decode_batch(outputs)
         >>> batch_dets[0].data['segmentations'][0]
@@ -1028,6 +1035,7 @@ class MM_MaskRCNN(MM_Detector):
             num_classes = len(classes) + 1
 
         # pretrained = 'torchvision://resnet50'
+        self.channels = ChannelSpec.coerce(channels)
         chann_norm = self.channels.normalize()
         assert len(chann_norm) == 1
         in_channels = len(ub.peek(chann_norm.values()))
