@@ -259,13 +259,12 @@ def main():
             gid = job.gid
             disp_fname = job.result()
             img = coco_dset.imgs[gid]
-            data_dims = ((img['width'] // 2), img['height'])
+            img['channels'] = 'rgb'
             # Add auxillary channel information
-            img['aux'] = [
+            img['auxillary'] = [
                 {
-                    'channels': ['disparity'],
                     'file_name': disp_fname,
-                    'dims': data_dims,
+                    'channels': 'disparity',
                 }
             ]
 
@@ -276,7 +275,6 @@ def main():
             gid = img['id']
             job = jobs.submit(_ensure_habcam_rgb_cogs, coco_dset, gid)
             job.gid = gid
-            # assert False
 
         for job in ub.ProgIter(jobs, desc='collect results', verbose=3):
             gid = job.gid
@@ -362,7 +360,7 @@ def _ensure_habcam_rgb_cogs(dset, gid):
 
 
 def _ensure_habcam_disparity_frame(dset, gid):
-    from bioharn.detect_dataset import multipass_disparity
+    from bioharn.disparity import multipass_disparity
     import kwimage
 
     img = dset.imgs[gid]

@@ -323,7 +323,10 @@ class DetectEvaluator(object):
                     if deployed.path is None:
                         train_dpath = dirname(deployed.info['train_info_fpath'])
                     else:
-                        train_dpath = dirname(deployed.path)
+                        if os.path.isdir(deployed.path):
+                            train_dpath = deployed.path
+                        else:
+                            train_dpath = dirname(deployed.path)
                 print('train_dpath = {!r}'.format(train_dpath))
                 eval_dpath = join(train_dpath, 'eval', evaluator.dset_tag,
                                   evaluator.model_tag, evaluator.pred_cfg)
@@ -331,7 +334,7 @@ class DetectEvaluator(object):
                 ub.ensuredir(dirname(base_dpath))
                 if not os.path.islink(base_dpath) and exists(base_dpath):
                     ub.delete(base_dpath)
-                ub.symlink(eval_dpath, base_dpath, overwrite=True)
+                ub.symlink(eval_dpath, base_dpath, overwrite=True, verbose=3)
             else:
                 raise UnknownTrainDpath
         except UnknownTrainDpath:
@@ -340,6 +343,7 @@ class DetectEvaluator(object):
         evaluator.paths['base'] = base_dpath
         evaluator.paths['metrics'] = ub.ensuredir((evaluator.paths['base'], 'metrics'))
         evaluator.paths['viz'] = ub.ensuredir((evaluator.paths['base'], 'viz'))
+        print('evaluator.paths = {!r}'.format(evaluator.paths))
 
     def _run_predictions(evaluator):
 
@@ -555,6 +559,10 @@ if __name__ == '__main__':
                 ~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/deploy_MM_CascadeRCNN_ogenzvgt_059_QBGWCT.zip,\
                 ~/work/bioharn/fit/runs/bioharn-det-v16-cascade/hvayxfyx/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP, \
                 $HOME/.cache/viame/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip,]" --profile
+
+        python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=4 --batch_size=64 \
+            --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_test.mscoco.json \
+            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v23/kmiqxzis
 
         python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=4 --batch_size=64 \
             --dataset=~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json \

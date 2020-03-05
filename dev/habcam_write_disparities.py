@@ -41,7 +41,7 @@ def main():
 
 
 def _ensure_habcam_disparity_frame(dset, gid):
-    from bioharn.detect_dataset import multipass_disparity
+    from bioharn.disparity import multipass_disparity
     import kwimage
 
     img = dset.imgs[gid]

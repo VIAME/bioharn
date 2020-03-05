@@ -145,7 +145,6 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                                                    label['weight'].stack)
 
     else:
-        raise NotImplementedError
         B, C, H, W = inputs.shape
 
         # hack in img meta
@@ -168,6 +167,7 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
 
         # Handled pad collated batches. Ensure shapes are correct.
         if 'label' in batch:
+            raise NotImplementedError('use batch containers')
 
             label = batch['label']
 

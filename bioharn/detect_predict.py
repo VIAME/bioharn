@@ -110,8 +110,11 @@ class DetectPredictor(object):
             common = set(native_defaults) & set(native_config)
             if len(common) != len(native_defaults):
                 # Fallback on the hacky string encoding of the configs
-                native_config.update(eval(
-                    deployed.train_info()['extra']['config'], {}))
+                cfgstr = deployed.train_info()['extra']['config']
+                # import ast
+                # parsed = ast.literal_eval(cfgstr)
+                parsed = eval(cfgstr, {'inf': float('inf')})
+                native_config.update(parsed)
             return native_config
 
         native = {}
@@ -210,7 +213,7 @@ class DetectPredictor(object):
         with torch.set_grad_enabled(False):
             for raw_batch in prog:
                 batch = {
-                    'im': predictor.xpu.move(raw_batch['im']),
+                    'inputs': predictor.xpu.move(raw_batch['inputs']),
                     'tf_chip_to_full': raw_batch['tf_chip_to_full'],
                     'pad_offset_xy': pad_offset_xy,
                 }
@@ -286,8 +289,8 @@ class DetectPredictor(object):
                 batch = {
                     'tf_chip_to_full': raw_batch['tf_chip_to_full'],
                 }
-                if 'im' in raw_batch:
-                    batch['im'] = xpu.move(raw_batch['im'])
+                if 'inputs' in raw_batch:
+                    batch['inputs'] = xpu.move(raw_batch['inputs'])
                 else:
                     raise NotImplementedError
 
@@ -417,8 +420,13 @@ class DetectPredictor(object):
         if hasattr(predictor.model.module, 'detector'):
             # HACK FOR MMDET MODELS
             outputs = predictor.model.forward(batch, return_loss=False)
+        elif hasattr(predictor.model.module, 'detector'):
+            # TODO: hack for old detectors that require "im" inputs
+            raise NotImplementedError
         else:
-            outputs = predictor.model.forward(batch['im'])
+            assert len(batch['inputs']) == 1
+            im = ub.peek(batch['inputs'].values())
+            outputs = predictor.model.forward(batch['inputs'])
             # raise NotImplementedError('only works on mmdet models')
 
         # Postprocess GPU outputs
@@ -431,7 +439,9 @@ class DetectPredictor(object):
             if True and len(det) and np.all(det.boxes.width <= 1):
                 # HACK FOR YOLO
                 # TODO: decode should return detections in batch input space
-                inp_size = np.array(batch['im'].shape[-2:][::-1])
+                assert len(batch['inputs']) == 1
+                im = ub.peek(batch['inputs'].values())
+                inp_size = np.array(im.shape[-2:][::-1])
                 det = det.scale(inp_size)
 
             det = det.scale(item_scale_xy)
@@ -513,7 +523,7 @@ class SingleImageDataset(torch_data.Dataset):
         assert self.channels.spec == 'rgb'
 
         return {
-            'im': tensor_rgb,
+            'inputs': {'rgb': tensor_rgb},
             'tf_chip_to_full': tf_chip_to_full,
         }
 
@@ -579,11 +589,11 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         gid_to_slider = {}
         for gid in gids:
             img = sampler.dset.imgs[gid]
-            if img.get('source', '') == 'habcam_2015_stereo':
-                # Hack: todo, cannoncial way to get this effect
-                full_dims = [img['height'], img['width'] // 2]
-            else:
-                full_dims = [img['height'], img['width']]
+            # if img.get('source', '') == 'habcam_2015_stereo':
+            # Hack: todo, cannoncial way to get this effect
+            full_dims = [img['height'], img['width']]
+            # else:
+            #     full_dims = [img['height'], img['width']]
 
             window_dims_ = full_dims if window_dims == 'full' else window_dims
             slider = nh.util.SlidingWindow(full_dims, window_dims_,
@@ -611,13 +621,13 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             >>> # xdoctest: +REQUIRES(--show)
             >>> import kwplot
             >>> kwplot.autompl()
-            >>> kwplot.imshow(item['im'])
+            >>> kwplot.imshow(item['inputs']['rgb'])
 
         Ignore:
             import netharn as nh
             nh.data.collate.padded_collate([self[0], self[1], self[2]])
             self = WindowedSamplerDataset.demo(window_dims='full', input_dims=(512, 512))
-            kwplot.imshow(self[19]['im'])
+            kwplot.imshow(self[19]['inputs']['rgb'])
         """
         outer, inner = self.subindex.unravel(index)
         gid = self._gids[outer]
@@ -675,23 +685,22 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             'scale_xy': 1.0 / tf_full_to_chip['scale_xy'],
             'shift_xy': -tf_full_to_chip['shift_xy'] * (1.0 / tf_full_to_chip['scale_xy']),
         }
-        item = {
+        components = {
             'rgb': tensor_rgb,
+        }
+        item = {
             'gid': torch.LongTensor([gid]),
             'tf_chip_to_full': tf_chip_to_full,
         }
 
         sampler = self.sampler
-        img = sampler.dset.imgs[gid]
 
         # if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
         if 'disparity' in unique_channels:
-            from bioharn.detect_dataset import _cached_habcam_disparity_frame
-            import xdev
-            with xdev.embed_on_exception_context:
-                disp_frame = _cached_habcam_disparity_frame(sampler, gid)
-                disp_frame.shape[0:2]
-                data_dims = (img['height'], (img['width'] // 2))
+            from ndsampler.utils import util_gdal
+            disp_fpath = sampler.dset.get_auxillary_fpath(gid, 'disparity')
+            disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
+            data_dims = disp_frame.shape[0:2]
             pad = 0
             data_slice, extra_padding, st_dims = sampler._rectify_tr(
                 tr, data_dims, window_dims=None, pad=pad)
@@ -707,13 +716,9 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
                 disp_im = disp_im[None, :, :]
             else:
                 disp_im = disp_im.transpose(2, 0, 1)
-            item['disparity'] = torch.FloatTensor(disp_im)
+            components['disparity'] = torch.FloatTensor(disp_im)
 
-        inputs = self.channels.encode(item, drop=True)
-        # hack:
-        # item['inputs'] = inputs
-        assert len(inputs) == 1
-        item['im'] = ub.peek(inputs.values())
+        item['inputs'] = self.channels.encode(components)
         return item
 
 

@@ -2,6 +2,7 @@
 This example code trains a baseline object detection algorithm given mscoco
 inputs.
 """
+from os.path import join
 import netharn as nh
 import numpy as np
 import os
@@ -139,8 +140,10 @@ class DetectHarn(nh.FitHarn):
 
     def before_epochs(harn):
         # Seed the global random state before each epoch
-        kwarray.seed_global(473282 + np.random.get_state()[1][0] + harn.epoch,
-                            offset=57904)
+        # kwarray.seed_global(473282 + np.random.get_state()[1][0] + harn.epoch,
+        #                     offset=57904)
+        if harn.epoch == 0 or 1:
+            harn._draw_conv_layers(suffix='_init')
 
     def prepare_batch(harn, raw_batch):
         """
@@ -184,7 +187,6 @@ class DetectHarn(nh.FitHarn):
         # Compute how many images have been seen before
         if getattr(harn.raw_model, '__BUILTIN_CRITERION__', False):
 
-            bx = harn.bxs[harn.current_tag]
             harn.raw_model.detector.test_cfg['score_thr'] = 0.0
 
             if not getattr(harn, '_draw_timer', None):
@@ -193,7 +195,8 @@ class DetectHarn(nh.FitHarn):
             # mmdet forward in a special way
 
             harn._hack_do_draw = (harn.batch_index < harn.script_config['num_draw'])
-            harn._hack_do_draw |= ((harn._draw_timer.toc() > 60 * harn.script_config['draw_interval']) and (harn.script_config['draw_interval'] > 0))
+            harn._hack_do_draw |= ((harn._draw_timer.toc() > 60 * harn.script_config['draw_interval']) and
+                                   (harn.script_config['draw_interval'] > 0))
 
             return_result = harn._hack_do_draw
 
@@ -403,6 +406,39 @@ class DetectHarn(nh.FitHarn):
 
         stacked = imgs[0] if len(imgs) == 1 else kwimage.stack_images_grid(imgs)
         return stacked
+
+    def after_epochs(harn):
+        """
+        Callback after all train/vali/test epochs are complete.
+        """
+        harn._draw_conv_layers()
+
+    def _draw_conv_layers(harn, suffix=''):
+        """
+        We use this to visualize the first convolutional layer
+        """
+        import kwplot
+        # Visualize the first convolutional layer
+        dpath = ub.ensuredir((harn.train_dpath, 'monitor', 'layers'))
+        # fig = kwplot.figure(fnum=1)
+        for key, layer in nh.util.trainable_layers(harn.model, names=True):
+            # Typically the first convolutional layer returned here is the
+            # first convolutional layer in the network
+            if isinstance(layer, torch.nn.Conv2d):
+                if max(layer.kernel_size) > 2:
+                    fig = kwplot.plot_convolutional_features(
+                        layer, fnum=1, normaxis=0)
+                    kwplot.set_figtitle(key, subtitle=str(layer), fig=fig)
+                    layer_dpath = ub.ensuredir((dpath, key))
+                    fname = 'layer-{}-epoch_{}{}.jpg'.format(
+                        key, harn.epoch, suffix)
+                    fpath = join(layer_dpath, fname)
+                    fig.savefig(fpath)
+                    break
+
+            if isinstance(layer, torch.nn.Linear):
+                # TODO: visualize the FC layer
+                pass
 
 
 def setup_harn(cmdline=True, **kw):
@@ -831,6 +867,29 @@ if __name__ == '__main__':
             --normalize_inputs=True \
             --workers=4 \
             --xpu=0 \
+            --batch_size=4 \
+            --bstep=4
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgbd-v23 \
+            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
+            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
+            --schedule=step-10-20 \
+            --augment=complex \
+            --init=noop \
+            --workdir=/home/joncrall/work/bioharn \
+            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+            --arch=cascade \
+            --channels="rgb|disparity" \
+            --optim=DiffGrad \
+            --lr=2e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=4 \
+            --xpu=1 \
             --batch_size=4 \
             --bstep=4
 
