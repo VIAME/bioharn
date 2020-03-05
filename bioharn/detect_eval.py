@@ -56,7 +56,7 @@ class DetectEvaluateConfig(scfg.Config):
     }
 
 
-def evaluate_models(**kw):
+def evaluate_models(cmdline=True, **kw):
     """
     Evaluate multiple models using a config file or CLI.
 
@@ -78,9 +78,9 @@ def evaluate_models(**kw):
     if 'config' in kw:
         config_fpath = kw['config']
         defaults = ub.dict_diff(kw, {'config'})
-        multi_config = DetectEvaluateConfig(data=config_fpath, default=defaults, cmdline=True)
+        multi_config = DetectEvaluateConfig(data=config_fpath, default=defaults, cmdline=cmdline)
     else:
-        multi_config = DetectEvaluateConfig(default=kw, cmdline=True)
+        multi_config = DetectEvaluateConfig(default=kw, cmdline=cmdline)
     print('MultiConfig: {}'.format(ub.repr2(multi_config.asdict())))
 
     # Look for specific items in the base config where multiple values are

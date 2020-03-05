@@ -10,6 +10,7 @@ import torch
 import ubelt as ub
 import kwarray
 import kwimage
+import warnings
 # import numpy as np
 # import torch
 # import netharn as nh
@@ -69,7 +70,7 @@ class DetectFitConfig(scfg.Config):
         'lr': scfg.Value(1e-3, help='learning rate'),  # 1e-4,
         'decay': scfg.Value(1e-4, help='weight decay'),
 
-        'schedule': scfg.Value('ReduceLROnPlateau', help='learning rate / momentum scheduler'),
+        'schedule': scfg.Value('Exponential-g0.98-s1', help='learning rate / momentum scheduler'),
         'max_epoch': scfg.Value(50, help='Maximum number of epochs'),
         'patience': scfg.Value(10, help='Maximum number of bad epochs on validation before stopping'),
         'min_lr': scfg.Value(1e-9, help='minimum learning rate before termination'),
@@ -763,8 +764,8 @@ def setup_harn(cmdline=True, **kw):
     return harn
 
 
-def fit():
-    harn = setup_harn()
+def fit(**kw):
+    harn = setup_harn(**kw)
     harn.initialize()
 
     if ub.argflag('--lrtest'):
@@ -794,7 +795,7 @@ def fit():
     # This starts the main loop which will run until the monitor's terminator
     # criterion is satisfied. If the initialize step loaded a checkpointed that
     # already met the termination criterion, then this will simply return.
-    harn.run()
+    return harn.run()
 
 
 if __name__ == '__main__':
@@ -919,7 +920,6 @@ if __name__ == '__main__':
 
 
     """
-    import warnings
     import traceback
     _orig_formatwarning = warnings.formatwarning
     def _monkeypatch_formatwarning_tb(*args, **kwargs):

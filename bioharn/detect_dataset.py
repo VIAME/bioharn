@@ -216,8 +216,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
                         extra_padding = extra_padding + [(0, 0)]  # Handle channels
                     disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
 
-                if disp_im.max() > 1.0:
-                    raise AssertionError('gid={} {}'.format(gid, kwarray.stats_dict(disp_im)))
+                # if disp_im.max() > 1.0:
+                #     raise AssertionError('gid={} {}'.format(gid, ub.repr2(kwarray.stats_dict(disp_im))))
 
             if disp_im is None:
                 raise Exception('no auxillary disparity')
