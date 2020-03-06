@@ -916,6 +916,53 @@ if __name__ == '__main__':
             --xpu=0 \
             --batch_size=4 \
             --bstep=4
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgb-v24 \
+            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
+            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
+            --schedule=step-10-20 \
+            --augment=complex \
+            --init=noop \
+            --workdir=/home/joncrall/work/bioharn \
+            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+            --arch=cascade \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=1024,1024 \
+            --window_overlap=0.0 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=4 \
+            --xpu=0 \
+            --batch_size=2 \
+            --bstep=8
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgbd-v25 \
+            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
+            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
+            --schedule=step-10-20 \
+            --augment=complex \
+            --init=noop \
+            --workdir=/home/joncrall/work/bioharn \
+            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+            --arch=cascade \
+            --channels="rgb|disparity" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=1024,1024 \
+            --window_overlap=0.0 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=2 \
+            --xpu=1,0 \
+            --batch_size=4 \
+            --bstep=8
+
         --num_draw=0 --draw_interval=0
 
 

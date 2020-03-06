@@ -167,34 +167,32 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
 
         # Handled pad collated batches. Ensure shapes are correct.
         if 'label' in batch:
-            raise NotImplementedError('use batch containers')
 
             label = batch['label']
 
             if isinstance(label['class_idxs'], list):
                 # Data was already collated as a list
-
                 mm_inputs['gt_labels'] = label['class_idxs']
-
                 if 'cxywh' in label:
                     mm_inputs['gt_bboxes'] = [
                         kwimage.Boxes(b, 'cxywh').to_tlbr().data
                         for b in label['cxywh']
                     ]
-                if 'tlbr' in label:
+                elif 'tlbr' in label:
                     assert 'gt_bboxes' not in mm_inputs, 'already have boxes'
                     mm_inputs['gt_bboxes'] = label['tlbr']
 
                 if 'class_masks' in label:
                     mm_inputs['gt_masks'] = label['class_masks']
 
-                if 'weight' in label:
-                    gt_bboxes_ignore = [[w < ignore_thresh for w in ws]
-                                        for ws in label['weight']]
-                    mm_inputs['gt_bboxes_ignore'] = gt_bboxes_ignore
-
+                if 0:
+                    # TODO:
+                    if 'weight' in label:
+                        gt_bboxes_ignore = [[w < ignore_thresh for w in ws]
+                                            for ws in label['weight']]
+                        mm_inputs['gt_bboxes_ignore'] = gt_bboxes_ignore
             else:
-
+                raise NotImplementedError('use batch containers')
                 # Old padded way
                 gt_bboxes = []
                 gt_labels = []
