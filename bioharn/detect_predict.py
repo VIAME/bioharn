@@ -55,20 +55,19 @@ class DetectPredictor(object):
 
     Example:
         >>> import ubelt as ub
-        >>> url = 'https://data.kitware.com/api/v1/file/5dd3eb8eaf2e2eed3508d604/download'
+        >>> from bioharn.detect_predict import *  # NOQA
         >>> deployed_fpath = ub.grabdata(
-        >>>     url, fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip',
-        >>>     appname='viame', hash_prefix='22a1eeb18c9e5706f6578e66abda1e97',
-        >>>     hasher='sha512')
-        >>> url = 'https://data.kitware.com/api/v1/file/5dcf0d1faf2e2eed35fad5d1/download'
+        >>>     'https://data.kitware.com/api/v1/file/5dd3eb8eaf2e2eed3508d604/download',
+        >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip',
+        >>>     appname='viame', hasher='sha512',
+        >>>     hash_prefix='22a1eeb18c9e5706f6578e66abda1e97')
         >>> image_fpath = ub.grabdata(
-        >>>     url, fname='scallop.jpg', appname='viame',
-        >>>     hash_prefix='3bd290526c76453bec7', hasher='sha512')
+        >>>     'https://data.kitware.com/api/v1/file/5dcf0d1faf2e2eed35fad5d1/download',
+        >>>     fname='scallop.jpg', appname='viame', hasher='sha512',
+        >>>     hash_prefix='3bd290526c76453bec7')
         >>> path_or_image = full_rgb = kwimage.imread(image_fpath)
         >>> config = dict(
         >>>     deployed=deployed_fpath,
-        >>>     window_dims=(512, 512),
-        >>>     input_dims=(256, 256),
         >>> )
         >>> predictor = DetectPredictor(config)
         >>> final = predictor.predict(full_rgb)
@@ -84,6 +83,10 @@ class DetectPredictor(object):
         predictor.model = None
         predictor.xpu = None
         predictor.coder = None
+
+        # This is populated if we need to modify behavior for backwards
+        # compatibility.
+        predictor._compat_hack = None
 
     def info(predictor, text):
         if predictor.config['verbose']:
@@ -416,18 +419,32 @@ class DetectPredictor(object):
         else:
             shift_xy_ = shift_xy
 
-        # All GPU work happens in this line
-        if hasattr(predictor.model.module, 'detector'):
-            # HACK FOR MMDET MODELS
+        if predictor._compat_hack is None:
+            # All GPU work happens in this line
+            if hasattr(predictor.model.module, 'detector'):
+                # HACK FOR MMDET MODELS
+                # TODO: hack for old detectors that require "im" inputs
+
+                try:
+                    outputs = predictor.model.forward(batch, return_loss=False)
+                except KeyError:
+                    predictor._compat_hack = 'old_mmdet_im_model'
+                except NotImplementedError:
+                    predictor._compat_hack = 'fixup_mm_inputs'
+            else:
+                assert len(batch['inputs']) == 1
+                im = ub.peek(batch['inputs'].values())
+                outputs = predictor.model.forward(batch['inputs'])
+                # raise NotImplementedError('only works on mmdet models')
+
+        # HACKS FOR BACKWARDS COMPATIBILITY
+        if predictor._compat_hack == 'old_mmdet_im_model':
+            batch['im'] = batch.pop('inputs')['rgb']
             outputs = predictor.model.forward(batch, return_loss=False)
-        elif hasattr(predictor.model.module, 'detector'):
-            # TODO: hack for old detectors that require "im" inputs
-            raise NotImplementedError
-        else:
-            assert len(batch['inputs']) == 1
-            im = ub.peek(batch['inputs'].values())
-            outputs = predictor.model.forward(batch['inputs'])
-            # raise NotImplementedError('only works on mmdet models')
+        if predictor._compat_hack == 'fixup_mm_inputs':
+            from bioharn.models.mm_models import _batch_to_mm_inputs
+            mm_inputs = _batch_to_mm_inputs(batch)
+            outputs = predictor.model.forward(mm_inputs, return_loss=False)
 
         # Postprocess GPU outputs
         batch_dets = predictor.coder.decode_batch(outputs)
