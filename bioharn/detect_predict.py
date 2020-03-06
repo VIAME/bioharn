@@ -431,6 +431,10 @@ class DetectPredictor(object):
                     predictor._compat_hack = 'old_mmdet_im_model'
                 except NotImplementedError:
                     predictor._compat_hack = 'fixup_mm_inputs'
+                if predictor._compat_hack:
+                    warnings.warn(
+                        'Normal mm-detection input failed. '
+                        'Attempting to find backwards compatible solution')
             else:
                 assert len(batch['inputs']) == 1
                 im = ub.peek(batch['inputs'].values())
