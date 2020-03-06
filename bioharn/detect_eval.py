@@ -141,7 +141,7 @@ def evaluate_models(cmdline=True, **kw):
     rows = []
     train_config_rows = []
     import json
-    import ast
+    # import ast
     for fpath in ub.ProgIter(metric_fpaths, desc='gather summary'):
         metrics = json.load(open(fpath, 'r'))
         row = {}
@@ -151,7 +151,9 @@ def evaluate_models(cmdline=True, **kw):
         row['auc'] = metrics['roc_result']['auc']
 
         # Hack to get train config params
-        train_config = ast.literal_eval(metrics['train_info']['extra']['config'])
+        # train_config = ast.literal_eval(metrics['train_info']['extra']['config'])
+        train_config = eval(metrics['train_info']['extra']['config'],
+                            {'inf': float('inf')}, {})
         train_config_rows.append(train_config)
         rows.append(row)
 
@@ -582,7 +584,9 @@ if __name__ == '__main__':
 ~/work/bioharn/fit/runs/bioharn-det-v12-test-retinanet/mrepnniz/deploy_MM_RetinaNet_mrepnniz_094_ODCGUT.zip
 
 
-
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_test.mscoco.json \
+            --deployed=$HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v22/rfdrszqa/deploy_MM_CascadeRCNN_rfdrszqa_048_DZYTDJ.zip  --workers=4 --batch_size=64
 
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.test.json \
