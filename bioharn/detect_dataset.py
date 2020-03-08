@@ -13,6 +13,7 @@ from functools import partial
 # _debug = print
 _debug = ub.identity
 
+
 class DetectFitDataset(torch.utils.data.Dataset):
     """
     Loads data with ndsampler.CocoSampler and formats it in a way suitable for
@@ -281,12 +282,12 @@ class DetectFitDataset(torch.utils.data.Dataset):
         orig_size = np.array(imdata.shape[0:2][::-1])
 
         if self.augmenter:
-            print('augment')
+            _debug('augment')
             imdata, dets, disp_im = self.augmenter.augment_data(
                 imdata, dets, disp_im)
             # disp_im.dtype
 
-        print('un-pad')
+        _debug('un-pad')
         pad = sample['params']['pad']
         if np.any(pad):
             # if we gave extra padding, crop back to the original shape
@@ -311,7 +312,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         dets = dets.compress(flags)
 
         # Apply letterbox resize transform to train and test
-        print('imresize')
+        _debug('imresize')
         self.letterbox.target_size = inp_size
         prelb_dims = imdata.shape[0:2]
         imdata = self.letterbox.augment_image(imdata)
@@ -324,7 +325,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 disp_im, dsize=self.letterbox.target_size,
                 letterbox=True).clip(0, 1)
         if len(dets):
-            print('warp')
+            _debug('warp')
             dets = dets.warp(self.letterbox,
                              input_dims=prelb_dims,
                              output_dims=postlb_dims)
