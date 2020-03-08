@@ -268,12 +268,20 @@ def convert_cfarm(df, img_root):
 
     for tag, tag_dset in datasets.items():
         print('{} fpath = {!r}'.format(tag, tag_dset.fpath))
-        print(sorted(tag_dset.imgs.keys())[0:30])
+        print(sorted(tag_dset.imgs.keys())[0:12])
+
+    def _split_annot_freq_table(datasets):
+        tag_to_freq = {}
+        for tag, tag_dset in datasets.items():
+            freq = tag_dset.category_annotation_frequency()
+            tag_to_freq[tag] = freq
+        df = pd.DataFrame.from_dict(tag_to_freq)
+        return df
+    print(_split_annot_freq_table(datasets))
 
     coco_dset.dump(coco_dset.fpath, newlines=True)
     for tag, tag_dset in datasets.items():
         print('{} fpath = {!r}'.format(tag, tag_dset.fpath))
-        print(ub.repr2(tag_dset.category_annotation_frequency()))
         tag_dset.dump(tag_dset.fpath, newlines=True)
 
 
