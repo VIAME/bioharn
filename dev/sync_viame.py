@@ -33,6 +33,8 @@ catname_map = {
 
     'probably didemnum': 'didemnum',
     'probable scallop-like rock': 'rock',
+    'misc manmade objects': 'misc',
+    'waved whelk egg mass': 'misc',
 
     'dust cloud': 'dust cloud',
 
@@ -56,6 +58,7 @@ catname_map = {
     'sea scallop clapper inexact': 'dead sea scallop',
     'sea scallop clapper width': 'dead sea scallop',
     'sea scallop clapper': 'dead sea scallop',
+    'probable clapper (width)': 'dead sea scallop',
 
     'probable swimming sea scallop inexact': 'swimming sea scallop',
     'probable swimming sea scallop': 'swimming sea scallop',
@@ -64,6 +67,7 @@ catname_map = {
     'swimming sea scallop inexact':  'swimming sea scallop',
     'swimming sea scallop width': 'swimming sea scallop',
     'swimming sea scallop': 'swimming sea scallop',
+    'probable swimming scallop': 'swimming sea scallop',
 
     'live sea scallop inexact': 'live sea scallop',
     'live sea scallop width': 'live sea scallop',
@@ -84,6 +88,8 @@ catname_map = {
     'yellowtail flounder': 'flatfish',
     'grey sole': 'flatfish',
 
+    'atlantic hagfish': 'roundfish',
+    'spiny dogfish': 'roundfish',
     'silver hake': 'roundfish',
     'sculpin/grubby': 'roundfish',
     'longhorn sculpin': 'roundfish',
@@ -112,6 +118,8 @@ catname_map = {
 
     'unknown mollusk': 'mollusk',
 
+    'hermit crab': 'snail',
+    'waved whelk or hermit crab': 'snail',
     'moon snail': 'snail',
     'waved whelk': 'snail',
     'moon snail-like': 'snail',
@@ -266,10 +274,6 @@ def convert_cfarm(df, img_root):
     datasets = train_vali_split(coco_dset)
     print('datasets = {!r}'.format(datasets))
 
-    for tag, tag_dset in datasets.items():
-        print('{} fpath = {!r}'.format(tag, tag_dset.fpath))
-        print(sorted(tag_dset.imgs.keys())[0:12])
-
     def _split_annot_freq_table(datasets):
         tag_to_freq = {}
         for tag, tag_dset in datasets.items():
@@ -366,13 +370,13 @@ def _split_train_vali_test_gids(coco_dset, factor=3):
     return split_gids
 
 
-
 def convert_cfarm_2017():
     csv_fpath =  ub.expandpath('~/data/private/US_NE_2017_CFARM_HABCAM/HabCam 2017 dataset1 annotations.csv')
     assert exists(csv_fpath)
     df = pd.read_csv(csv_fpath)
     print('df.columns = {!r}'.format(df.columns))
     img_root = dirname(csv_fpath)
+    convert_cfarm(df, img_root)
 
 
 def convert_cfarm_2018():
@@ -382,6 +386,7 @@ def convert_cfarm_2018():
     print('df.columns = {!r}'.format(df.columns))
     img_root = dirname(csv_fpath)
     # csv_fpath =  ub.expandpath('~/remote/viame/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_AnnotatedObjects.csv')
+    convert_cfarm(df, img_root)
 
 
 def convert_cfarm_2019():
@@ -389,7 +394,10 @@ def convert_cfarm_2019():
     assert exists(csv_fpath)
     df = pd.read_csv(csv_fpath)
     print('df.columns = {!r}'.format(df.columns))
+    # img_root = join(dirname(dirname(csv_fpath)), 'processed')
+    img_root = dirname(csv_fpath)
     # csv_fpath =  ub.expandpath('~/remote/viame/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_AnnotatedObjects.csv')
+    convert_cfarm(df, img_root)
 
 
 def convert_cfarm_2019_part2():
