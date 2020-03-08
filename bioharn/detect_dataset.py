@@ -10,8 +10,8 @@ from bioharn.data_containers import ItemContainer
 from bioharn.data_containers import container_collate
 from functools import partial
 
-_debug = print
-# _debug = ub.identity
+# _debug = print
+_debug = ub.identity
 
 class DetectFitDataset(torch.utils.data.Dataset):
     """

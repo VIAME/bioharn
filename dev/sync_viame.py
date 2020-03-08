@@ -464,3 +464,14 @@ def merge():
 
     for tag, combo_dset in combo_dsets.items():
         combo_dset.dump(combo_dset.fpath, newlines=True)
+
+    for tag, combo_dset in combo_dsets.items():
+
+        combo_dset = ndsampler.CocoDataset(combo_dset.fpath)
+
+        for gid, img in ub.ProgIter(list(combo_dset.imgs.items()),
+                                    desc='test load gids'):
+            imdata = combo_dset.load_image(gid)
+            shape = imdata.shape
+            assert img['width'] == shape[1]
+            assert img['height'] == shape[0]
