@@ -554,18 +554,7 @@ def setup_harn(cmdline=True, **kw):
 
     if config['normalize_inputs']:
         # Get stats on the dataset (todo: turn off augmentation for this)
-        import xdev
-        xdev.embed()
-
         _dset = torch_datasets['train']
-
-        spec = 1
-        self = _dset
-        _dset[spec]
-
-        for i in ub.ProgIter(range(len(_dset))):
-            _dset[i]
-
         stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(1000, len(_dset))]
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
 
