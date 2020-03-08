@@ -266,6 +266,10 @@ def convert_cfarm(df, img_root):
     datasets = train_vali_split(coco_dset)
     print('datasets = {!r}'.format(datasets))
 
+    for tag, tag_dset in datasets.items():
+        print('{} fpath = {!r}'.format(tag, tag_dset.fpath))
+        print(sorted(tag_dset.imgs.keys())[0:30])
+
     coco_dset.dump(coco_dset.fpath, newlines=True)
     for tag, tag_dset in datasets.items():
         print('{} fpath = {!r}'.format(tag, tag_dset.fpath))
@@ -294,13 +298,40 @@ def train_vali_split(coco_dset):
     datasets = {}
     for tag, gids in split_gids.items():
         tag_dset = coco_dset.subset(gids)
-        tag_dset.fpath = ub.augpath(coco_dset.fpath, suffix='_' + tag, multidot=True)
+        img_pcnt = int(round(tag_dset.n_images / coco_dset.n_images, 2) * 100)
+        ann_pcnt = int(round(tag_dset.n_annots / coco_dset.n_annots, 2) * 100)
+        suffix = '_{:02d}_{:02d}_{}'.format(img_pcnt, ann_pcnt, tag)
+        print('suffix = {!r}'.format(suffix))
+        tag_dset.fpath = ub.augpath(coco_dset.fpath, suffix=suffix,
+                                    multidot=True)
         datasets[tag] = tag_dset
 
     return datasets
 
 
-def _split_train_vali_test_gids(coco_dset, factor=2):
+# def _my_kfold_split(gids, cids, rng):
+#     rng = kwarray.ensure_rng(rng)
+
+#     gids = np.array(gids)
+#     cids = np.array(cids)
+#     grouped_cids = kwarray.group_items(cids, gids)
+
+#     max_cid = max(cids) + 1
+#     unique_gids = list(grouped_cids.keys())
+#     idx_to_hist = np.empty((len(unique_gids), max_cid), dtype=np.int)
+#     for idx, (gid, cid_group) in enumerate(grouped_cids.items()):
+#         idx_to_hist[idx] = np.bincount(cid_group, minlength=max_cid)
+
+#     total_freq = idx_to_hist.sum(axis=0)
+#     total_ratio = total_freq / float(total_freq.sum())
+
+#     for idx, hist in enumerate(idx_to_hist):
+#         unique_gid = unique_gids[idx]
+#         cid_group = grouped_cids[unique_gid]
+
+
+def _split_train_vali_test_gids(coco_dset):
+
     def _stratified_split(gids, cids, n_splits=2, rng=None):
         """ helper to split while trying to maintain class balance within images """
         rng = kwarray.ensure_rng(rng)
@@ -321,14 +352,23 @@ def _split_train_vali_test_gids(coco_dset, factor=2):
     # Split into learn/test then split learn into train/vali
     rng = kwarray.ensure_rng(1617402282)
     # FIXME: make train bigger with 2
+    test_factor = 10
+    vali_factor = 10
     learnx, testx = _stratified_split(gids, cids, rng=rng,
-                                      n_splits=factor)
+                                      n_splits=test_factor)
+
+    print('* learn = {}, {}'.format(len(learnx), len(learnx) / len(gids)))
+    print('* test = {}, {}'.format(len(testx), len(testx) / len(gids)))
+
     learn_gids = list(ub.take(gids, learnx))
     learn_cids = list(ub.take(cids, learnx))
     _trainx, _valix = _stratified_split(learn_gids, learn_cids, rng=rng,
-                                        n_splits=factor)
+                                        n_splits=vali_factor)
     trainx = learnx[_trainx]
     valix = learnx[_valix]
+
+    print('* trainx = {}, {}'.format(len(trainx), len(trainx) / len(gids)))
+    print('* valix = {}, {}'.format(len(valix), len(valix) / len(gids)))
 
     split_gids = {
         'train': sorted(set(ub.take(gids, trainx))),
