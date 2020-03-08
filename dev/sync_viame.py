@@ -21,6 +21,8 @@ from os.path import dirname
 import numpy as np
 from os.path import exists
 import pandas as pd
+import kwimage
+import kwarray
 import ubelt as ub
 
 
@@ -145,7 +147,7 @@ def convert_cfarm(df, img_root):
     coco_dset = ndsampler.CocoDataset(img_root=img_root)
 
     dev_root = ub.ensuredir((img_root, '_dev'))
-    cog_root = ub.ensuredir((dev_root, 'images'))
+    cog_root = ub.ensuredir((dev_root, 'cog_rgb'))
 
     workers = min(10, multiprocessing.cpu_count())
     jobs = util_futures.JobPool(mode='thread', max_workers=workers)
@@ -230,9 +232,8 @@ def convert_cfarm(df, img_root):
     coco_dset.remove_annotations(weird_anns)
 
     coco_dset.dataset.pop('img_root', None)
-    coco_dset.img_root = img_root
+    coco_dset.img_root = dev_root
     bad_images = coco_dset._ensure_imgsize(workers=16, fail=False)
-
     coco_dset.remove_images(bad_images)
 
     # Add special tag indicating a stereo image
@@ -270,10 +271,9 @@ def convert_cfarm(df, img_root):
 
 
 def _ensure_rgb_cog(dset, gid, cog_root):
-    import kwimage
     img = dset.imgs[gid]
     fname = basename(img['file_name'])
-    cog_fname = ub.augpath(fname, dpath='cog', ext='.cog.tif')
+    cog_fname = ub.augpath(fname, dpath='', ext='.cog.tif')
     cog_fpath = join(cog_root, cog_fname)
     ub.ensuredir(dirname(cog_fpath))
 
@@ -298,8 +298,6 @@ def train_vali_split(coco_dset):
 
 
 def _split_train_vali_test_gids(coco_dset, factor=2):
-    import kwarray
-
     def _stratified_split(gids, cids, n_splits=2, rng=None):
         """ helper to split while trying to maintain class balance within images """
         rng = kwarray.ensure_rng(rng)
