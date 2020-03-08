@@ -68,6 +68,8 @@ catname_map = {
     'swimming sea scallop width': 'swimming sea scallop',
     'swimming sea scallop': 'swimming sea scallop',
     'probable swimming scallop': 'swimming sea scallop',
+    'swimming scallop (width)': 'swimming sea scallop',
+    'probable swimming scallop (width)': 'swimming sea scallop',
 
     'live sea scallop inexact': 'live sea scallop',
     'live sea scallop width': 'live sea scallop',
@@ -109,6 +111,7 @@ catname_map = {
     'any white seastar': 'seastar',
     'unknown seastar': 'seastar',
     'red cushion star': 'seastar',
+    'Asterias spp': 'seastar',
 
     'unknown cerianthid': 'cerianthid',
 
