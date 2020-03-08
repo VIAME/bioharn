@@ -10,6 +10,8 @@ from bioharn.data_containers import ItemContainer
 from bioharn.data_containers import container_collate
 from functools import partial
 
+_debug = print
+# _debug = ub.identity
 
 class DetectFitDataset(torch.utils.data.Dataset):
     """
@@ -176,8 +178,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> boxes.draw()
             >>> kwplot.show_if_requested()
         """
-        _debug = print
-        # _debug = ub.identity
 
         if isinstance(spec, dict):
             index = spec['index']
@@ -987,33 +987,33 @@ class DetectionAugmentor(object):
             dets1.draw()
         """
 
-        print('to det')
+        _debug('to det')
         rgb_im_aug_det = self._intensity.to_deterministic()
         geom_aug_det = self._geometric.to_deterministic()
         disp_im_aug_det = self._augers['disp_intensity'].to_deterministic()
 
         input_dims = imdata.shape[0:2]
-        print('aug gdo')
-        print('imdata.dtype = {!r}'.format(imdata.dtype))
-        print('imdata.shape = {!r}'.format(imdata.shape))
+        _debug('aug gdo')
+        _debug('imdata.dtype = {!r}'.format(imdata.dtype))
+        _debug('imdata.shape = {!r}'.format(imdata.shape))
         imdata = geom_aug_det.augment_image(imdata)
-        print('aug rgb')
+        _debug('aug rgb')
         imdata = rgb_im_aug_det.augment_image(imdata)
 
-        print('disp_im = {!r}'.format(disp_im))
+        _debug('disp_im = {!r}'.format(disp_im))
         if disp_im is not None:
-            # print(kwarray.stats_dict(disp_im))
+            # _debug(kwarray.stats_dict(disp_im))
             disp_im = kwimage.ensure_uint255(disp_im)
             disp_im = disp_im_aug_det.augment_image(disp_im)
             disp_im = geom_aug_det.augment_image(disp_im)
             disp_im = disp_im_aug_det.augment_image(disp_im)
             disp_im = kwimage.ensure_float01(disp_im)
-            # print(kwarray.stats_dict(disp_im))
+            # _debug(kwarray.stats_dict(disp_im))
 
         output_dims = imdata.shape[0:2]
 
         if len(dets):
-            print('aug dets')
+            _debug('aug dets')
             dets = dets.warp(geom_aug_det, input_dims=input_dims,
                              output_dims=output_dims)
 

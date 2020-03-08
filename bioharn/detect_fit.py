@@ -559,6 +559,10 @@ def setup_harn(cmdline=True, **kw):
 
         _dset = torch_datasets['train']
 
+        spec = 1
+        self = _dset
+        _dset[spec]
+
         for i in ub.ProgIter(range(len(_dset))):
             _dset[i]
 
@@ -977,7 +981,7 @@ if __name__ == '__main__':
             --train_dataset=/home/joncrall/data/private/_combo_cfarm/cfarm_train.mscoco.json \
             --vali_dataset=/home/joncrall/data/private/_combo_cfarm/cfarm_vali.mscoco.json \
             --schedule=step-10-20 \
-            --augment=complex \
+            --augment=simple \
             --init=noop \
             --workdir=/home/joncrall/work/bioharn \
             --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \

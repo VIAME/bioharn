@@ -160,6 +160,9 @@ def convert_cfarm(df, img_root):
     dev_root = ub.ensuredir((img_root, '_dev'))
     cog_root = ub.ensuredir((dev_root, 'cog_rgb'))
 
+    if 1:
+        ub.delete(cog_root)
+
     workers = min(10, multiprocessing.cpu_count())
     jobs = util_futures.JobPool(mode='thread', max_workers=workers)
     for row in ub.ProgIter(records):
@@ -301,8 +304,7 @@ def _ensure_rgb_cog(dset, gid, cog_root):
 
     if not exists(cog_fpath):
         # Note: probably should be atomic
-        img3 = dset.load_image(gid)
-        imgL = img3[:, 0:img3.shape[1] // 2]
+        imgL = dset.load_image(gid)
         kwimage.imwrite(cog_fpath, imgL, backend='gdal', compress='DEFLATE')
     return cog_fpath
 
