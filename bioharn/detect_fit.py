@@ -980,7 +980,7 @@ if __name__ == '__main__':
             --lr=1e-3 \
             --input_dims=window \
             --window_dims=512,512 \
-            --window_overlap=0.0 \
+            --window_overlap=0.5 \
             --multiscale=True \
             --normalize_inputs=True \
             --workers=0 \
