@@ -162,6 +162,7 @@ def convert_cfarm(df, img_root):
 
     if 1:
         ub.delete(cog_root)
+        ub.ensuredir(cog_root)
 
     workers = min(10, multiprocessing.cpu_count())
     jobs = util_futures.JobPool(mode='thread', max_workers=workers)
@@ -316,7 +317,7 @@ def train_vali_split(coco_dset):
     for tag, gids in split_gids.items():
         tag_dset = coco_dset.subset(gids)
         img_pcnt = int(round(tag_dset.n_images / coco_dset.n_images, 2) * 100)
-        ann_pcnt = int(round(tag_dset.n_annots / coco_dset.n_annots, 2) * 100)
+        # ann_pcnt = int(round(tag_dset.n_annots / coco_dset.n_annots, 2) * 100)
         # suffix = '_{:02d}_{:02d}_{}'.format(img_pcnt, ann_pcnt, tag)
         suffix = '_{:02d}_{}'.format(img_pcnt, tag)
         tag_dset.fpath = ub.augpath(coco_dset.fpath, suffix=suffix,
@@ -376,7 +377,13 @@ def _split_train_vali_test_gids(coco_dset, factor=3):
 
 
 def convert_cfarm_2017():
-    csv_fpath =  ub.expandpath('~/data/private/US_NE_2017_CFARM_HABCAM/HabCam 2017 dataset1 annotations.csv')
+    """
+    import sys, ubelt
+    sys.path.append(ubelt.expandpath('~/code/bioharn/dev'))
+    from sync_viame import *  # NOQA
+    from sync_viame import _ensure_rgb_cog, _split_train_vali_test_gids
+    """
+    csv_fpath = ub.expandpath('~/data/private/US_NE_2017_CFARM_HABCAM/HabCam 2017 dataset1 annotations.csv')
     assert exists(csv_fpath)
     df = pd.read_csv(csv_fpath)
     print('df.columns = {!r}'.format(df.columns))
