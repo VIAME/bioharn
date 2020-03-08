@@ -565,6 +565,8 @@ def setup_harn(cmdline=True, **kw):
             # collate_fn = container_collate
             from functools import partial
             collate_fn = partial(container_collate, num_devices=1)
+            import xdev
+            xdev.embed()
 
             loader = torch.utils.data.DataLoader(
                 stats_subset,
@@ -965,7 +967,7 @@ if __name__ == '__main__':
 
 
         python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-v26 \
+            --nice=bioharn-det-mc-cascade-rgb-v27 \
             --train_dataset=/home/joncrall/data/private/_combo_cfarm/cfarm_train.mscoco.json \
             --vali_dataset=/home/joncrall/data/private/_combo_cfarm/cfarm_vali.mscoco.json \
             --schedule=step-10-20 \
@@ -982,7 +984,7 @@ if __name__ == '__main__':
             --window_overlap=0.0 \
             --multiscale=True \
             --normalize_inputs=True \
-            --workers=2 \
+            --workers=0 \
             --xpu=1 \
             --batch_size=4 \
             --bstep=8
