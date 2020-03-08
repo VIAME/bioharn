@@ -994,6 +994,8 @@ class DetectionAugmentor(object):
 
         input_dims = imdata.shape[0:2]
         print('aug gdo')
+        print('imdata.dtype = {!r}'.format(imdata.dtype))
+        print('imdata.shape = {!r}'.format(imdata.shape))
         imdata = geom_aug_det.augment_image(imdata)
         print('aug rgb')
         imdata = rgb_im_aug_det.augment_image(imdata)
