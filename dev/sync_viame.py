@@ -309,28 +309,7 @@ def train_vali_split(coco_dset):
     return datasets
 
 
-# def _my_kfold_split(gids, cids, rng):
-#     rng = kwarray.ensure_rng(rng)
-
-#     gids = np.array(gids)
-#     cids = np.array(cids)
-#     grouped_cids = kwarray.group_items(cids, gids)
-
-#     max_cid = max(cids) + 1
-#     unique_gids = list(grouped_cids.keys())
-#     idx_to_hist = np.empty((len(unique_gids), max_cid), dtype=np.int)
-#     for idx, (gid, cid_group) in enumerate(grouped_cids.items()):
-#         idx_to_hist[idx] = np.bincount(cid_group, minlength=max_cid)
-
-#     total_freq = idx_to_hist.sum(axis=0)
-#     total_ratio = total_freq / float(total_freq.sum())
-
-#     for idx, hist in enumerate(idx_to_hist):
-#         unique_gid = unique_gids[idx]
-#         cid_group = grouped_cids[unique_gid]
-
-
-def _split_train_vali_test_gids(coco_dset):
+def _split_train_vali_test_gids(coco_dset, factor=3):
 
     def _stratified_split(gids, cids, n_splits=2, rng=None):
         """ helper to split while trying to maintain class balance within images """
@@ -352,8 +331,8 @@ def _split_train_vali_test_gids(coco_dset):
     # Split into learn/test then split learn into train/vali
     rng = kwarray.ensure_rng(1617402282)
     # FIXME: make train bigger with 2
-    test_factor = 10
-    vali_factor = 10
+    test_factor = factor
+    vali_factor = factor
     learnx, testx = _stratified_split(gids, cids, rng=rng,
                                       n_splits=test_factor)
 
