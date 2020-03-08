@@ -160,6 +160,9 @@ def convert_cfarm(df, img_root):
         # Handle Image
         gid = coco_dset.ensure_image(file_name=image_name)
         img = coco_dset.imgs[gid]
+
+        if img.get('is_bad', False):
+            continue
         if 'width' not in img:
             gpath = coco_dset.get_image_fpath(gid)
             try:
@@ -167,6 +170,7 @@ def convert_cfarm(df, img_root):
                     raise Exception
                 shape  = kwimage.load_image_shape(gpath)
             except Exception:
+                img['is_bad'] = True
                 print('Bad image gpath = {!r}'.format(gpath))
                 continue
 
@@ -218,7 +222,7 @@ def convert_cfarm(df, img_root):
         }
         coco_dset.add_annotation(**ann)
 
-    for job in ub.ProgIter(jobs, desc='redirect to cog images', verbose=3):
+    for job in ub.ProgIter(jobs, desc='redirect to cog images'):
         img = job.img
         img.pop('in_queue', None)
         cog_fname = job.result()
@@ -237,13 +241,12 @@ def convert_cfarm(df, img_root):
     coco_dset.remove_images(bad_images)
 
     # Add special tag indicating a stereo image
+    dset_name = basename(img_root)
     for img in coco_dset.imgs.values():
-        img['source'] = 'habcam_2015_stereo'
+        img['source'] = dset_name
 
     stats = coco_dset.basic_stats()
     suffix = 'g{n_imgs:06d}_a{n_anns:08d}_c{n_cats:04d}'.format(**stats)
-
-    dset_name = dirname(img_root)
 
     coco_dset.fpath = ub.augpath(
         '', dpath=dev_root, ext='',
@@ -282,7 +285,7 @@ def _ensure_rgb_cog(dset, gid, cog_root):
         img3 = dset.load_image(gid)
         imgL = img3[:, 0:img3.shape[1] // 2]
         kwimage.imwrite(cog_fpath, imgL, backend='gdal', compress='DEFLATE')
-    return cog_fname
+    return cog_fpath
 
 
 def train_vali_split(coco_dset):
