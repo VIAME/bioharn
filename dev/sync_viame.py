@@ -412,28 +412,46 @@ def convert_cfarm_2019_part2():
 
 
 def merge():
+
     import ndsampler
     split_fpaths = {
         'train':  [
-            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_44_44_train.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2017_CFARM_HABCAM/_dev/US_NE_2017_CFARM_HABCAM_g001921_a00024144_c0010_v3_44_train.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2018_CFARM_HABCAM/_dev/US_NE_2018_CFARM_HABCAM_g001412_a00012452_c0013_v3_44_train.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_44_train.mscoco.json',
         ],
-        'test':  [
-            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_22_22_vali.mscoco.json',
+        'vali':  [
+            '/home/joncrall/data/private/US_NE_2017_CFARM_HABCAM/_dev/US_NE_2017_CFARM_HABCAM_g001921_a00024144_c0010_v3_22_vali.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2018_CFARM_HABCAM/_dev/US_NE_2018_CFARM_HABCAM_g001412_a00012452_c0013_v3_22_vali.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_22_vali.mscoco.json',
         ],
-        'vali': [
-            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_33_33_test.mscoco.json',
+        'test': [
+            '/home/joncrall/data/private/US_NE_2017_CFARM_HABCAM/_dev/US_NE_2017_CFARM_HABCAM_g001921_a00024144_c0010_v3_33_test.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2018_CFARM_HABCAM/_dev/US_NE_2018_CFARM_HABCAM_g001412_a00012452_c0013_v3_33_test.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_33_test.mscoco.json',
         ],
     }
+
     splits = {}
     for tag, paths in split_fpaths.items():
         print('tag = {!r}'.format(tag))
         dsets = []
         for fpath in ub.ProgIter(paths, desc='read datasets'):
             dset = ndsampler.CocoDataset(fpath)
+            dset.rebase(absolute=True)
             dsets.append(dset)
+        splits[tag] = dsets
 
-        print('Merging')
+    out_dpath = ub.ensuredir('/home/joncrall/data/private/_combo_cfarm')
+
+    combo_dsets = {}
+    for tag, dsets in splits.items():
+        print('merging')
         combo_dset = ndsampler.CocoDataset.union(*dsets, tag=tag)
+        combo_dset.fpath = join(out_dpath, 'cfarm_{}.mscoco.json'.format(tag))
+        print('{!r}'.format(combo_dset.fpath))
+        combo_dset.rebase(out_dpath)
+        combo_dsets[tag] = combo_dset
 
-        # print('Write to destination {}'.format(dst_fpath))
-        # combo_dset.dump(dst_fpath, newlines=True)
+    for tag, combo_dset in combo_dsets.items():
+        combo_dset.dump(combo_dset.fpath, newlines=True)
