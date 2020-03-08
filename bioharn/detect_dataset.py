@@ -173,6 +173,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> boxes.draw()
             >>> kwplot.show_if_requested()
         """
+        _debug = print
+        # _debug = ub.identity
+
         if isinstance(spec, dict):
             index = spec['index']
             input_dims = spec['input_dims']
@@ -186,6 +189,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         gid, slices, aids = self.chosen_regions[index]
         tr = {'gid': gid, 'slices': slices}
+        _debug('tr = {!r}'.format(tr))
 
         # TODO: instead of forcing ourselfs to compute an iffy pad, we could
         # instead separate out all the non-square geometric augmentations and
@@ -198,6 +202,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         img = self.sampler.dset.imgs[gid]
 
         disp_im = None
+        _debug('self.channels = {!r}'.format(self.channels))
         if 'disparity' in self.channels:
 
             sampler = self.sampler
@@ -224,6 +229,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 disp_im = np.zeros()
 
         with_annots = ['boxes']
+        _debug('self.use_segmentation = {!r}'.format(self.use_segmentation))
         if self.use_segmentation:
             with_annots += ['segmentation']
 
@@ -232,6 +238,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         sample = self.sampler.load_sample(tr, visible_thresh=0.05,
                                           with_annots=with_annots, pad=pad)
 
+        _debug('sample = {!r}'.format(sample))
         imdata = kwimage.atleast_3channels(sample['im'])[..., 0:3]
 
         boxes = sample['annots']['rel_boxes']
@@ -267,6 +274,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             weights=np.array(weights),
             classes=classes,
         )
+        _debug('dets = {!r}'.format(dets))
         orig_size = np.array(imdata.shape[0:2][::-1])
 
         if self.augmenter:
@@ -340,6 +348,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             'orig_sizes': ItemContainer(orig_size, stack=False),
             'bg_weights': ItemContainer(bg_weight, stack=False),
         }
+        _debug('label = {!r}'.format(label))
 
         if 'segmentations' in dets.data and self.use_segmentation:
             # Convert segmentations to masks
@@ -369,6 +378,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         compoments = {
             'rgb': chw01,
         }
+        _debug('compoments = {!r}'.format(compoments))
+        _debug('disp_im = {!r}'.format(disp_im))
         if disp_im is not None:
             disp_im = kwarray.atleast_nd(disp_im, 3)
             compoments['disparity'] = torch.FloatTensor(
@@ -378,12 +389,14 @@ class DetectFitDataset(torch.utils.data.Dataset):
             k: ItemContainer(v, stack=True)
             for k, v in self.channels.encode(compoments).items()
         }
+        _debug('inputs = {!r}'.format(inputs))
 
         item = {
             'inputs': inputs,
             'label': label,
             'tr': ItemContainer(sample['tr'], stack=False),
         }
+        _debug('item = {!r}'.format(item))
         return item
 
     def make_loader(self, batch_size=16, num_workers=0, shuffle=False,
