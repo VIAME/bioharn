@@ -315,8 +315,8 @@ def train_vali_split(coco_dset):
         tag_dset = coco_dset.subset(gids)
         img_pcnt = int(round(tag_dset.n_images / coco_dset.n_images, 2) * 100)
         ann_pcnt = int(round(tag_dset.n_annots / coco_dset.n_annots, 2) * 100)
-        suffix = '_{:02d}_{:02d}_{}'.format(img_pcnt, ann_pcnt, tag)
-        print('suffix = {!r}'.format(suffix))
+        # suffix = '_{:02d}_{:02d}_{}'.format(img_pcnt, ann_pcnt, tag)
+        suffix = '_{:02d}_{}'.format(img_pcnt, tag)
         tag_dset.fpath = ub.augpath(coco_dset.fpath, suffix=suffix,
                                     multidot=True)
         datasets[tag] = tag_dset
@@ -411,4 +411,29 @@ def convert_cfarm_2019_part2():
     # csv_fpath =  ub.expandpath('~/remote/viame/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_AnnotatedObjects.csv')
 
 
+def merge():
+    import ndsampler
+    split_fpaths = {
+        'train':  [
+            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_44_44_train.mscoco.json',
+        ],
+        'test':  [
+            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_22_22_vali.mscoco.json',
+        ],
+        'vali': [
+            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_33_33_test.mscoco.json',
+        ],
+    }
+    splits = {}
+    for tag, paths in split_fpaths.items():
+        print('tag = {!r}'.format(tag))
+        dsets = []
+        for fpath in ub.ProgIter(paths, desc='read datasets'):
+            dset = ndsampler.CocoDataset(fpath)
+            dsets.append(dset)
 
+        print('Merging')
+        combo_dset = ndsampler.CocoDataset.union(*dsets, tag=tag)
+
+        # print('Write to destination {}'.format(dst_fpath))
+        # combo_dset.dump(dst_fpath, newlines=True)
