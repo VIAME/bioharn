@@ -6,6 +6,9 @@ import kwarray
 import kwimage
 import torch.utils.data.sampler as torch_sampler
 from bioharn.channel_spec import ChannelSpec
+from bioharn.data_containers import ItemContainer
+from bioharn.data_containers import container_collate
+from functools import partial
 
 
 class DetectFitDataset(torch.utils.data.Dataset):
@@ -337,8 +340,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
         index = torch.LongTensor([index])
         bg_weight = torch.FloatTensor([1.0])
 
-        from .data_containers import ItemContainer
-
         label = {
             'cxywh': ItemContainer(torch.FloatTensor(cxwh.data), stack=False),
             'class_idxs': ItemContainer(torch.LongTensor(dets.class_idxs), stack=False),
@@ -440,8 +441,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 reseed_(self.augmenter, rng)
 
         # torch.utils.data.sampler.WeightedRandomSampler
-        from bioharn.data_containers import container_collate
-        from functools import partial
 
         if xpu is None:
             num_devices = 1
