@@ -554,9 +554,17 @@ def setup_harn(cmdline=True, **kw):
 
     if config['normalize_inputs']:
         # Get stats on the dataset (todo: turn off augmentation for this)
+        import xdev
+        xdev.embed()
+
         _dset = torch_datasets['train']
+
+        for i in ub.ProgIter(range(len(_dset))):
+            _dset[i]
+
         stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(1000, len(_dset))]
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
+
         cacher = ub.Cacher('dset_mean', cfgstr=_dset.input_id + 'v3')
         input_stats = cacher.tryload()
         if input_stats is None:
@@ -565,8 +573,6 @@ def setup_harn(cmdline=True, **kw):
             # collate_fn = container_collate
             from functools import partial
             collate_fn = partial(container_collate, num_devices=1)
-            import xdev
-            xdev.embed()
 
             loader = torch.utils.data.DataLoader(
                 stats_subset,
