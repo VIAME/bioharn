@@ -225,8 +225,8 @@ def convert_cfarm(df, img_root):
     for job in ub.ProgIter(jobs, desc='redirect to cog images'):
         img = job.img
         img.pop('in_queue', None)
-        cog_fname = job.result()
-        img['file_name'] = cog_fname
+        cog_fpath = job.result()
+        img['file_name'] = cog_fpath
 
     # Remove hyper-small annotations, they are probably bad
     weird_anns = []
@@ -305,7 +305,8 @@ def _split_train_vali_test_gids(coco_dset, factor=2):
         """ helper to split while trying to maintain class balance within images """
         rng = kwarray.ensure_rng(rng)
         from ndsampler.utils.util_sklearn import StratifiedGroupKFold
-        selector = StratifiedGroupKFold(n_splits=n_splits, random_state=rng)
+        selector = StratifiedGroupKFold(n_splits=n_splits, random_state=rng,
+                                        shuffle=True)
         skf_list = list(selector.split(X=gids, y=cids, groups=gids))
         trainx, testx = skf_list[0]
         return trainx, testx
