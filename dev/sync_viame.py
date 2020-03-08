@@ -160,9 +160,9 @@ def convert_cfarm(df, img_root):
     dev_root = ub.ensuredir((img_root, '_dev'))
     cog_root = ub.ensuredir((dev_root, 'cog_rgb'))
 
-    if 1:
-        ub.delete(cog_root)
-        ub.ensuredir(cog_root)
+    # if 1:
+    #     ub.delete(cog_root)
+    #     ub.ensuredir(cog_root)
 
     workers = min(10, multiprocessing.cpu_count())
     jobs = util_futures.JobPool(mode='thread', max_workers=workers)
