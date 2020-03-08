@@ -864,7 +864,7 @@ class DetectionAugmentor(object):
             ] + ([iaa.Rot90(k=[0, 1, 2, 3])] * int(1 - gravity))  +
                 [
                     iaa.Sometimes(.9, iaa.CropAndPad(px=(-16, 16))),
-                ]
+                 ],
             )
             self._intensity = iaa.Sequential([
                 # Color, brightness, saturation, and contrast
@@ -983,14 +983,18 @@ class DetectionAugmentor(object):
             dets1.draw()
         """
 
+        print('to det')
         rgb_im_aug_det = self._intensity.to_deterministic()
         geom_aug_det = self._geometric.to_deterministic()
         disp_im_aug_det = self._augers['disp_intensity'].to_deterministic()
 
         input_dims = imdata.shape[0:2]
+        print('aug gdo')
         imdata = geom_aug_det.augment_image(imdata)
+        print('aug rgb')
         imdata = rgb_im_aug_det.augment_image(imdata)
 
+        print('disp_im = {!r}'.format(disp_im))
         if disp_im is not None:
             # print(kwarray.stats_dict(disp_im))
             disp_im = kwimage.ensure_uint255(disp_im)
@@ -1003,6 +1007,7 @@ class DetectionAugmentor(object):
         output_dims = imdata.shape[0:2]
 
         if len(dets):
+            print('aug dets')
             dets = dets.warp(geom_aug_det, input_dims=input_dims,
                              output_dims=output_dims)
 
