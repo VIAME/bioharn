@@ -208,7 +208,7 @@ class DetectEvaluator(object):
     """
     Ignore:
         from bioharn.detect_eval import *  # NOQA
-        config = {'xpu': 0, 'batch_size': 2}
+        config = {'xpu': 0, 'batch_size': 2, 'overlap': 0.5}
         config['deployed'] = '/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v27/dxziuzrv/deploy_MM_CascadeRCNN_dxziuzrv_019_GQDHOF.zip'
         config['dataset'] = ub.expandpath('/home/joncrall/data/private/_combo_cfarm/cfarm_test.mscoco.json')
 
@@ -298,6 +298,7 @@ class DetectEvaluator(object):
         pred_params = ub.dict_subset(evaluator.predictor.config, [
             'input_dims',
             'window_dims',
+            'overlap',
         ])
         evaluator.pred_cfg = nh.util.make_short_idstr(pred_params)
         evaluator.predcfg_tag = evaluator.pred_cfg
@@ -356,7 +357,8 @@ class DetectEvaluator(object):
         gid_to_pred, gid_to_pred_fpath = detect_predict._cached_predict(
             predictor, sampler, out_dpath, gids=None,
             draw=evaluator.config['draw'],
-            enable_cache=evaluator.config['enable_cache'])
+            enable_cache=0 and evaluator.config['enable_cache']
+        )
         return gid_to_pred
 
     def evaluate(evaluator):

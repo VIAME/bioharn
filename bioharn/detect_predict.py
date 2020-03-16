@@ -911,7 +911,8 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
             if draw_truth:
                 # draw truth if available
                 anns = list(ub.take(coco_dset.anns, coco_dset.gid_to_aids[gid]))
-                true_dets = kwimage.Detections.from_coco_annots(anns, dset=coco_dset)
+                true_dets = kwimage.Detections.from_coco_annots(anns,
+                                                                dset=coco_dset)
                 true_dets.draw_on(image, alpha=None, color='green')
 
             flags = dets.scores > .2
