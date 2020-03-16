@@ -597,6 +597,18 @@ if __name__ == '__main__':
             $HOME/work/bioharn/fit/runs/bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000055.pt,\
             $HOME/work/bioharn/fit/runs/bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000056.pt,]"
 
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.test.json \
+            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v27/dxziuzrv/deploy_MM_CascadeRCNN_dxziuzrv_019_GQDHOF.zip
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.test.json \
+            --deployed="[$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v24/deploy_MM_CascadeRCNN_ddoxsxjs_048_QWTOJP.zip,$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v24/deploy_MM_CascadeRCNN_ddoxsxjs_078_FJXQLY.zip,\
+            $HOME/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v24/torch_snapshots/_epoch_00000000.pt,\
+            $HOME/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v24/torch_snapshots/_epoch_00000030.pt,\
+            $HOME/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v24/torch_snapshots/_epoch_00000060.pt,\
+            $HOME/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v24/torch_snapshots/_epoch_00000090.pt,\
+            $HOME/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v24/torch_snapshots/_epoch_00000106.pt,]"
 
     """
 
