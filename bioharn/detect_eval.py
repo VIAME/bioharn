@@ -209,11 +209,8 @@ class DetectEvaluator(object):
     Ignore:
         from bioharn.detect_eval import *  # NOQA
         config = {'xpu': 0, 'batch_size': 2}
-        # config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000044.pt')
-        # config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v10-test-retinanet/deploy_MM_RetinaNet_daodqsmy_010_QRNNNW.zip'
-        # config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v11-test-cascade/deploy_MM_CascadeRCNN_ovphtcvk_037_HZUJKO.zip'
-        config['deployed'] = '/home/joncrall/work/bioharn/fit/nice/bioharn-det-v16-cascade/deploy_MM_CascadeRCNN_hvayxfyx_036_TLRPCP'
-        config['dataset'] = ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
+        config['deployed'] = '/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v27/dxziuzrv/deploy_MM_CascadeRCNN_dxziuzrv_019_GQDHOF.zip'
+        config['dataset'] = ub.expandpath('/home/joncrall/data/private/_combo_cfarm/cfarm_test.mscoco.json')
 
         evaluator = evaluator = DetectEvaluator(config)
         evaluator._init()
@@ -460,6 +457,34 @@ class DetectEvaluator(object):
             print('write fig_fpath = {!r}'.format(fig_fpath))
             fig.savefig(fig_fpath)
 
+        # Get per-class detection results
+        ovr_binvecs = cfsn_vecs.binarize_ovr()
+
+        ovr_roc_result = ovr_binvecs.roc()['perclass']
+        ovr_pr_result = ovr_binvecs.precision_recall()['perclass']
+        if evaluator.config['draw']:
+            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            ovr_roc_result.draw(fnum=2)
+
+            # TODO: MCC / G-score / F-score vs threshold
+            fig_fpath = join(evaluator.paths['metrics'], 'perclass_roc.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
+
+            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            ovr_pr_result.draw(fnum=2)
+            fig_fpath = join(evaluator.paths['metrics'], 'perclass_pr.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
+
         # print(dmet.score_voc())
         # print(dmet.score_coco(verbose=1))
         # dmet.score_netharn()
@@ -494,6 +519,9 @@ class DetectEvaluator(object):
             'predcfg_tag': evaluator.predcfg_tag,
             'roc_result': roc_result,
             'pr_result': pr_result,
+
+            'ovr_roc_result': ovr_roc_result,
+            'ovr_pr_result': ovr_pr_result,
 
             'eval_config': evaluator.config.asdict(),
             'train_info': evaluator.train_info,
@@ -597,8 +625,10 @@ if __name__ == '__main__':
             $HOME/work/bioharn/fit/runs/bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000055.pt,\
             $HOME/work/bioharn/fit/runs/bioharn-det-v18-cascade-mc-disp/uejaxygd/torch_snapshots/_epoch_00000056.pt,]"
 
+        /home/joncrall/data/private/_combo_cfarm
+
         python ~/code/bioharn/bioharn/detect_eval.py \
-            --dataset=~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.test.json \
+            --dataset=/home/joncrall/data/private/_combo_cfarm/cfarm_test.mscoco.json \
             --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v27/dxziuzrv/deploy_MM_CascadeRCNN_dxziuzrv_019_GQDHOF.zip
 
         python ~/code/bioharn/bioharn/detect_eval.py \

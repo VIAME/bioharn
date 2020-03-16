@@ -808,7 +808,7 @@ def _coerce_sampler(config):
 @profile
 def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
                     draw=False, enable_cache=True, async_buffer=False,
-                    verbose=1):
+                    verbose=1, draw_truth=True):
     """
     Helper to only do predictions that havent been done yet.
 
@@ -869,7 +869,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         gen = pred_gen
 
     gid_to_pred = {}
-    prog = ub.ProgIter(gen, total=len(gids), desc='buffered detect (caching)',
+    prog = ub.ProgIter(gen, total=len(gids), desc='buffered detect',
                        verbose=verbose)
     for img_idx, (gid, dets) in enumerate(prog):
         gid_to_pred[gid] = dets
@@ -907,6 +907,12 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
             viz_fpath = join(draw_outdir, viz_fname)
 
             image = kwimage.imread(img_fpath)
+
+            if draw_truth:
+                # draw truth if available
+                anns = list(ub.take(coco_dset.anns, coco_dset.gid_to_aids[gid]))
+                true_dets = kwimage.Detections.from_coco_annots(anns, dset=coco_dset)
+                true_dets.draw_on(image, alpha=None, color='green')
 
             flags = dets.scores > .2
             flags[kwarray.argmaxima(dets.scores, num=10)] = True
