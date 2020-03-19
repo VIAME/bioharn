@@ -631,6 +631,7 @@ if __name__ == '__main__':
 
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=/home/joncrall/data/private/_combo_cfarm/cfarm_test.mscoco.json \
+            --overlap=0.5 --draw=1000 \
             --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v27/dxziuzrv/deploy_MM_CascadeRCNN_dxziuzrv_019_GQDHOF.zip
 
         python ~/code/bioharn/bioharn/detect_eval.py \
