@@ -988,9 +988,23 @@ if __name__ == '__main__':
             --batch_size=4 \
             --bstep=8
 
-        --num_draw=0 --draw_interval=0
-
-
+        python -m bioharn.detect_fit \
+            --nice=detect-sealion-cascade-v6 \
+            --workdir=$HOME/work/sealions \
+            --train_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_train.mscoco.json \
+            --vali_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=1e-2 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.5 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --min_lr=1e-6 \
+            --workers=4 --xpu=0 --batch_size=8 --bstep=1
     """
     import traceback
     _orig_formatwarning = warnings.formatwarning
