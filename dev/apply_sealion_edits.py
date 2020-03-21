@@ -207,10 +207,17 @@ def main():
             sub_dets.draw(color='green')
             xdev.InteractiveIter.draw()
 
-    out_fpath = '/home/joncrall/remote/namek/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6.mscoco.json'
+    out_fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6.mscoco.json')
+    if 0:
+        coco_dset = ndsampler.CocoDataset(out_fpath)
     coco_dset.dump(out_fpath, newlines=True)
     coco_dset.fpath = out_fpath
 
+    sealon_holdout_sets(coco_dset)
+
+
+def sealon_holdout_sets(coco_dset):
+    import ubelt as ub
     year_to_imgs = ub.group_items(coco_dset.imgs.values(), lambda x: x['year_code'])
     print(ub.map_vals(len, year_to_imgs))
     vali_years = ['2010', '2016']
@@ -221,7 +228,9 @@ def main():
         subset = coco_dset.subset(gids)
         subset.fpath = ub.augpath(coco_dset.fpath, suffix='_{}'.format(tag), multidot=1)
         print('subset.fpath = {!r}'.format(subset.fpath))
+        print('len(gids) = {}'.format(len(gids)))
         subset.dump(subset.fpath, newlines=True)
+
 
 if __name__ == '__main__':
     """

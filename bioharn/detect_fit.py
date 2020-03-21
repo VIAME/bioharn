@@ -751,8 +751,9 @@ def setup_harn(cmdline=True, **kw):
         'keep_freq': 30,
         'export_modules': ['bioharn'],  # TODO
         'prog_backend': 'progiter',  # alternative: 'tqdm'
-        'keyboard_debug': True,
+        'keyboard_debug': False,
         'eager_dump_tensorboard': True,
+        'deploy_after_error': True,
         'timeout': config['timeout'],
     })
     harn.intervals.update({
@@ -1005,13 +1006,18 @@ if __name__ == '__main__':
             --normalize_inputs=True \
             --min_lr=1e-6 \
             --workers=4 --xpu=0 --batch_size=8 --bstep=1
+
+
+    coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_train.mscoco.json
+
     """
-    import traceback
-    _orig_formatwarning = warnings.formatwarning
-    def _monkeypatch_formatwarning_tb(*args, **kwargs):
-        s = _orig_formatwarning(*args, **kwargs)
-        tb = traceback.format_stack()
-        s += ''.join(tb[:-1])
-        return s
-    warnings.formatwarning = _monkeypatch_formatwarning_tb
+    if 0:
+        import traceback
+        _orig_formatwarning = warnings.formatwarning
+        def _monkeypatch_formatwarning_tb(*args, **kwargs):
+            s = _orig_formatwarning(*args, **kwargs)
+            tb = traceback.format_stack()
+            s += ''.join(tb[:-1])
+            return s
+        warnings.formatwarning = _monkeypatch_formatwarning_tb
     fit()
