@@ -1008,7 +1008,10 @@ if __name__ == '__main__':
             --workers=4 --xpu=0 --batch_size=8 --bstep=1
 
 
+
+
     coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_train.mscoco.json
+    coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_vali.mscoco.json
 
     """
     if 0:

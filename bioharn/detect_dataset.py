@@ -255,7 +255,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         for idx, cid in enumerate(cids):
             # set weights of uncertain varaibles to zero
             catname = self.sampler.dset._resolve_to_cat(cid)['name']
-            if catname in {'unknown', 'ignore'}:
+            if catname.lower() in {'unknown', 'ignore'}:
                 weights[idx] = 0
 
         # TODO: remove anything marked as "negative"
