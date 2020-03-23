@@ -5,6 +5,7 @@ images that only have "dot" annotations.
 Associates detected boxes with dots, and uses several hueristics to refine
 existing boxes.
 """
+from os.path import join
 import ubelt as ub
 import numpy as np
 import kwimage
@@ -48,10 +49,10 @@ def load_candidate_detections():
     """
 
     fpaths = {
-        'cascade2': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v6/pred/detections.mscoco.json'),
-        'cascade': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v2/pred/detections.mscoco.json'),
-        'generic': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_generic.json'),
-        'swfsc': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_swfsc.json'),
+        'cascade_v6': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v6/pred/detections.mscoco.json'),
+        # 'cascade': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v2/pred/detections.mscoco.json'),
+        # 'generic': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_generic.json'),
+        # 'swfsc': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_swfsc.json'),
     }
     pred_dsets = {}
     for key, fpath in fpaths.items():
@@ -69,54 +70,140 @@ def load_candidate_detections():
     #     combo_dset = ndsampler.CocoDataset.union(*partial_dsets)
     #     pred_dsets['cascade'] = combo_dset
 
-    truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_v3.mscoco.json')
+    truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6.mscoco.json')
 
     print('load true')
     true_dset = ndsampler.CocoDataset(truth_fpath)
     return true_dset, pred_dsets
 
 
-def assign(true_annots, stacked_dets):
+# def _true_devcheck(true_dset):
+#     allkeys = set()
+#     for img in true_dset.imgs.values():
+#         allkeys.update(img)
+
+
+def nearest_point_on_box():
+    pass
+
+
+def assign(true_dset, true_annots, stacked_dets):
     """
     Heuristic assignment function
+
+    Ignore:
+        import kwplot
+        kwplot.autompl()
+
+        true_dets = true_annots.detections
+
+        assigned_true = true_dets.take([t[0] for t in assignment])
+        assigned_pred = stacked_dets.take([t[1] for t in assignment])
+
+        pt1 = np.array([
+            kpts.xy[0]
+            for kpts in assigned_true.data['keypoints']
+        ])
+        pt2 = assigned_pred.boxes.xy_center
+
+        image = true_dset.load_image(true_img['id'])
+        canvas = image.copy()
+        kwplot.imshow(canvas, doclf=1)
+        true_dets.draw(color='green')
+        assigned_true.draw(color='blue', labels=False)
+        assigned_pred.draw(color='purple', labels=False)
+        kwplot.draw_line_segments(pt1, pt2)
     """
     if len(stacked_dets) == 0:
         return []
 
-    pred_boxes = stacked_dets.boxes
-    pred_scores = stacked_dets.scores
-    pred_xys = pred_boxes.xy_center.reshape(-1, 2)
+    boxstats = true_dset.boxsize_stats(
+            aids=true_annots.aids,
+            statskw=dict(median=True))
 
     true_xys = np.array([
         kp['xy']
         for kpts in true_annots.lookup('keypoints')
         for kp in kpts
     ])
-
     true_boxes = true_annots.boxes
+    true_weight = np.ones(len(true_boxes))
+
+    pred_boxes = stacked_dets.boxes
+    pred_scores = stacked_dets.scores
+    pred_cxys = pred_boxes.xy_center.reshape(-1, 2)
+    pred_weight = np.ones(len(pred_boxes))
+
+    if 'classes' in stacked_dets.meta:
+        # Penalize predictions that have shapes very different than what we
+        # would expect based on per-class priors
+        pred_catnames = [stacked_dets.classes[idx]
+                         for idx in stacked_dets.class_idxs]
+        pred_size_prior = [
+                boxstats['all']['stats']['med']
+                if catname not in boxstats['perclass'] else
+                boxstats['perclass'][catname]['stats']['med']
+                for catname in pred_catnames]
+        pred_size = np.hstack([pred_boxes.width, pred_boxes.height])
+        pred_shape_delta = np.sqrt(((pred_size - pred_size_prior) ** 2).sum(axis=1))
+        pred_weight *= (1 / pred_shape_delta)
+
+        # Upweight truths that have very shapes very different than what we
+        # would expect based on per-class priors. These boxes are more likely
+        # to be bad, so prioritize finding an assignment for them.
+        true_size_prior = [
+                boxstats['all']['stats']['med']
+                if catname not in boxstats['perclass'] else
+                boxstats['perclass'][catname]['stats']['med']
+                for catname in true_annots.cnames]
+        true_size = np.hstack([true_boxes.width, true_boxes.height])
+        true_shape_delta = np.sqrt(((true_size - true_size_prior) ** 2).sum(axis=1))
+        true_weight *= true_shape_delta
+    else:
+        pred_catnames = None
 
     # add a small width and height to dots
     # true_dot_boxes = kwimage.Boxes([xy.tolist() + [1, 1]
     #                                 for xy in true_xys], 'cxywh')
 
     # compute distance between dots and predicted boxes
-    dists = metrics.euclidean_distances(true_xys, pred_xys)
-    ious = true_boxes.ious(pred_boxes)
+    dists = metrics.euclidean_distances(true_xys, pred_cxys)
+    closeness = (1 / dists)
+    # ious = true_boxes.ious(pred_boxes)
 
-    values = (1 / dists) * ious
-    values = values * pred_scores[None, :]
+    # values = (1 / dists) * ious
+    values = (
+            # ious *
+            closeness *
+            pred_scores[None, :] *
+            pred_weight[None, :] *
+            np.log(true_weight[:, None] + 1)
+    )
+
+    try:
+        # Bump the affinity between truth and predictions with the same label
+        true_cidxs = np.array([stacked_dets.classes.index(cname)
+                               for cname in true_annots.cnames])
+        pred_cidxs = stacked_dets.class_idxs
+        same_label = true_cidxs[:, None] == pred_cidxs[None, :]
+        values[same_label] *= 2
+    except Exception:
+        pass
 
     # prevent ridiculous assignments
-    thresh = (true_boxes.width * 2)
-    values[dists > thresh] = -np.inf
+    # thresh = (true_boxes.width * 2)
+    # values[dists > thresh] = -np.inf
 
-    area_ratio = true_boxes.area / pred_boxes.area.T
-    values[(area_ratio > 1.1) | (area_ratio < 0.10)] = -np.inf
-
-    # The dot must be in the predicted box
-    values[~pred_boxes.contains(true_xys).T] = -np.inf
+    # area_ratio = true_boxes.area / pred_boxes.area.T
+    # values[(area_ratio > 1.1) | (area_ratio < 0.10)] = -np.inf
 
     # The dots must be contained in the predicted box
+    values[~pred_boxes.contains(true_xys).T] = -np.inf
+
+    # Only assign predictions with a high enough score
+    score_thresh = 0.4
+    values[:, pred_scores < score_thresh] = -np.inf
+
     # flags = (ious > 0).astype(dists.dtype)
 
     # value = (1 / dists) * flags
@@ -140,24 +227,33 @@ def associate_detections(true_dset, pred_dsets):
 
     refined_dset = true_dset.copy()
 
-    # for pred_dset in [dset1, dset2, dset3]:
-    for true_img in ub.ProgIter(list(true_dset.imgs.values())):
+    # We wont refine any images with manual annotations
+    gids_with_manual_annotations = set()
+    for ann in true_dset.anns.values():
+        if 'box_source' in ann:
+            if ann['box_source'] == 'refinement-2020-03-18':
+                gids_with_manual_annotations.add(ann['image_id'])
+    gids_with_heuristic_annotations = sorted(
+            set(true_dset.imgs.keys()) - gids_with_manual_annotations)
+
+    gid = gids_with_heuristic_annotations[10]
+
+    for gid in ub.ProgIter(gids_with_heuristic_annotations):
+        true_img = true_dset.imgs[gid]
         true_annots = true_dset.annots(gid=true_img['id'])
 
+        # Create collection all detection candidates
         key_to_dets = {}
         for key, pred_dset in pred_dsets.items():
             if true_img['file_name'] in pred_dset.index.file_name_to_img:
                 pred_img = pred_dset.index.file_name_to_img[true_img['file_name']]
                 pred_annots = pred_dset.annots(gid=pred_img['id'])
-                pred_boxes = pred_annots.boxes
-                pred_score = np.array(pred_annots.lookup('score'))
-                key_to_dets[key] = kwimage.Detections(
-                    boxes=pred_boxes,
-                    scores=pred_score)
+                key_to_dets[key] = pred_annots.detections
 
         if key_to_dets and len(true_annots):
+            # Concat all candidates and assign to true annotations
             stacked_dets = kwimage.Detections.concatenate(list(key_to_dets.values()))
-            assignment = assign(true_annots, stacked_dets)
+            assignment = assign(true_dset, true_annots, stacked_dets)
         else:
             assignment = []
 
@@ -188,11 +284,13 @@ def associate_detections(true_dset, pred_dsets):
             kwplot.autompl()
 
             drawkw = {
+                'cascade_v6': dict(color='blue', thickness=6),
                 'cascade': dict(color='blue', thickness=6),
                 'generic': dict(color='purple', thickness=4),
                 'swfsc': dict(color='red', thickness=3),
                 'true': dict(color='green', thickness=2),
             }
+            # drawkw = ub.dict_isect(drawkw, pred_dsets)
 
             image = true_dset.load_image(true_img['id'])
 
@@ -211,10 +309,15 @@ def associate_detections(true_dset, pred_dsets):
                 kw.pop('thickness')
                 canvas = subboxes.draw_on(canvas, **kw)
 
-            ub.ensuredir('/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/detections/refine3')
-            kwimage.imwrite('/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/detections/refine3/temp_{:04d}.jpg'.format(true_img['id']), canvas)
+            viz_dpath = ub.ensuredir('/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/detections/refine6')
+            curr_dpath = ub.ensuredir((viz_dpath, 'curr'))
+            next_dpath = ub.ensuredir((viz_dpath, 'next'))
+            curr_fpath = join(curr_dpath, 'temp_{:04d}.jpg'.format(true_img['id']))
+            next_fpath = join(next_dpath, 'temp_{:04d}.jpg'.format(true_img['id']))
+            kwimage.imwrite(curr_fpath, canvas)
 
             drawkw = {
+                'cascade_v6': dict(color='blue', thickness=6),
                 'cascade': dict(color='blue', thickness=6),
                 'generic': dict(color='purple', thickness=4),
                 'swfsc': dict(color='red', thickness=3),
@@ -224,8 +327,7 @@ def associate_detections(true_dset, pred_dsets):
                 canvas = key_to_dets[key].boxes.draw_on(canvas, **drawkw[key])
             canvas = true_boxes.draw_on(canvas, color='green', thickness=2)
             # kwplot.imshow(canvas)
-            ub.ensuredir('/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/detections/draw3')
-            kwimage.imwrite('/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/detections/draw3/temp_{:04d}.jpg'.format(true_img['id']), canvas)
+            kwimage.imwrite(next_fpath, canvas)
 
     for ann in refined_dset.anns.values():
         key = ann.pop('key', 'true')
