@@ -1,7 +1,9 @@
 """
+Use pretrained networks to predict reasonable box initializations for images
+images that only have "dot" annotations.
 
-Associate detected boxes with dots
-
+Associates detected boxes with dots, and uses several hueristics to refine
+existing boxes.
 """
 import ubelt as ub
 import numpy as np
@@ -26,6 +28,17 @@ def run_cascade_detector():
         --input_dims=512,512 \
         --workers=10 \
         --xpu=0 --batch_size=256
+
+
+    python -m bioharn.detect_predict \
+        --dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6.mscoco.json \
+        --deployed=$HOME/remote/viame/work/sealions/fit/runs/detect-sealion-cascade-v6/lvcppmtu/deploy_MM_CascadeRCNN_lvcppmtu_009_GDCTSU.zip \
+        --out_dpath=$HOME/data/US_ALASKA_MML_SEALION/detections/cascade_v6 \
+        --draw=0 \
+        --workers=4 \
+        --workdir=$HOME/work/sealions \
+        --sampler_backend=cog \
+        --xpu=0 --batch_size=128
     """
 
 
@@ -35,6 +48,7 @@ def load_candidate_detections():
     """
 
     fpaths = {
+        'cascade2': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v6/pred/detections.mscoco.json'),
         'cascade': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v2/pred/detections.mscoco.json'),
         'generic': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_generic.json'),
         'swfsc': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_swfsc.json'),
@@ -239,6 +253,6 @@ def main():
 if __name__ == '__main__':
     """
     CommandLine:
-        python ~/code/bioharn/dev/associate_seals.py
+        python ~/code/bioharn/dev/refine_detections.py
     """
     main()
