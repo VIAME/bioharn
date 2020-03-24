@@ -407,19 +407,21 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
     def make_loader(self, batch_size=16, num_workers=0, shuffle=False,
                     pin_memory=False, drop_last=False, multiscale=False,
-                    xpu=None):
+                    balance=None, xpu=None):
         """
         Example:
-            >>> # DISABLE_DOCTSET
-            >>> self = DetectFitDataset.demo()
+            >>> from bioharn.detect_dataset import *  # NOQA
+            >>> self = DetectFitDataset.demo('shapes32')
             >>> self.augmenter = None
+            >>> loader = self.make_loader(batch_size=4, shuffle=True, balance='tfidf')
+            >>> loader.batch_sampler.index_to_prob
             >>> loader = self.make_loader(batch_size=1, shuffle=True)
             >>> # training batches should have multiple shapes
             >>> shapes = set()
             >>> for raw_batch in ub.ProgIter(iter(loader), total=len(loader)):
             >>>     inputs = raw_batch['inputs']['rgb']
             >>>     # test to see multiscale works
-            >>>     shapes.add(inputs.shape[-1])
+            >>>     shapes.add(inputs.data[0].shape[-1])
             >>>     if len(shapes) > 1:
             >>>         break
         """
@@ -430,7 +432,23 @@ class DetectFitDataset(torch.utils.data.Dataset):
         else:
             sampler = torch_sampler.SequentialSampler(self)
 
-        if multiscale:
+        if balance is not None:
+            assert shuffle
+            assert balance == 'tfidf'
+            anns = self.sampler.dset.anns
+
+            # label_freq = ub.map_vals(len, self.sampler.dset.index.cid_to_aids)
+            index_to_labels = [
+                [anns[aid]['category_id'] for aid in aids]
+                for gid, slices, aids in self.chosen_regions
+            ]
+
+            batch_sampler = nh.data.batch_samplers.GroupedBalancedBatchSampler(
+                index_to_labels, batch_size=batch_size, num_batches='auto',
+                shuffle=shuffle, rng=None
+            )
+            print('balanced batch_sampler = {!r}'.format(batch_sampler))
+        elif multiscale:
             batch_sampler = MultiScaleBatchSampler2(
                 sampler, batch_size=batch_size, drop_last=drop_last,
                 factor=32, scales=[-9, 1])

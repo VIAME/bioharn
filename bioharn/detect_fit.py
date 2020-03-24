@@ -53,6 +53,7 @@ class DetectFitConfig(scfg.Config):
         # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['medium', 'simple']),
         'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'low', 'simple', 'complex', None]),
         'gravity': scfg.Value(0.0, help='how often to assume gravity vector for augmentation'),
+        'balance': scfg.Value('tfidf'),
 
         'channels': scfg.Value('rgb', help='special channel code. See ChannelSpec'),
 
@@ -544,6 +545,7 @@ def setup_harn(cmdline=True, **kw):
             batch_size=config['batch_size'],
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
+            balance=config['balance'],
             multiscale=(tag == 'train') and config['multiscale'],
             pin_memory=True, xpu=xpu)
         for tag, dset in torch_datasets.items()

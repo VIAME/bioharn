@@ -63,6 +63,16 @@ def run_cascade_detector():
         --workdir=$HOME/work/sealions \
         --sampler_backend=cog \
         --xpu=0 --batch_size=128
+
+    python -m bioharn.detect_predict \
+        --dataset=/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_auto_v7.mscoco.json \
+        --deployed=/home/joncrall/work/sealions/fit/runs/detect-sealion-cascade-v7/cobrrkfz/explit_checkpoints/_epoch_00000006_2020-03-24T144631+5.pt \
+        --out_dpath=$HOME/data/US_ALASKA_MML_SEALION/detections/cascade_v7 \
+        --draw=0 \
+        --workers=4 \
+        --workdir=$HOME/work/sealions \
+        --sampler_backend=cog \
+        --xpu=0 --batch_size=256
     """
 
 
@@ -72,7 +82,8 @@ def load_candidate_detections():
     """
 
     fpaths = {
-        'cascade_v6': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v6/pred/detections.mscoco.json'),
+        'cascade_v7': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v6/pred/detections.mscoco.json'),
+        # 'cascade_v6': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v6/pred/detections.mscoco.json'),
         # 'cascade': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v2/pred/detections.mscoco.json'),
         # 'generic': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_generic.json'),
         # 'swfsc': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_swfsc.json'),
@@ -100,13 +111,14 @@ def load_candidate_detections():
     return true_dset, pred_dsets
 
 
-def _true_devcheck(true_dset):
-    allkeys = set()
-    for img in true_dset.imgs.values():
-        allkeys.update(img)
+def _true_devcheck():
     truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
     print('load true')
     true_dset = ndsampler.CocoDataset(truth_fpath)
+
+    allkeys = set()
+    for img in true_dset.imgs.values():
+        allkeys.update(img)
 
     # find fully manual annotation
     manual_gids = set()
@@ -120,7 +132,7 @@ def _true_devcheck(true_dset):
     # split_gids = {}
 
     other_gids = sorted(set(true_dset.imgs.keys()) - manual_gids)
-    other_gids = kwarray.shuffle(other_gids, rng=432)[0:len(manual_dset.imgs)]
+    # other_gids = kwarray.shuffle(other_gids, rng=432)[0:len(manual_dset.imgs)]
 
     other_dset = true_dset.subset(other_gids)
 
