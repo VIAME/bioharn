@@ -14,6 +14,29 @@ import ndsampler
 from sklearn import metrics
 
 
+def refine_cascade_detecotr():
+    """
+    python -m bioharn.detect_fit \
+        --nice=detect-sealion-cascade-v7 \
+        --workdir=$HOME/work/sealions \
+        --train_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_manual_v7.mscoco.json \
+        --vali_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_auto_v7.mscoco.json \
+        --schedule=ReduceLROnPlateau-p2-c2 \
+        --pretrained==$HOME/remote/viame/work/sealions/fit/runs/detect-sealion-cascade-v6/lvcppmtu/explit_checkpoints/_epoch_00000011_2020-03-23T221146+5.pt \
+        --augment=complex \
+        --init=noop \
+        --arch=cascade \
+        --optim=sgd --lr=1e-3 \
+        --input_dims=window \
+        --window_dims=512,512 \
+        --window_overlap=0.5 \
+        --multiscale=True \
+        --normalize_inputs=True \
+        --min_lr=1e-6 \
+        --workers=4 --xpu=0 --batch_size=8 --bstep=1
+    """
+
+
 def run_cascade_detector():
     """
     notes:
@@ -77,14 +100,34 @@ def load_candidate_detections():
     return true_dset, pred_dsets
 
 
-# def _true_devcheck(true_dset):
-#     allkeys = set()
-#     for img in true_dset.imgs.values():
-#         allkeys.update(img)
+def _true_devcheck(true_dset):
+    allkeys = set()
+    for img in true_dset.imgs.values():
+        allkeys.update(img)
+    truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
+    print('load true')
+    true_dset = ndsampler.CocoDataset(truth_fpath)
 
+    # find fully manual annotation
+    manual_gids = set()
+    for ann in true_dset.anns.values():
+        if ann['box_source'] == 'refinement-2020-03-18':
+            manual_gids.add(ann['image_id'])
 
-def nearest_point_on_box():
-    pass
+    manual_dset = true_dset.subset(manual_gids)
+
+    # vali_years = ['2010', '2016']
+    # split_gids = {}
+
+    other_gids = sorted(set(true_dset.imgs.keys()) - manual_gids)
+    other_gids = kwarray.shuffle(other_gids, rng=432)[0:len(manual_dset.imgs)]
+
+    other_dset = true_dset.subset(other_gids)
+
+    manual_dset.fpath = true_dset.fpath.replace('_refined', '_manual')
+    other_dset.fpath = true_dset.fpath.replace('_refined', '_auto')
+    manual_dset.dump(manual_dset.fpath, newlines=True)
+    other_dset.dump(other_dset.fpath, newlines=True)
 
 
 def assign(true_dset, true_annots, stacked_dets):
@@ -236,7 +279,11 @@ def associate_detections(true_dset, pred_dsets):
     gids_with_heuristic_annotations = sorted(
             set(true_dset.imgs.keys()) - gids_with_manual_annotations)
 
-    gid = gids_with_heuristic_annotations[10]
+    gid = gids_with_heuristic_annotations[15]
+
+    VIZ = 0
+
+    modified_time = ub.timestamp()
 
     for gid in ub.ProgIter(gids_with_heuristic_annotations):
         true_img = true_dset.imgs[gid]
@@ -278,71 +325,71 @@ def associate_detections(true_dset, pred_dsets):
                 ann['bbox'] = new_bbox.tolist()
                 key = offset_keys[np.where(pred_idx < offset_vals)[0][0]]
                 ann['key'] = key
+                ann['box_source'] = key
+                if 'changelog' not in ann:
+                    ann['changelog'] = []
+                ann['changelog'].append('modified: {}'.format(modified_time))
+                ann['score'] = stacked_dets.scores[pred_idx]
 
-        if 0:
+        if VIZ:
             import kwplot
             kwplot.autompl()
 
-            drawkw = {
-                'cascade_v6': dict(color='blue', thickness=6),
-                'cascade': dict(color='blue', thickness=6),
-                'generic': dict(color='purple', thickness=4),
-                'swfsc': dict(color='red', thickness=3),
-                'true': dict(color='green', thickness=2),
-            }
-            # drawkw = ub.dict_isect(drawkw, pred_dsets)
+            # drawkw = {
+            #     'cascade_v6': dict(color='blue', thickness=6),
+            #     'cascade': dict(color='blue', thickness=6),
+            #     'generic': dict(color='purple', thickness=4),
+            #     'swfsc': dict(color='red', thickness=3),
+            #     'true': dict(color='green', thickness=2),
+            # }
+            # # drawkw = ub.dict_isect(drawkw, pred_dsets)
+
+            # image = true_dset.load_image(true_img['id'])
+
+            # refined_annots = refined_dset.annots(aids=aids)
+
+            # canvas = image.copy()
+            # # canvas = true_boxes.draw_on(canvas, color='green', thickness=4)
+
+            # keys, groupxs = kwarray.group_indices(refined_annots.lookup('key'))
+            # for key, idxs in zip(keys, groupxs):
+            #     subdets = refined_annots.take(idxs).detections
+            #     kw = drawkw[key].copy()
+            #     kw.pop('thickness')
+            #     canvas = subdets.draw_on(canvas, **kw)
+
+            # cand_dpath = ub.ensuredir((viz_dpath, 'candidates'))
+            # cand_fpath = join(cand_dpath, 'temp_{:04d}.jpg'.format(true_img['id']))
+            # kwimage.imwrite(cand_fpath, canvas)
+
+            true_dets = true_dset.annots(gid=true_img['id']).detections
+            assigned_true = true_dets.take([t[0] for t in assignment])
+            assigned_pred = stacked_dets.take([t[1] for t in assignment])
+            pt1 = np.array([
+                kpts.xy[0]
+                for kpts in assigned_true.data['keypoints']
+            ])
+            pt2 = assigned_pred.boxes.xy_center
 
             image = true_dset.load_image(true_img['id'])
-
-            true_boxes = true_dset.annots(gid=true_img['id']).boxes
-
-            refined_annots = refined_dset.annots(aids=aids)
-
             canvas = image.copy()
-            # canvas = true_boxes.draw_on(canvas, color='green', thickness=4)
-
-            keys, groupxs = kwarray.group_indices(refined_annots.lookup('key'))
-            for key, idxs in zip(keys, groupxs):
-                subboxes = refined_annots.take(idxs).boxes
-                kw = drawkw[key].copy()
-                print('kw = {!r}'.format(kw))
-                kw.pop('thickness')
-                canvas = subboxes.draw_on(canvas, **kw)
-
-            viz_dpath = ub.ensuredir('/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/detections/refine6')
-            curr_dpath = ub.ensuredir((viz_dpath, 'curr'))
-            next_dpath = ub.ensuredir((viz_dpath, 'next'))
-            curr_fpath = join(curr_dpath, 'temp_{:04d}.jpg'.format(true_img['id']))
-            next_fpath = join(next_dpath, 'temp_{:04d}.jpg'.format(true_img['id']))
-            kwimage.imwrite(curr_fpath, canvas)
-
-            drawkw = {
-                'cascade_v6': dict(color='blue', thickness=6),
-                'cascade': dict(color='blue', thickness=6),
-                'generic': dict(color='purple', thickness=4),
-                'swfsc': dict(color='red', thickness=3),
-            }
-            canvas = image.copy()
-            for key, dets in key_to_dets.items():
-                canvas = key_to_dets[key].boxes.draw_on(canvas, **drawkw[key])
-            canvas = true_boxes.draw_on(canvas, color='green', thickness=2)
+            kwplot.imshow(canvas, doclf=1)
+            canvas = true_dets.draw_on(canvas, color='green')
+            # canvas = stacked_dets.draw_on(canvas, color='red')
+            canvas = assigned_true.draw_on(canvas, color='blue', labels=True)
+            canvas = assigned_pred.draw_on(canvas, color='purple', labels=False)
+            canvas = kwimage.draw_line_segments_on_image(canvas, pt1, pt2)
             # kwplot.imshow(canvas)
-            kwimage.imwrite(next_fpath, canvas)
+            viz_dpath = ub.ensuredir(
+                    '/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/detections/refine6')
+            assign_dpath = ub.ensuredir((viz_dpath, 'assign'))
+            assign_fpath = join(assign_dpath, 'temp_{:04d}.jpg'.format(true_img['id']))
+            kwimage.imwrite(assign_fpath, canvas)
 
     for ann in refined_dset.anns.values():
         key = ann.pop('key', 'true')
-        if key == 'true':
-            ann['box_source'] = 'dot_heuristic'
-        elif key == 'cascade':
-            ann['box_source'] = 'cascade'
-        elif key == 'swfsc':
-            ann['box_source'] = 'seal_det'
-        elif key == 'generic':
-            ann['box_source'] = 'generic_det'
-        else:
-            assert False
 
-    refined_dset.fpath = true_dset.fpath.replace('_v3', '_refined_v5')
+    refined_dset.fpath = true_dset.fpath.replace('_v6', '_v7')
     assert 'refined' in refined_dset.fpath
     refined_dset.dump(refined_dset.fpath, newlines=True)
 
