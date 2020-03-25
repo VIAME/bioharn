@@ -545,7 +545,7 @@ def setup_harn(cmdline=True, **kw):
             batch_size=config['batch_size'],
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
-            balance=config['balance'],
+            balance=(tag == 'train' and config['balance']),
             multiscale=(tag == 'train') and config['multiscale'],
             pin_memory=True, xpu=xpu)
         for tag, dset in torch_datasets.items()
@@ -969,7 +969,7 @@ if __name__ == '__main__':
 
 
         python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-v27 \
+            --nice=bioharn-det-mc-cascade-rgb-v29-balanced \
             --train_dataset=/home/joncrall/data/private/_combo_cfarm/cfarm_train.mscoco.json \
             --vali_dataset=/home/joncrall/data/private/_combo_cfarm/cfarm_vali.mscoco.json \
             --schedule=step-10-20 \
@@ -989,6 +989,7 @@ if __name__ == '__main__':
             --workers=0 \
             --xpu=1 \
             --batch_size=4 \
+            --balance=tfidf \
             --bstep=8
 
         python -m bioharn.detect_fit \
