@@ -407,7 +407,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
     def make_loader(self, batch_size=16, num_workers=0, shuffle=False,
                     pin_memory=False, drop_last=False, multiscale=False,
-                    balance=None, xpu=None):
+                    balance=False, xpu=None):
         """
         Example:
             >>> from bioharn.detect_dataset import *  # NOQA
@@ -432,12 +432,15 @@ class DetectFitDataset(torch.utils.data.Dataset):
         else:
             sampler = torch_sampler.SequentialSampler(self)
 
-        if balance is not None:
+        if balance == 'tfidf':
             assert shuffle
             assert balance == 'tfidf'
-            anns = self.sampler.dset.anns
+
+            if shuffle:
+                raise AssertionError('for now you must shuffle when you balance')
 
             # label_freq = ub.map_vals(len, self.sampler.dset.index.cid_to_aids)
+            anns = self.sampler.dset.anns
             index_to_labels = [
                 [anns[aid]['category_id'] for aid in aids]
                 for gid, slices, aids in self.chosen_regions
