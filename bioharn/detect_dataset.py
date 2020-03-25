@@ -433,11 +433,10 @@ class DetectFitDataset(torch.utils.data.Dataset):
             sampler = torch_sampler.SequentialSampler(self)
 
         if balance == 'tfidf':
-            assert shuffle
-            assert balance == 'tfidf'
-
-            if shuffle:
+            if not shuffle:
                 raise AssertionError('for now you must shuffle when you balance')
+            if balance != 'tfidf':
+                raise AssertionError('for now balance must be tfidf')
 
             # label_freq = ub.map_vals(len, self.sampler.dset.index.cid_to_aids)
             anns = self.sampler.dset.anns
