@@ -81,8 +81,13 @@ def load_candidate_detections():
     Hard coded paths to candidate detections
     """
 
+    truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
+    print('load true')
+    true_dset = ndsampler.CocoDataset(truth_fpath)
+    print('true_dset = {!r}'.format(true_dset))
+
     fpaths = {
-        'cascade_v7': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v6/pred/detections.mscoco.json'),
+        'cascade_v7': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v7/pred/detections.mscoco.json'),
         # 'cascade_v6': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v6/pred/detections.mscoco.json'),
         # 'cascade': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v2/pred/detections.mscoco.json'),
         # 'generic': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_generic.json'),
@@ -104,10 +109,6 @@ def load_candidate_detections():
     #     combo_dset = ndsampler.CocoDataset.union(*partial_dsets)
     #     pred_dsets['cascade'] = combo_dset
 
-    truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6.mscoco.json')
-
-    print('load true')
-    true_dset = ndsampler.CocoDataset(truth_fpath)
     return true_dset, pred_dsets
 
 
@@ -291,13 +292,15 @@ def associate_detections(true_dset, pred_dsets):
     gids_with_heuristic_annotations = sorted(
             set(true_dset.imgs.keys()) - gids_with_manual_annotations)
 
-    gid = gids_with_heuristic_annotations[15]
+    print('len(gids_with_manual_annotations) = {!r}'.format(len(gids_with_manual_annotations)))
+    print('len(ids_with_heuristic_annotations) = {!r}'.format(len(gids_with_heuristic_annotations)))
 
-    VIZ = 0
+    gid = gids_with_heuristic_annotations[15]
+    VIZ = 60
 
     modified_time = ub.timestamp()
 
-    for gid in ub.ProgIter(gids_with_heuristic_annotations):
+    for gx, gid in ub.ProgIter(enumerate(gids_with_heuristic_annotations)):
         true_img = true_dset.imgs[gid]
         true_annots = true_dset.annots(gid=true_img['id'])
 
@@ -343,10 +346,8 @@ def associate_detections(true_dset, pred_dsets):
                 ann['changelog'].append('modified: {}'.format(modified_time))
                 ann['score'] = stacked_dets.scores[pred_idx]
 
-        if VIZ:
+        if VIZ and gx < VIZ:
             import kwplot
-            kwplot.autompl()
-
             # drawkw = {
             #     'cascade_v6': dict(color='blue', thickness=6),
             #     'cascade': dict(color='blue', thickness=6),
@@ -385,23 +386,24 @@ def associate_detections(true_dset, pred_dsets):
 
             image = true_dset.load_image(true_img['id'])
             canvas = image.copy()
-            kwplot.imshow(canvas, doclf=1)
             canvas = true_dets.draw_on(canvas, color='green')
             # canvas = stacked_dets.draw_on(canvas, color='red')
             canvas = assigned_true.draw_on(canvas, color='blue', labels=True)
             canvas = assigned_pred.draw_on(canvas, color='purple', labels=False)
             canvas = kwimage.draw_line_segments_on_image(canvas, pt1, pt2)
-            # kwplot.imshow(canvas)
             viz_dpath = ub.ensuredir(
-                    '/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/detections/refine6')
+                    '/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/detections/refine7')
             assign_dpath = ub.ensuredir((viz_dpath, 'assign'))
             assign_fpath = join(assign_dpath, 'temp_{:04d}.jpg'.format(true_img['id']))
             kwimage.imwrite(assign_fpath, canvas)
+            if 0:
+                kwplot.autompl()
+                kwplot.imshow(canvas, doclf=1)
 
     for ann in refined_dset.anns.values():
         key = ann.pop('key', 'true')
 
-    refined_dset.fpath = true_dset.fpath.replace('_v6', '_v7')
+    refined_dset.fpath = true_dset.fpath.replace('_v7', '_v8')
     assert 'refined' in refined_dset.fpath
     refined_dset.dump(refined_dset.fpath, newlines=True)
 
