@@ -406,6 +406,23 @@ def associate_detections(true_dset, pred_dsets):
     refined_dset.fpath = true_dset.fpath.replace('_v7', '_v8')
     assert 'refined' in refined_dset.fpath
     refined_dset.dump(refined_dset.fpath, newlines=True)
+    sealon_holdout_sets(refined_dset)
+
+
+def sealon_holdout_sets(coco_dset):
+    import ubelt as ub
+    year_to_imgs = ub.group_items(coco_dset.imgs.values(), lambda x: x['year_code'])
+    print(ub.map_vals(len, year_to_imgs))
+    vali_years = ['2007', '2010']
+    split_gids = {}
+    split_gids['vali'] = [img['id'] for img in ub.flatten(ub.dict_subset(year_to_imgs, vali_years).values())]
+    split_gids['train'] = [img['id'] for img in ub.flatten(ub.dict_diff(year_to_imgs, vali_years).values())]
+    for tag, gids in split_gids.items():
+        subset = coco_dset.subset(gids)
+        subset.fpath = ub.augpath(coco_dset.fpath, suffix='_{}'.format(tag), multidot=1)
+        print('subset.fpath = {!r}'.format(subset.fpath))
+        print('len(gids) = {}'.format(len(gids)))
+        subset.dump(subset.fpath, newlines=True)
 
 
 def main():

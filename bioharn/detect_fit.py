@@ -53,7 +53,7 @@ class DetectFitConfig(scfg.Config):
         # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['medium', 'simple']),
         'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'low', 'simple', 'complex', None]),
         'gravity': scfg.Value(0.0, help='how often to assume gravity vector for augmentation'),
-        'balance': scfg.Value('tfidf'),
+        'balance': scfg.Value(None),
 
         'channels': scfg.Value('rgb', help='special channel code. See ChannelSpec'),
 
@@ -547,7 +547,9 @@ def setup_harn(cmdline=True, **kw):
             shuffle=(tag == 'train'),
             balance=(tag == 'train' and config['balance']),
             multiscale=(tag == 'train') and config['multiscale'],
-            pin_memory=True, xpu=xpu)
+            # pin_memory=True,
+            pin_memory=False,
+            xpu=xpu)
         for tag, dset in torch_datasets.items()
     }
 
@@ -1010,11 +1012,30 @@ if __name__ == '__main__':
             --min_lr=1e-6 \
             --workers=4 --xpu=0 --batch_size=8 --bstep=1
 
+        python -m bioharn.detect_fit \
+            --nice=detect-sealion-retina-v9 \
+            --workdir=$HOME/work/sealions \
+            --train_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json \
+            --vali_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=retinanet \
+            --optim=sgd --lr=1e-2 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --balance=False \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --min_lr=1e-6 \
+            --workers=4 --xpu=0 --batch_size=20 --bstep=1
 
 
 
-    coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_train.mscoco.json
-    coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_vali.mscoco.json
+
+    coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json
+    coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json
 
     """
     if 0:
