@@ -995,6 +995,30 @@ if __name__ == '__main__':
             --bstep=8
 
         python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgb-v30-bigger-balanced \
+            --train_dataset=$HOME/data/private/_combos/train_cfarm_habcam_v1.mscoco.json \
+            --vali_dataset=$HOME/data/private/_combos/vali_cfarm_habcam_v1.mscoco.json \
+            --schedule=step-10-20 \
+            --augment=simple \
+            --init=noop \
+            --workdir=/home/joncrall/work/bioharn \
+            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+            --arch=cascade \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.5 \
+            --multiscale=True \
+            --normalize_inputs=True \
+            --workers=0 \
+            --xpu=1 \
+            --batch_size=4 \
+            --balance=tfidf \
+            --bstep=8
+
+        python -m bioharn.detect_fit \
             --nice=detect-sealion-cascade-v6 \
             --workdir=$HOME/work/sealions \
             --train_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_train.mscoco.json \
