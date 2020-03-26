@@ -1013,7 +1013,7 @@ if __name__ == '__main__':
             --workers=4 --xpu=0 --batch_size=8 --bstep=1
 
         python -m bioharn.detect_fit \
-            --nice=detect-sealion-retina-v9 \
+            --nice=detect-sealion-retina-v10 \
             --workdir=$HOME/work/sealions \
             --train_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json \
             --vali_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
@@ -1029,7 +1029,26 @@ if __name__ == '__main__':
             --multiscale=False \
             --normalize_inputs=True \
             --min_lr=1e-6 \
-            --workers=4 --xpu=0 --batch_size=20 --bstep=1
+            --workers=4 --xpu=0 --batch_size=22 --bstep=1
+
+        python -m bioharn.detect_fit \
+            --nice=detect-sealion-cascade-v11 \
+            --workdir=$HOME/work/sealions \
+            --train_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json \
+            --vali_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p2-c2 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --optim=sgd --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --balance=False \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --min_lr=1e-6 \
+            --workers=4 --xpu=0 --batch_size=8 --bstep=1
 
 
 

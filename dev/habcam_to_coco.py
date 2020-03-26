@@ -13,6 +13,9 @@ rsync -avrP --stats --human-readable --info=progress2  $HOME/data/public/Benthic
 
 rsync -avP --stats --human-readable  viame:data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.habcam_csv $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected/annotations.habcam_csv
 
+
+kwcoco stats --src ~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3.mscoco.json
+
 """
 from os.path import normpath
 from os.path import basename

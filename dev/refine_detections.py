@@ -118,6 +118,10 @@ def _true_devcheck():
     true_dset = ndsampler.CocoDataset(truth_fpath)
 
     allkeys = set()
+    for ann in true_dset.anns.values():
+        allkeys.update(set(ann.keys()))
+
+    allkeys = set()
     for img in true_dset.imgs.values():
         allkeys.update(img)
 

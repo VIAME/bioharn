@@ -13,6 +13,35 @@ rsync -avrRP viame:data/private/./US_NE_2017_CFARM_HABCAM $HOME/data/private/
 rsync -avrRP viame:data/private/./US_NE_2018_CFARM_HABCAM $HOME/data/private/
 rsync -avrRP viame:data/private/./US_NE_2019_CFARM_HABCAM $HOME/data/private/
 rsync -avrRP viame:data/private/./US_NE_2019_CFARM_HABCAM_PART2 $HOME/data/private/
+
+
+kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_test.mscoco.json
+kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_vali.mscoco.json
+kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_train.mscoco.json
+
+kwcoco stats --src ~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3.mscoco.json
+kwcoco stats --src ~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json
+kwcoco stats --src ~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json
+
+
+kwcoco union --dst ~/data/private/_combos/train_cfarm_habcam_v1.mscoco.json \
+        --src ~/data/private/_combo_cfarm/cfarm_train.mscoco.json \
+        ~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json
+
+kwcoco union --dst ~/data/private/_combos/vali_cfarm_habcam_v1.mscoco.json \
+        --src ~/data/private/_combo_cfarm/cfarm_vali.mscoco.json \
+        ~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json
+
+kwcoco union --dst ~/data/private/_combos/test_cfarm_habcam_v1.mscoco.json \
+        --src ~/data/private/_combo_cfarm/cfarm_test.mscoco.json \
+        ~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_test.mscoco.json
+
+kwcoco stats --src /home/joncrall/data/private/_combos/train_cfarm_habcam_v1.mscoco.json
+kwcoco stats --src /home/joncrall/data/private/_combos/vali_cfarm_habcam_v1.mscoco.json
+kwcoco stats --src /home/joncrall/data/private/_combos/test_cfarm_habcam_v1.mscoco.json
+
+kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_vali.mscoco.json
+kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_train.mscoco.json
 """
 from os.path import basename
 from os.path import join
