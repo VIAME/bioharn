@@ -999,7 +999,7 @@ if __name__ == '__main__':
             --train_dataset=$HOME/data/private/_combos/train_cfarm_habcam_v1.mscoco.json \
             --vali_dataset=$HOME/data/private/_combos/vali_cfarm_habcam_v1.mscoco.json \
             --schedule=step-10-20 \
-            --augment=simple \
+            --augment=complex \
             --init=noop \
             --workdir=/home/joncrall/work/bioharn \
             --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
@@ -1009,12 +1009,12 @@ if __name__ == '__main__':
             --lr=1e-3 \
             --input_dims=window \
             --window_dims=512,512 \
-            --window_overlap=0.5 \
-            --multiscale=True \
+            --window_overlap=0.0 \
+            --multiscale=False \
             --normalize_inputs=True \
             --workers=0 \
             --xpu=1 \
-            --batch_size=4 \
+            --batch_size=3 \
             --balance=tfidf \
             --bstep=8
 
