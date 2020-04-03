@@ -15,6 +15,7 @@ rsync -avP --stats --human-readable  viame:data/public/Benthic/US_NE_2015_NEFSC_
 
 
 kwcoco stats --src ~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3.mscoco.json
+kwcoco stats --src ~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3.mscoco.json
 
 """
 from os.path import normpath

@@ -458,12 +458,16 @@ class DetectFitDataset(torch.utils.data.Dataset):
             batch_sampler = torch.utils.data.BatchSampler(
                 sampler, batch_size=batch_size, drop_last=drop_last)
 
-        def worker_init_fn(worker_id):
-            # Make loaders more random
-            kwarray.seed_global(np.random.get_state()[1][0] + worker_id)
-            if self.augmenter:
-                rng = kwarray.ensure_rng(None)
-                reseed_(self.augmenter, rng)
+        if ub.WIN32:
+            # Hack for win32 because of pickle loading issues with local vars
+            worker_init_fn = None
+        else:
+            def worker_init_fn(worker_id):
+                # Make loaders more random
+                kwarray.seed_global(np.random.get_state()[1][0] + worker_id)
+                if self.augmenter:
+                    rng = kwarray.ensure_rng(None)
+                    reseed_(self.augmenter, rng)
 
         # torch.utils.data.sampler.WeightedRandomSampler
 

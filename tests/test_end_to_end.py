@@ -48,13 +48,13 @@ def _test_train_and_eval_model(aux):
 
 def test_train_and_eval_model_rgb():
     """
-    xdoctest ~/code/bioharn/tests/test_end_to_end.py test_train_and_eval_model_rgb
+    xdoctest tests/test_end_to_end.py test_train_and_eval_model_rgb
     """
     _test_train_and_eval_model(aux=False)
 
 
 def test_train_and_eval_model_rgbd():
     """
-    xdoctest ~/code/bioharn/tests/test_end_to_end.py test_train_and_eval_model_rgbd
+    xdoctest tests/test_end_to_end.py test_train_and_eval_model_rgbd
     """
     _test_train_and_eval_model(aux=True)
