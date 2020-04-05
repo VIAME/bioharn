@@ -442,6 +442,51 @@ class DetectHarn(nh.FitHarn):
                 # TODO: visualize the FC layer
                 pass
 
+    def on_complete(harn):
+        """
+        Ignore:
+            # test to make sure this works
+            python -m bioharn.detect_fit \
+                --nice=bioharn_shapes_example \
+                --datasets=special:shapes256 \
+                --schedule=step-10-30 \
+                --augment=complex \
+                --init=noop \
+                --arch=retinanet \
+                --optim=sgd --lr=1e-3 \
+                --input_dims=window \
+                --window_dims=128,128 \
+                --window_overlap=0.0 \
+                --normalize_inputs=True \
+                --workers=4 --xpu=0 --batch_size=8 --bstep=1 \
+                --sampler_backend=cog
+                --timeout=30
+
+        """
+        from bioharn import detect_eval
+
+        eval_dataset = harn.datasets.get('test', None)
+        if eval_dataset is None:
+            harn.warn('No test dataset to evaluate')
+
+        eval_config = {
+            'xpu': harn.xpu,
+            'deployed': harn.model,
+            'dataset': harn.datasets['test'],
+            'input_dims': harn.script_config['input_dims'],
+            'window_dims': harn.script_config['window_dims'],
+            'overlap': harn.script_config['overlap'],
+            'workers': harn.script_config['workers'],
+            'channels': harn.script_config['channels'],
+            'out_dpath': ub.ensuredir(harn.train_dpath, 'out_eval'),  # fixme
+            'eval_in_train_dpath': True,
+            'draw': 10,
+            'batch_size': harn.script_config['batch_size'],
+        }
+        eval_config = detect_eval.DetectEvaulateConfig(eval_config)
+        evaluator = detect_eval.DetectEvaluator(config=eval_config)
+        evaluator.evaluate()
+
 
 def setup_harn(cmdline=True, **kw):
     """
@@ -762,6 +807,7 @@ def setup_harn(cmdline=True, **kw):
     })
     harn.intervals.update({
         'log_iter_train': 50,
+        'test': 0,
     })
     harn.script_config = config
 

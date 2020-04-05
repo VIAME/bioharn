@@ -206,6 +206,17 @@ def evaluate_models(cmdline=True, **kw):
 
 class DetectEvaluator(object):
     """
+    Evaluation harness for a detection task.
+
+    Creates an instance of :class:`bioharn.detect_predict.DetectPredictor`,
+    executes prediction, compares the results to a groundtruth dataset, and
+    outputs various metrics summarizing performance.
+
+    Args:
+        config (DetectEvaluateConfig):
+            the configuration of the evaluator, which is a superset of
+            :class:`bioharn.detect_predict.DetectPredictConfig`.
+
     Ignore:
         from bioharn.detect_eval import *  # NOQA
         config = {'xpu': 0, 'batch_size': 2, 'overlap': 0.5}
@@ -220,7 +231,6 @@ class DetectEvaluator(object):
 
         predictor.config['verbose'] = 1
         out_dpath = evaluator.paths['base']
-
         evaluator.evaluate()
     """
 
