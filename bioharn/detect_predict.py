@@ -1,5 +1,7 @@
 """
 """
+from os.path import exists
+from os.path import isfile
 from os.path import basename
 from os.path import join
 import ubelt as ub
@@ -10,6 +12,13 @@ import torch
 import six
 import scriptconfig as scfg
 import kwimage
+import warnings
+from bioharn.channel_spec import ChannelSpec
+
+try:
+    from xdev import profile
+except Exception:
+    profile = ub.identity
 
 
 class DetectPredictConfig(scfg.Config):
@@ -19,19 +28,24 @@ class DetectPredictConfig(scfg.Config):
         'batch_size': 4,
         'xpu': 'auto',
 
-        'window_dims': scfg.Value('full', help='size of a sliding window'),  # (512, 512),
-        'input_dims': scfg.Value((512, 512), help='The size of the inputs to the network'),
+        'window_dims': scfg.Value('native', help='size of a sliding window'),  # (512, 512),
+        'input_dims': scfg.Value('window', help='The size of the inputs to the network'),
 
         'workers': 0,
 
         'overlap': scfg.Value(0.0, help='overlap of the sliding window'),
+
+        'channels': scfg.Value(
+            'native',
+            help='list of channels needed by the model. '
+            'Typically this can be inferred from the model'),
 
         # Note: these dont work exactly correct due to mmdetection model
         # differences
         'nms_thresh': 0.4,
         'conf_thresh': 0.1,
 
-        'verbose': 3,
+        'verbose': 1,
     }
 
 
@@ -40,15 +54,23 @@ class DetectPredictor(object):
     A detector API for bioharn trained models
 
     Example:
-        >>> path_or_image = kwimage.imread('/home/joncrall/data/noaa/2015_Habcam_photos/201503.20150522.131445618.413800.png')[:, :1360]
-        >>> full_rgb = path_or_image
+        >>> import ubelt as ub
+        >>> from bioharn.detect_predict import *  # NOQA
+        >>> deployed_fpath = ub.grabdata(
+        >>>     'https://data.kitware.com/api/v1/file/5dd3eb8eaf2e2eed3508d604/download',
+        >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip',
+        >>>     appname='viame', hasher='sha512',
+        >>>     hash_prefix='22a1eeb18c9e5706f6578e66abda1e97')
+        >>> image_fpath = ub.grabdata(
+        >>>     'https://data.kitware.com/api/v1/file/5dcf0d1faf2e2eed35fad5d1/download',
+        >>>     fname='scallop.jpg', appname='viame', hasher='sha512',
+        >>>     hash_prefix='3bd290526c76453bec7')
+        >>> path_or_image = full_rgb = kwimage.imread(image_fpath)
         >>> config = dict(
-        >>>     deployed='/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip',
-        >>>     window_dims=(512, 512),
-        >>>     input_dims=(256, 256),
+        >>>     deployed=deployed_fpath,
         >>> )
-        >>> self = DetectPredictor(config)
-        >>> final = self.predict(full_rgb)
+        >>> predictor = DetectPredictor(config)
+        >>> final = predictor.predict(full_rgb)
         >>> # xdoc: +REQUIRES(--show)
         >>> import kwplot
         >>> kwplot.autompl()
@@ -56,14 +78,18 @@ class DetectPredictor(object):
         >>> final2 = final.compress(final.scores > .0)
         >>> final2.draw()
     """
-    def __init__(self, config):
-        self.config = DetectPredictConfig(config)
-        self.model = None
-        self.xpu = None
-        self.coder = None
+    def __init__(predictor, config):
+        predictor.config = DetectPredictConfig(config)
+        predictor.model = None
+        predictor.xpu = None
+        predictor.coder = None
 
-    def info(self, text):
-        if self.config['verbose']:
+        # This is populated if we need to modify behavior for backwards
+        # compatibility.
+        predictor._compat_hack = None
+
+    def info(predictor, text):
+        if predictor.config['verbose']:
             print(text)
 
     @classmethod
@@ -76,6 +102,7 @@ class DetectPredictor(object):
         native_defaults = {
             'input_dims': (512, 512),
             'window_dims': 'full',
+            'channels': 'hack_old_method'
         }
         @ub.memoize
         def _native_config():
@@ -86,17 +113,21 @@ class DetectPredictor(object):
             common = set(native_defaults) & set(native_config)
             if len(common) != len(native_defaults):
                 # Fallback on the hacky string encoding of the configs
-                native_config.update(eval(
-                    deployed.train_info()['extra']['config'], {}))
+                cfgstr = deployed.train_info()['extra']['config']
+                # import ast
+                # parsed = ast.literal_eval(cfgstr)
+                parsed = eval(cfgstr, {'inf': float('inf')})
+                native_config.update(parsed)
             return native_config
+
         native = {}
+        native_config = _native_config()
         for key in list(native_defaults.keys()):
             if config[key] == 'native':
                 try:
-                    native_config = _native_config()
                     native[key] = native_config[key]
                 except Exception:
-                    print((
+                    warnings.warn((
                         'WARNING: Unable to determine native {} from model. '
                         'Defaulting to {}! Please ensure this is OK.').format(
                             key, native_defaults[key]
@@ -104,32 +135,41 @@ class DetectPredictor(object):
                     native[key] = native_defaults[key]
             else:
                 native[key] = config[key]
+
+        if native['channels'] == 'hack_old_method':
+            # Hueristic to determine what channels an older model wants.  This
+            # should not be necessary for newer models which directly encode
+            # this.
+            native['channels'] = 'rgb'
+            if native_config.get('use_disparity', False):
+                native['channels'] += '|disparity'
+
         return native
 
-    def _ensure_model(self):
-        if self.model is None:
-            xpu = nh.XPU.coerce(self.config['xpu'])
-            deployed = nh.export.DeployedModel.coerce(self.config['deployed'])
+    def _ensure_model(predictor):
+        if predictor.model is None:
+            xpu = nh.XPU.coerce(predictor.config['xpu'])
+            deployed = nh.export.DeployedModel.coerce(predictor.config['deployed'])
             model = deployed.load_model()
             if xpu != nh.XPU.from_data(model):
-                self.info('Mount {} on {}'.format(deployed, xpu))
+                predictor.info('Mount {} on {}'.format(deployed, xpu))
                 model = xpu.mount(model)
             model.train(False)
-            self.model = model
-            self.xpu = xpu
+            predictor.model = model
+            predictor.xpu = xpu
             # The model must have a coder
-            self.raw_model = self.xpu.raw(self.model)
-            self.coder = self.raw_model.coder
+            predictor.raw_model = predictor.xpu.raw(predictor.model)
+            predictor.coder = predictor.raw_model.coder
 
-    def _rectify_image(self, path_or_image):
+    def _rectify_image(predictor, path_or_image):
         if isinstance(path_or_image, six.string_types):
-            self.info('Reading {!r}'.format(path_or_image))
+            predictor.info('Reading {!r}'.format(path_or_image))
             full_rgb = kwimage.imread(path_or_image, space='rgb')
         else:
             full_rgb = path_or_image
         return full_rgb
 
-    def predict(self, path_or_image):
+    def predict(predictor, path_or_image):
         """
         Predict on a single large image using a sliding window_dims
 
@@ -140,66 +180,183 @@ class DetectPredictor(object):
         Returns:
             kwimage.Detections: a wrapper around predicted boxes, scores,
                 and class indices. See the `.data` attribute for more info.
+
+        SeeAlso:
+            :method:`predict_sampler` - this can be a faster alternative to
+            predict, but it requires that your dataset is formatted as a
+            sampler.
+
+        TODO:
+            - [ ] Handle auxillary inputs
         """
-        self.info('Begin detection prediction')
+        predictor.info('Begin detection prediction')
 
         # Ensure model is in prediction mode and disable gradients for speed
-        self._ensure_model()
+        predictor._ensure_model()
 
-        full_rgb = self._rectify_image(path_or_image)
-        self.info('Detect objects in image (shape={})'.format(full_rgb.shape))
+        full_rgb = predictor._rectify_image(path_or_image)
+        predictor.info('Detect objects in image (shape={})'.format(full_rgb.shape))
 
-        full_rgb, pad_offset_rc, window_dims = self._prepare_image(full_rgb)
+        full_rgb, pad_offset_rc, window_dims = predictor._prepare_image(full_rgb)
         pad_offset_xy = torch.FloatTensor(np.ascontiguousarray(pad_offset_rc[::-1]))
 
-        slider_dataset = self._make_dataset(full_rgb, window_dims)
+        slider_dataset = predictor._make_dataset(full_rgb, window_dims)
 
         # Its typically faster to use num_workers=0 here because the full image
         # is already in memory. We only need to slice and cast to float32.
         slider_loader = torch.utils.data.DataLoader(
-            slider_dataset, shuffle=False, num_workers=self.config['workers'],
-            batch_size=self.config['batch_size'])
+            slider_dataset, shuffle=False, num_workers=predictor.config['workers'],
+            batch_size=predictor.config['batch_size'])
 
         # TODO:
-        # mmdetection models need to modify self._raw_model.detector.test_cfg
+        # mmdetection models need to modify predictor._raw_model.detector.test_cfg
         prog = ub.ProgIter(slider_loader, total=len(slider_loader),
-                           desc='predict', enabled=self.config['verbose'] > 1)
+                           desc='predict', enabled=predictor.config['verbose'] > 1)
         accum_dets = []
         with torch.set_grad_enabled(False):
             for raw_batch in prog:
                 batch = {
-                    'im': self.xpu.move(raw_batch['im']),
+                    'inputs': predictor.xpu.move(raw_batch['inputs']),
                     'tf_chip_to_full': raw_batch['tf_chip_to_full'],
                     'pad_offset_xy': pad_offset_xy,
                 }
-                for dets in self._predict_batch(batch):
+                results = predictor._predict_batch(batch)
+                for dets in results:
                     accum_dets.append(dets)
 
         # Stitch predicted detections together
-        self.info('Accumulate detections')
+        predictor.info('Accumulate detections')
         all_dets = kwimage.Detections.concatenate(accum_dets)
 
         # Perform final round of NMS on the stiched boxes
-        self.info('Finalize detections')
+        predictor.info('Finalize detections')
 
         if len(all_dets) > 0:
             keep = all_dets.non_max_supression(
-                thresh=self.config['nms_thresh'],
+                thresh=predictor.config['nms_thresh'],
                 daq={'diameter': all_dets.boxes.width.max()},
             )
             final_dets = all_dets.take(keep)
         else:
             final_dets = all_dets
 
-        self.info('Finished prediction')
+        predictor.info('Finished prediction')
         return final_dets
 
-    def _prepare_image(self, full_rgb):
+    @profile
+    def predict_sampler(predictor, sampler, gids=None):
+        """
+        Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
+
+        Args:
+            sampler (ndsampler.CocoDataset): dset wrapped in a sampler
+            gids (List[int], default=None): if specified, then only predict
+                on these image ids.
+
+        Yields:
+            Tuple[int, Detections] : image_id, detection pairs
+
+        SeeAlso:
+            :method:`predict` - this is a simpler alternative to
+            predict_sampler. It only requires that you pass your data in as an
+            image.
+        """
+        native = predictor._infer_native(predictor.config)
+        input_dims = native['input_dims']
+        window_dims = native['window_dims']
+        channels = native['channels']
+
+        torch_dset = WindowedSamplerDataset(sampler, window_dims=window_dims,
+                                            input_dims=input_dims,
+                                            channels=channels, gids=gids)
+        if len(torch_dset) == 0:
+            return
+        slider_loader = torch.utils.data.DataLoader(
+            torch_dset, shuffle=False, num_workers=predictor.config['workers'],
+            batch_size=predictor.config['batch_size'])
+
+        prog = ub.ProgIter(slider_loader, total=len(slider_loader),
+                           chunksize=predictor.config['batch_size'],
+                           desc='predict', enabled=predictor.config['verbose'] > 1)
+
+        xpu = predictor.xpu
+
+        # raw_batch = ub.peek(prog)
+        with torch.set_grad_enabled(False):
+
+            # ----
+            buffer_gids = []
+            buffer_dets = []
+
+            for raw_batch in prog:
+                batch = {
+                    'tf_chip_to_full': raw_batch['tf_chip_to_full'],
+                }
+                if 'inputs' in raw_batch:
+                    batch['inputs'] = xpu.move(raw_batch['inputs'])
+                else:
+                    raise NotImplementedError
+
+                batch_gids = raw_batch['gid'].view(-1).numpy()
+                batch_dets = list(predictor._predict_batch(batch))
+
+                # Determine if we have finished an image (assuming images are
+                # passed in sequentially in order)
+                can_yield = (
+                    np.any(np.diff(batch_gids)) or
+                    (len(buffer_gids) and buffer_gids[-1] != batch_gids[0])
+                )
+
+                buffer_gids.extend(batch_gids)
+                buffer_dets.extend(batch_dets)
+
+                if can_yield:
+                    ready_idx = max(np.where(np.diff(buffer_gids))[0]) + 1
+                    ready_gids = buffer_gids[:ready_idx]
+                    ready_dets = buffer_dets[:ready_idx]
+
+                    #
+                    buffer_gids = buffer_gids[ready_idx:]
+                    buffer_dets = buffer_dets[ready_idx:]
+                    for gid, dets in predictor._finalize_dets(ready_dets, ready_gids):
+                        yield gid, dets
+            # ----
+
+            # Finalize anything that remains
+            ready_gids = buffer_gids
+            ready_dets = buffer_dets
+            for gid, dets in predictor._finalize_dets(ready_dets, ready_gids):
+                yield gid, dets
+
+    @profile
+    def _finalize_dets(predictor, ready_dets, ready_gids):
+        """ Helper for predict_sampler """
+        gid_to_ready_dets = ub.group_items(ready_dets, ready_gids)
+        for gid, dets_list in gid_to_ready_dets.items():
+            if len(dets_list) == 0:
+                dets = kwimage.Detections.concatenate([])
+            elif len(dets_list) == 1:
+                dets = dets_list[0]
+            elif len(dets_list) > 1:
+                dets = kwimage.Detections.concatenate(dets_list)
+                keep = dets.non_max_supression(
+                    thresh=predictor.config['nms_thresh'],
+                )
+                dets = dets.take(keep)
+            yield (gid, dets)
+
+    @profile
+    def _prepare_image(predictor, full_rgb):
         full_dims = tuple(full_rgb.shape[0:2])
-        if self.config['window_dims'] == 'full':
-            window_dims = full_dims
+
+        if predictor.config['window_dims'] == 'native':
+            native = predictor._infer_native(predictor.config)
+            window_dims = native['window_dims']
         else:
-            window_dims = self.config['window_dims']
+            window_dims = predictor.config['window_dims']
+
+        if window_dims == 'full':
+            window_dims = full_dims
 
         # Pad small images to be at least the minimum window_dims size
         dims_delta = np.array(full_dims) - np.array(window_dims)
@@ -223,22 +380,28 @@ class DetectPredictor(object):
 
         return full_rgb, pad_offset_rc, window_dims
 
-    def _make_dataset(self, full_rgb, window_dims):
+    def _make_dataset(predictor, full_rgb, window_dims):
+        """ helper for predict """
         full_dims = tuple(full_rgb.shape[0:2])
+
+        native = predictor._infer_native(predictor.config)
+
+        assert native['channels'] == 'rgb', 'cant handle non-rgb yet'
 
         # Break large images into chunks to fit on the GPU
         slider = nh.util.SlidingWindow(full_dims, window=window_dims,
-                                       overlap=self.config['overlap'],
+                                       overlap=predictor.config['overlap'],
                                        keepbound=True, allow_overshoot=True)
 
-        input_dims = self.config['input_dims']
+        input_dims = predictor.config['input_dims']
         if input_dims == 'full' or input_dims == window_dims:
             input_dims = None
 
         slider_dataset = SingleImageDataset(full_rgb, slider, input_dims)
         return slider_dataset
 
-    def _predict_batch(self, batch):
+    @profile
+    def _predict_batch(predictor, batch):
         """
         Runs the torch network on a single batch and postprocesses the outputs
 
@@ -256,16 +419,39 @@ class DetectPredictor(object):
         else:
             shift_xy_ = shift_xy
 
-        # All GPU work happens in this line
-        if hasattr(self.model.module, 'detector'):
-            # HACK FOR MMDET MODELS
-            outputs = self.model.forward(batch, return_loss=False)
-        else:
-            outputs = self.model.forward(batch['im'])
-            # raise NotImplementedError('only works on mmdet models')
+        if predictor._compat_hack is None:
+            # All GPU work happens in this line
+            if hasattr(predictor.model.module, 'detector'):
+                # HACK FOR MMDET MODELS
+                # TODO: hack for old detectors that require "im" inputs
+
+                try:
+                    outputs = predictor.model.forward(batch, return_loss=False)
+                except KeyError:
+                    predictor._compat_hack = 'old_mmdet_im_model'
+                except NotImplementedError:
+                    predictor._compat_hack = 'fixup_mm_inputs'
+                if predictor._compat_hack:
+                    warnings.warn(
+                        'Normal mm-detection input failed. '
+                        'Attempting to find backwards compatible solution')
+            else:
+                assert len(batch['inputs']) == 1
+                im = ub.peek(batch['inputs'].values())
+                outputs = predictor.model.forward(batch['inputs'])
+                # raise NotImplementedError('only works on mmdet models')
+
+        # HACKS FOR BACKWARDS COMPATIBILITY
+        if predictor._compat_hack == 'old_mmdet_im_model':
+            batch['im'] = batch.pop('inputs')['rgb']
+            outputs = predictor.model.forward(batch, return_loss=False)
+        if predictor._compat_hack == 'fixup_mm_inputs':
+            from bioharn.models.mm_models import _batch_to_mm_inputs
+            mm_inputs = _batch_to_mm_inputs(batch)
+            outputs = predictor.model.forward(mm_inputs, return_loss=False)
 
         # Postprocess GPU outputs
-        batch_dets = self.coder.decode_batch(outputs)
+        batch_dets = predictor.coder.decode_batch(outputs)
         for idx, det in enumerate(batch_dets):
             item_scale_xy = scale_xy[idx].numpy()
             item_shift_xy = shift_xy_[idx].numpy()
@@ -274,7 +460,9 @@ class DetectPredictor(object):
             if True and len(det) and np.all(det.boxes.width <= 1):
                 # HACK FOR YOLO
                 # TODO: decode should return detections in batch input space
-                inp_size = np.array(batch['im'].shape[-2:][::-1])
+                assert len(batch['inputs']) == 1
+                im = ub.peek(batch['inputs'].values())
+                inp_size = np.array(im.shape[-2:][::-1])
                 det = det.scale(inp_size)
 
             det = det.scale(item_scale_xy)
@@ -282,87 +470,6 @@ class DetectPredictor(object):
             # Fix type issue
             det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
             yield det
-
-    def predict_sampler(self, sampler, gids=None):
-        """
-        Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
-
-        Args:
-            sampler (ndsampler.CocoDataset): dset wrapped in a sampler
-            gids (List[int], default=None): if specified, then only predict
-                on these images.
-        """
-        input_dims = self.config['input_dims']
-        window_dims = self.config['window_dims']
-
-        torch_dset = WindowedSamplerDataset(sampler, window_dims=window_dims,
-                                            input_dims=input_dims, gids=gids)
-        slider_loader = torch.utils.data.DataLoader(
-            torch_dset, shuffle=False, num_workers=self.config['workers'],
-            batch_size=self.config['batch_size'])
-
-        prog = ub.ProgIter(slider_loader, total=len(slider_loader),
-                           chunksize=self.config['batch_size'],
-                           desc='predict', enabled=self.config['verbose'] > 1)
-
-        def finalize_dets(ready_dets, ready_gids):
-            gid_to_ready_dets = ub.group_items(ready_dets, ready_gids)
-            for gid, dets_list in gid_to_ready_dets.items():
-                if len(dets_list) == 0:
-                    dets = kwimage.Detections.concatenate([])
-                elif len(dets_list) == 1:
-                    dets = dets_list[0]
-                elif len(dets_list) > 1:
-                    dets = kwimage.Detections.concatenate(dets_list)
-                    keep = dets.non_max_supression(
-                        thresh=self.config['nms_thresh'],
-                    )
-                    dets = dets.take(keep)
-                yield (gid, dets)
-
-        xpu = self.xpu
-
-        # raw_batch = ub.peek(prog)
-        with torch.set_grad_enabled(False):
-
-            # ----
-            buffer_gids = []
-            buffer_dets = []
-            for raw_batch in prog:
-                batch = {
-                    'im': xpu.move(raw_batch['im']),
-                    'tf_chip_to_full': raw_batch['tf_chip_to_full'],
-                }
-                batch_gids = raw_batch['gid'].view(-1).numpy()
-                batch_dets = list(self._predict_batch(batch))
-
-                # Determine if we have finished an image (assuming images are
-                # passed in sequentially in order)
-                buffer_gids.extend(batch_gids)
-                buffer_dets.extend(batch_dets)
-
-                # Test if we can yield intermediate results for an image
-                can_yield = (
-                    np.any(np.diff(batch_gids)) or
-                    (len(buffer_gids) and buffer_gids[-1] != batch_gids[0])
-                )
-                if can_yield:
-                    ready_idx = max(np.where(np.diff(buffer_gids))[0]) + 1
-                    ready_gids = buffer_gids[:ready_idx]
-                    ready_dets = buffer_dets[:ready_idx]
-
-                    #
-                    buffer_gids = buffer_gids[ready_idx:]
-                    buffer_dets = buffer_dets[ready_idx:]
-                    for gid, dets in finalize_dets(ready_dets, ready_gids):
-                        yield gid, dets
-            # ----
-
-            # Finalize anything that remains
-            ready_gids = buffer_gids
-            ready_dets = buffer_dets
-            for gid, dets in finalize_dets(ready_dets, ready_gids):
-                yield gid, dets
 
 
 class SingleImageDataset(torch_data.Dataset):
@@ -375,11 +482,12 @@ class SingleImageDataset(torch_data.Dataset):
     particular window and that chip's offset in the original image.
     """
 
-    def __init__(self, full_image, slider, input_dims):
+    def __init__(self, full_image, slider, input_dims, channels='rgb'):
         self.full_image = full_image
         self.slider = slider
         self.input_dims = input_dims
         self.window_dims = self.slider.window
+        self.channels = ChannelSpec.coerce(channels)
 
     def __len__(self):
         return self.slider.n_total
@@ -394,14 +502,12 @@ class SingleImageDataset(torch_data.Dataset):
         chip_hwc = self.full_image[slice_]
 
         # Resize the image patch if necessary
-        if self.input_dims is not None:
+        if self.input_dims is not None and self.input_dims != 'window':
             letterbox = nh.data.transforms.Resize(None, mode='letterbox')
             letterbox.target_size = self.input_dims[::-1]
             # Record the inverse transformation
             window_size = self.window_dims[::-1]
             input_size = self.input_dims[::-1]
-            print('input_size = {!r}'.format(input_size))
-            print('window_size = {!r}'.format(window_size))
             shift, scale, embed_size = letterbox._letterbox_transform(window_size, input_size)
             # Resize the image
             chip_hwc = letterbox.augment_image(chip_hwc)
@@ -412,7 +518,7 @@ class SingleImageDataset(torch_data.Dataset):
 
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
-        tensor_chip = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
+        tensor_rgb = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
         offset_xy = torch.FloatTensor([slice_[1].start, slice_[0].start])
 
         # To apply a transform we first scale then shift
@@ -434,8 +540,11 @@ class SingleImageDataset(torch_data.Dataset):
             'scale_xy': 1.0 / tf_full_to_chip['scale_xy'],
             'shift_xy': -tf_full_to_chip['shift_xy'] * (1.0 / tf_full_to_chip['scale_xy']),
         }
+
+        assert self.channels.spec == 'rgb'
+
         return {
-            'im': tensor_chip,
+            'inputs': {'rgb': tensor_rgb},
             'tf_chip_to_full': tf_chip_to_full,
         }
 
@@ -456,11 +565,12 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
     """
 
     def __init__(self, sampler, window_dims='full', input_dims='native',
-                 window_overlap=0.0, gids=None):
+                 window_overlap=0.0, gids=None, channels='rgb'):
         self.sampler = sampler
         self.input_dims = input_dims
         self.window_dims = window_dims
         self.window_overlap = window_overlap
+        self.channels = ChannelSpec.coerce(channels)
         self.subindex = None
         self.gids = gids
         self._build_sliders()
@@ -500,11 +610,11 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         gid_to_slider = {}
         for gid in gids:
             img = sampler.dset.imgs[gid]
-            if img.get('source', '') == 'habcam_2015_stereo':
-                # Hack: todo, cannoncial way to get this effect
-                full_dims = [img['height'], img['width'] // 2]
-            else:
-                full_dims = [img['height'], img['width']]
+            # if img.get('source', '') == 'habcam_2015_stereo':
+            # Hack: todo, cannoncial way to get this effect
+            full_dims = [img['height'], img['width']]
+            # else:
+            #     full_dims = [img['height'], img['width']]
 
             window_dims_ = full_dims if window_dims == 'full' else window_dims
             slider = nh.util.SlidingWindow(full_dims, window_dims_,
@@ -521,6 +631,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
     def __len__(self):
         return len(self.subindex)
 
+    @profile
     def __getitem__(self, index):
         """
         Example:
@@ -531,14 +642,13 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             >>> # xdoctest: +REQUIRES(--show)
             >>> import kwplot
             >>> kwplot.autompl()
-            >>> kwplot.imshow(item['im'])
+            >>> kwplot.imshow(item['inputs']['rgb'])
 
         Ignore:
             import netharn as nh
             nh.data.collate.padded_collate([self[0], self[1], self[2]])
-
             self = WindowedSamplerDataset.demo(window_dims='full', input_dims=(512, 512))
-            kwplot.imshow(self[19]['im'])
+            kwplot.imshow(self[19]['inputs']['rgb'])
         """
         outer, inner = self.subindex.unravel(index)
         gid = self._gids[outer]
@@ -546,6 +656,11 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         slices = slider[inner]
 
         tr = {'gid': gid, 'slices': slices}
+
+        # for now load sample only returns rgb
+        unique_channels = self.channels.unique()
+
+        assert 'rgb' in unique_channels
         sample = self.sampler.load_sample(tr, with_annots=False)
         chip_hwc = kwimage.atleast_3channels(sample['im'])
 
@@ -562,13 +677,14 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             # Resize the image
             chip_hwc = letterbox.augment_image(chip_hwc)
         else:
+            letterbox = None
             shift = [0, 0]
             scale = [1, 1]
         scale_xy = torch.FloatTensor(scale)
 
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
-        tensor_chip = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
+        tensor_rgb = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
         offset_xy = torch.FloatTensor([slices[1].start, slices[0].start])
 
         # To apply a transform we first scale then shift
@@ -590,11 +706,40 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             'scale_xy': 1.0 / tf_full_to_chip['scale_xy'],
             'shift_xy': -tf_full_to_chip['shift_xy'] * (1.0 / tf_full_to_chip['scale_xy']),
         }
+        components = {
+            'rgb': tensor_rgb,
+        }
         item = {
-            'im': tensor_chip,
             'gid': torch.LongTensor([gid]),
             'tf_chip_to_full': tf_chip_to_full,
         }
+
+        sampler = self.sampler
+
+        # if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
+        if 'disparity' in unique_channels:
+            from ndsampler.utils import util_gdal
+            disp_fpath = sampler.dset.get_auxillary_fpath(gid, 'disparity')
+            disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
+            data_dims = disp_frame.shape[0:2]
+            pad = 0
+            data_slice, extra_padding, st_dims = sampler._rectify_tr(
+                tr, data_dims, window_dims=None, pad=pad)
+            # Load the image data
+            disp_im = disp_frame[data_slice]
+            if extra_padding:
+                if disp_im.ndim != len(extra_padding):
+                    extra_padding = extra_padding + [(0, 0)]  # Handle channels
+                disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
+            if letterbox is not None:
+                disp_im = letterbox.augment_image(disp_im)
+            if len(disp_im.shape) == 2:
+                disp_im = disp_im[None, :, :]
+            else:
+                disp_im = disp_im.transpose(2, 0, 1)
+            components['disparity'] = torch.FloatTensor(disp_im)
+
+        item['inputs'] = self.channels.encode(components)
         return item
 
 
@@ -602,142 +747,68 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 # CLI
 
 
-import queue  # NOQA
-from threading import Thread  # NOQA
+def _coerce_sampler(config):
+    import six
+    import ndsampler
+    from bioharn import util
+    from os.path import isdir
 
+    # Running prediction is much faster if you can build a sampler.
+    sampler_backend = config['sampler_backend']
 
-class _AsyncConsumerThread(Thread):
-    """
-    Will fill the queue with content of the source in a separate thread.
-
-    Example:
-        >>> import queue
-        >>> q = queue.Queue()
-        >>> c = _background_consumer(q, range(3))
-        >>> c.start()
-        >>> q.get(True, 1)
-        0
-        >>> q.get(True, 1)
-        1
-        >>> q.get(True, 1)
-        2
-        >>> q.get(True, 1) is ub.NoParam
-        True
-    """
-    def __init__(self, queue, source):
-        Thread.__init__(self)
-
-        self._queue = queue
-        self._source = source
-
-    def run(self):
-        for item in self._source:
-            self._queue.put(item)
-        # Signal the consumer we are done.
-        self._queue.put(ub.NoParam)
-
-
-class AsyncBufferedGenerator(object):
-    """Buffers content of an iterator polling the contents of the given
-    iterator in a separate thread.
-    When the consumer is faster than many producers, this kind of
-    concurrency and buffering makes sense.
-
-    The size parameter is the number of elements to buffer.
-
-    The source must be threadsafe.
-
-    References:
-        http://code.activestate.com/recipes/576999-concurrent-buffer-for-generators/
-    """
-    def __init__(self, source, size=100):
-        self._queue = queue.Queue(size)
-
-        self._poller = _AsyncConsumerThread(self._queue, source)
-        self._poller.daemon = True
-        self._poller.start()
-
-    def __iter__(self):
-        while True:
-            item = self._queue.get(True)
-            if item is ub.NoParam:
-                return
-            yield item
-
-
-class DetectPredictCLIConfig(scfg.Config):
-    default = ub.dict_union(
-        {
-            'dataset': scfg.Value(None, help='coco dataset, path to images or folder of images'),
-            'out_dpath': scfg.Value('./out', help='output directory'),
-            'draw': scfg.Value(False),
-            'workdir': scfg.Value('~/work/bioharn', help='work directory for sampler if needed'),
-        },
-        DetectPredictConfig.default
-    )
-
-
-def atomic_move(src, dst):
-    """
-    Rename a file from ``src`` to ``dst``, atomically if possible.
-
-    Args:
-        src (str | PathLike): file path to an existing file
-        dst (str | PathLike): file path to a destination file
-
-    References:
-        .. [1] https://alexwlchan.net/2019/03/atomic-cross-filesystem-moves-in-python/
-
-    Notes:
-        *   Moves must be atomic.  ``shutil.move()`` is not atomic.
-            Note that multiple threads may try to write to the cache at once,
-            so atomicity is required to ensure the serving on one thread doesn't
-            pick up a partially saved image from another thread.
-
-        *   Moves must work across filesystems.  Often temp directories and the
-            cache directories live on different filesystems.  ``os.rename()`` can
-            throw errors if run across filesystems.
-
-        So we try ``os.rename()``, but if we detect a cross-filesystem copy, we
-        switch to ``shutil.move()`` with some wrappers to make it atomic.
-
-    Example:
-        >>> import ubelt as ub
-        >>> dpath = ub.ensure_app_cache_dir('ubelt')
-        >>> fpath1 = join(dpath, 'foo')
-        >>> fpath2 = join(dpath, 'bar')
-        >>> ub.touch(fpath1)
-        >>> atomic_move(fpath1, fpath2)
-        >>> assert not exists(fpath1)
-        >>> assert exists(fpath2)
-    """
-    import os
-    try:
-        os.rename(src, dst)
-    except OSError as err:
-        import errno
-        import shutil
-        if err.errno == errno.EXDEV:
-            import uuid
-            # Generate a unique ID, and copy `<src>` to the target directory
-            # with a temporary name `<dst>.<ID>.tmp`.  Because we're copying
-            # across a filesystem boundary, this initial copy may not be
-            # atomic.  We intersperse a random UUID so if different processes
-            # are copying into `<dst>`, they don't overlap in their tmp copies.
-            copy_id = uuid.uuid4()
-            tmp_dst = "%s.%s.tmp" % (dst, copy_id)
-            shutil.copyfile(src, tmp_dst)
-
-            # Then do an atomic rename onto the new name, and clean up the
-            # source image.
-            os.rename(tmp_dst, dst)
-            os.unlink(src)
+    if isinstance(config['dataset'], six.string_types):
+        if config['dataset'].endswith('.json'):
+            dataset_fpath = ub.expandpath(config['dataset'])
+            coco_dset = ndsampler.CocoDataset(dataset_fpath)
+            print('coco hashid = {}'.format(coco_dset._build_hashid()))
         else:
-            raise
+            image_path = ub.expandpath(config['dataset'])
+            path_exists = exists(image_path)
+            if path_exists and isfile(image_path):
+                # Single image case
+                coco_dset = ndsampler.CocoDataset()
+                coco_dset.add_image(image_path)
+            elif path_exists and isdir(image_path):
+                # Directory of images case
+                IMG_EXTS = [
+                    '.bmp', '.pgm', '.jpg', '.jpeg', '.png', '.tif', '.tiff',
+                    '.ntf', '.nitf', '.ptif', '.cog.tiff', '.cog.tif', '.r0',
+                    '.r1', '.r2', '.r3', '.r4', '.r5', '.nsf',
+                ]
+                img_globs = ['*' + ext for ext in IMG_EXTS]
+                fpaths = list(util.find_files(image_path, img_globs))
+                if len(fpaths):
+                    coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
+                else:
+                    raise Exception('no images found')
+            else:
+                # Glob pattern case
+                import glob
+                fpaths = list(glob.glob(image_path))
+                if len(fpaths):
+                    coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
+                else:
+                    raise Exception('not an image path')
+
+    elif isinstance(config['dataset'], list):
+        # Multiple image case
+        gpaths = config['dataset']
+        gpaths = [ub.expandpath(g) for g in gpaths]
+        coco_dset = ndsampler.CocoDataset.from_image_paths(gpaths)
+    else:
+        raise TypeError(config['dataset'])
+
+    print('Create sampler')
+    workdir = ub.expandpath(config.get('workdir'))
+    sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
+                                    backend=sampler_backend)
+    return sampler
 
 
+@profile
 def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
-                    draw=False, enable_cache=True, async_buffer=True):
+                    draw=False, enable_cache=True, async_buffer=False,
+                    verbose=1, draw_truth=True):
     """
     Helper to only do predictions that havent been done yet.
 
@@ -763,38 +834,43 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
     """
     import kwarray
     import ndsampler
+    from bioharn import util
+    import tempfile
     coco_dset = sampler.dset
     # predictor.config['verbose'] = 1
 
     det_outdir = ub.ensuredir((out_dpath, 'pred'))
-
-    if enable_cache:
-        # Figure out what gids have already been computed
-        import glob
-        cached_fpaths = list(glob.glob(join(det_outdir, '*.json')))
-        have_gids = [int(basename(fpath).split('_')[2].split('.')[0])
-                     for fpath in cached_fpaths]
-    else:
-        have_gids = []
-
-    print('Found {} existing predictions'.format(len(have_gids)))
+    tmp_fpath = tempfile.mktemp()
 
     if gids is None:
         gids = list(coco_dset.imgs.keys())
+
+    gid_to_pred_fpath = {
+        gid: join(det_outdir, 'dets_gid_{:08d}_v2.mscoco.json'.format(gid))
+        for gid in gids
+    }
+
+    if enable_cache:
+        # Figure out what gids have already been computed
+        have_gids = [gid for gid, fpath in gid_to_pred_fpath.items() if exists(fpath)]
+    else:
+        have_gids = []
+    print('Found {} existing predictions'.format(len(have_gids)))
 
     gids = ub.oset(gids) - have_gids
 
     pred_gen = predictor.predict_sampler(sampler, gids=gids)
 
     if async_buffer:
-        buffered_gen = AsyncBufferedGenerator(pred_gen, size=coco_dset.n_images)
+        buffered_gen = util.AsyncBufferedGenerator(pred_gen,
+                                                   size=coco_dset.n_images)
         gen = buffered_gen
     else:
         gen = pred_gen
 
     gid_to_pred = {}
-    prog = ub.ProgIter(gen, total=coco_dset.n_images,
-                       desc='buffered detect')
+    prog = ub.ProgIter(gen, total=len(gids), desc='buffered detect',
+                       verbose=verbose)
     for img_idx, (gid, dets) in enumerate(prog):
         gid_to_pred[gid] = dets
 
@@ -802,35 +878,42 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
         single_img_coco = ndsampler.CocoDataset()
         gid = single_img_coco.add_image(**img)
-        for cat in coco_dset.cats.values():
+
+        for cat in dets.classes.to_coco():
             single_img_coco.add_category(**cat)
+
+        # for cat in coco_dset.cats.values():
+        #     single_img_coco.add_category(**cat)
 
         for ann in dets.to_coco():
             ann['image_id'] = gid
-            try:
-                catname = ann['category_name']
-                ann['category_id'] = single_img_coco._resolve_to_cid(catname)
-            except KeyError:
-                if 'category_id' not in ann:
-                    cid = single_img_coco.add_category(catname)
-                    ann['category_id'] = cid
+            catname = ann['category_name']
+            cid = single_img_coco.ensure_category(catname)
+            ann['category_id'] = cid
             single_img_coco.add_annotation(**ann)
 
-        single_pred_fpath = join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+        single_pred_fpath = gid_to_pred_fpath[gid]
+
+        # prog.ensure_newline()
         # print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
-        import tempfile
-        tmp_fpath = tempfile.mktemp()
         single_img_coco.dump(tmp_fpath, newlines=True)
-        atomic_move(tmp_fpath, single_pred_fpath)
+        util.atomic_move(tmp_fpath, single_pred_fpath)
 
         if draw is True or (draw and img_idx < draw):
             draw_outdir = ub.ensuredir((out_dpath, 'draw'))
-            img_fpath = coco_dset.load_image_fpath(gid)
+            img_fpath = coco_dset.get_image_fpath(gid)
             gname = basename(img_fpath)
             viz_fname = ub.augpath(gname, prefix='detect_', ext='.jpg')
             viz_fpath = join(draw_outdir, viz_fname)
 
             image = kwimage.imread(img_fpath)
+
+            if draw_truth:
+                # draw truth if available
+                anns = list(ub.take(coco_dset.anns, coco_dset.gid_to_aids[gid]))
+                true_dets = kwimage.Detections.from_coco_annots(anns,
+                                                                dset=coco_dset)
+                true_dets.draw_on(image, alpha=None, color='green')
 
             flags = dets.scores > .2
             flags[kwarray.argmaxima(dets.scores, num=10)] = True
@@ -841,12 +924,25 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
     if enable_cache:
         for gid in ub.ProgIter(have_gids, desc='loading cached pred gids'):
-            single_pred_fpath = join(det_outdir, 'detections_gid_{:08d}.mscoco.json'.format(gid))
+            single_pred_fpath = gid_to_pred_fpath[gid]
             single_img_coco = ndsampler.CocoDataset(single_pred_fpath)
             dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
                                                        dset=single_img_coco)
             gid_to_pred[gid] = dets
-    return gid_to_pred
+    return gid_to_pred, gid_to_pred_fpath
+
+
+class DetectPredictCLIConfig(scfg.Config):
+    default = ub.dict_union(
+        {
+            'dataset': scfg.Value(None, help='coco dataset, path to images or folder of images'),
+            'out_dpath': scfg.Path('./out', help='output directory'),
+            'draw': scfg.Value(False),
+            'sampler_backend': scfg.Value(None),
+            'workdir': scfg.Path('~/work/bioharn', help='work directory for sampler if needed'),
+        },
+        DetectPredictConfig.default
+    )
 
 
 def detect_cli(config={}):
@@ -863,118 +959,52 @@ def detect_cli(config={}):
             --input_dims=512,512 \
             --xpu=0 --batch_size=1
 
+
+        python -m bioharn.detect_predict \
+            --dataset=/data/projects/GOOD/pyrosome-test/US_NW_2017_NWFSC_PYROSOME_TEST \
+            --deployed=$HOME/work/bioharn/fit/nice/test-pyrosome/deploy_MM_CascadeRCNN_lqufwadq_031_HNSZYA.zip \
+            --out_dpath=$HOME/work/bioharn/predict_pyrosome_test \
+            --draw=100 \
+            --xpu=auto --batch_size=2
+
     Ignore:
         >>> config = {}
         >>> config['dataset'] = '~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'
         >>> config['deployed'] = '/home/joncrall/work/bioharn/fit/runs/bioharn-det-v11-test-cascade/myovdqvi/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR.zip'
         >>> config['out_dpath'] = 'out'
     """
-    import kwarray
-    import ndsampler
-    from os.path import basename, join, exists, isfile, isdir  # NOQA
-
     config = DetectPredictCLIConfig(config, cmdline=True)
     print('config = {}'.format(ub.repr2(config.asdict())))
 
     out_dpath = ub.expandpath(config.get('out_dpath'))
-
-    import six
-    if isinstance(config['dataset'], six.string_types):
-        if config['dataset'].endswith('.json'):
-            dataset_fpath = ub.expandpath(config['dataset'])
-            coco_dset = ndsampler.CocoDataset(dataset_fpath)
-            # Running prediction is much faster if you can build a sampler.
-            sampler_backend = {
-                'type': 'cog',
-                'config': {
-                    'compress': 'JPEG',
-                },
-                '_hack_old_names': False,  # flip to true to use legacy caches
-            }
-            sampler_backend = None
-            print('coco hashid = {}'.format(coco_dset._build_hashid()))
-        else:
-            sampler_backend = None
-            if exists(config['dataset']) and isfile(config['dataset']):
-                # Single image case
-                image_fpath = ub.expandpath(config['dataset'])
-                coco_dset = ndsampler.CocoDataset()
-                coco_dset.add_image(image_fpath)
-    elif isinstance(config['dataset'], list):
-        # Multiple image case
-        gpaths = config['dataset']
-        gpaths = [ub.expandpath(g) for g in gpaths]
-        coco_dset = ndsampler.CocoDataset()
-        for gpath in gpaths:
-            coco_dset.add_image(gpath)
-    else:
-        raise TypeError(config['dataset'])
-
-    draw = config.get('draw')
-    workdir = ub.expandpath(config.get('workdir'))
-
     det_outdir = ub.ensuredir((out_dpath, 'pred'))
 
-    pred_config = ub.dict_subset(config, DetectPredictConfig.default)
-
-    print('Create sampler')
-    sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
-                                    backend=sampler_backend)
+    sampler = _coerce_sampler(config)
     print('prepare frames')
     sampler.frames.prepare(workers=config['workers'])
 
     print('Create predictor')
+    pred_config = ub.dict_subset(config, DetectPredictConfig.default)
+    if config['verbose'] < 2:
+        pred_config['verbose'] = 0
     predictor = DetectPredictor(pred_config)
     print('Ensure model')
     predictor._ensure_model()
 
-    pred_dataset = coco_dset.dataset.copy()
-    pred_dataset['annotations'] = []
-    pred_dset = ndsampler.CocoDataset(pred_dataset)
+    async_buffer = ub.argval('--serial') and config['workers'] > 0
+    async_buffer = False  # HACK OFF
 
-    # self = predictor
-    predictor.config['verbose'] = 1
-    pred_gen = predictor.predict_sampler(sampler)
-    buffered_gen = AsyncBufferedGenerator(pred_gen, size=coco_dset.n_images)
+    gid_to_pred, gid_to_pred_fpath = _cached_predict(
+        predictor, sampler, out_dpath=out_dpath, gids=None,
+        draw=config['draw'], enable_cache=True, async_buffer=async_buffer)
 
-    gid_to_pred = {}
-    prog = ub.ProgIter(buffered_gen, total=coco_dset.n_images,
-                       desc='buffered detect')
-    for img_idx, (gid, dets) in enumerate(prog):
-        gid_to_pred[gid] = dets
+    import ndsampler
+    coco_dsets = []
+    for gid, pred_fpath in gid_to_pred_fpath.items():
+        single_img_coco = ndsampler.CocoDataset(pred_fpath)
+        coco_dsets.append(single_img_coco)
 
-        for ann in dets.to_coco():
-            ann['image_id'] = gid
-            try:
-                catname = ann['category_name']
-                ann['category_id'] = pred_dset._resolve_to_cid(catname)
-            except KeyError:
-                if 'category_id' not in ann:
-                    cid = pred_dset.add_category(catname)
-                    ann['category_id'] = cid
-            pred_dset.add_annotation(**ann)
-
-        single_img_coco = pred_dset.subset([gid])
-        single_pred_dpath = ub.ensuredir((det_outdir, 'single_image'))
-        single_pred_fpath = join(single_pred_dpath, 'detections_gid_{:08d}.mscoco.json'.format(gid))
-        single_img_coco.dump(single_pred_fpath, newlines=True)
-
-        if draw is True or (draw and img_idx < draw):
-            draw_outdir = ub.ensuredir((out_dpath, 'draw'))
-            img_fpath = coco_dset.load_image_fpath(gid)
-            gname = basename(img_fpath)
-            viz_fname = ub.augpath(gname, prefix='detect_', ext='.jpg')
-            viz_fpath = join(draw_outdir, viz_fname)
-
-            image = kwimage.imread(img_fpath)
-
-            flags = dets.scores > .2
-            flags[kwarray.argmaxima(dets.scores, num=10)] = True
-            top_dets = dets.compress(flags)
-            toshow = top_dets.draw_on(image, alpha=None)
-            # kwplot.imshow(toshow)
-            kwimage.imwrite(viz_fpath, toshow, space='rgb')
-
+    pred_dset = ndsampler.CocoDataset.union(*coco_dsets)
     pred_fpath = join(det_outdir, 'detections.mscoco.json')
     print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
     pred_dset.dump(pred_fpath, newlines=True)
