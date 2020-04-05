@@ -142,8 +142,9 @@ if __name__ == '__main__':
         name=NAME,
         version=VERSION,
         author='Jon Crall',
-        description=('A Python utility belt containing simple tools, '
-                     'a stdlib like feel, and extra batteries.'),
+        author_email='jon.crall@kitware.com',
+        url='https://gitlab.kitware.com/jon.crall/bioharn',
+        description=('Deep learning training harness for biological problems'),
         long_description=parse_description(),
         long_description_content_type='text/x-rst',
         install_requires=parse_requirements('requirements/runtime.txt'),
@@ -152,10 +153,8 @@ if __name__ == '__main__':
             'tests': parse_requirements('requirements/tests.txt'),
             'optional': parse_requirements('requirements/optional.txt'),
         },
-        author_email='erotemic@gmail.com',
-        url='https://github.com/Erotemic/bioharn',
         license='Apache 2',
-        packages=find_packages(include='bioharn.*'),
+        packages=find_packages('.'),
         classifiers=[
             # List of classifiers available at:
             # https://pypi.python.org/pypi?%3Aaction=list_classifiers
@@ -166,8 +165,6 @@ if __name__ == '__main__':
             # This should be interpreted as Apache License v2.0
             'License :: OSI Approved :: Apache Software License',
             # Supported Python versions
-            'Programming Language :: Python :: 2.7',
-            'Programming Language :: Python :: 3.5',
             'Programming Language :: Python :: 3.6',
             'Programming Language :: Python :: 3.7',
             'Programming Language :: Python :: 3.8',
