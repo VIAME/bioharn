@@ -4,6 +4,7 @@ six
 numpy 
 opencv_python 
 kwarray 
+kwplot
 kwimage 
 ndsampler 
 netharn 
