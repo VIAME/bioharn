@@ -269,8 +269,7 @@ stages:
         - pip install pip -U
         - pip install pip setuptools -U
         - python -V  # Print out python version for debugging
-        - # Hack installation for mmdet (not even sure if possible)
-        - pip install torch
+        - pip install torch  # Hack installation for mmdet (not even sure if possible)
         - pip install mmdet
         - pip install -r requirements.txt
         - pip install .  

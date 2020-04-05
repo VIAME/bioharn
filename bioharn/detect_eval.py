@@ -372,6 +372,8 @@ class DetectEvaluator(object):
         return gid_to_pred
 
     def evaluate(evaluator):
+        if evaluator.predictor is None or evaluator.sampler is None:
+            evaluator._init()
         # TODO
         evaluator.predictor.config['verbose'] = 3
         gid_to_pred = evaluator._run_predictions()
@@ -652,6 +654,15 @@ if __name__ == '__main__':
             $HOME/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v24/torch_snapshots/_epoch_00000060.pt,\
             $HOME/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v24/torch_snapshots/_epoch_00000090.pt,\
             $HOME/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v24/torch_snapshots/_epoch_00000106.pt,]"
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/private/_combos/test_cfarm_habcam_v1.mscoco.json \
+            --deployed="[/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v30-bigger-balanced/etvvhzni/deploy_MM_CascadeRCNN_etvvhzni_007_IPEIQA.zip,\
+            /home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v29-balanced/gjxbpiei/deploy_MM_CascadeRCNN_gjxbpiei_002_LDATFJ.zip,]"
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
+            --deployed=/home/joncrall/work/sealions/fit/runs/detect-sealion-cascade-v11/jwrqcohp/deploy_MM_CascadeRCNN_jwrqcohp_036_MHUOFO.zip
 
     """
 
