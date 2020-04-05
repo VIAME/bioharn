@@ -44,7 +44,7 @@
         * This script will require matainence for new releases of Python
 
         * Make sure you add Runners to your project 
-        https://gitlab.kitware.com/computer-vision/bioharn/-/settings/ci_cd 
+        https://gitlab.kitware.com/jon.crall/bioharn/-/settings/ci_cd 
         in Runners-> Shared Runners
         and Runners-> Available specific runners
         
@@ -90,7 +90,7 @@
 
         Once you have protected the master and release branch, can add these
         variables as the following url
-        https://gitlab.kitware.com/jon.crall/kwimage/-/settings/ci_cd 
+        https://gitlab.kitware.com/jon.crall/bioharn/-/settings/ci_cd 
         
         WARNING: These variables contain secret information. Ensure that these
         the protected and masked settings are enabled when you create them.
@@ -269,6 +269,9 @@ stages:
         - pip install pip -U
         - pip install pip setuptools -U
         - python -V  # Print out python version for debugging
+        - # Hack installation for mmdet (not even sure if possible)
+        - pip install torch
+        - pip install mmdet
         - pip install -r requirements.txt
         - pip install .  
 
@@ -407,17 +410,17 @@ deploy/cp38-cp38-linux:
 # ---------------
 # Python 3.7 Jobs
 
-build/cp37-cp37m-linux:
-    <<: 
-        - *build_template
-    image:
-        python:3.7
+#build/cp37-cp37m-linux:
+#    <<: 
+#        - *build_template
+#    image:
+#        python:3.7
 
-test_full/cp37-cp37m-linux:
-    <<: 
-        - *test_full_template
-    image:
-        python:3.7
+#test_full/cp37-cp37m-linux:
+#    <<: 
+#        - *test_full_template
+#    image:
+#        python:3.7
 
 
 # ---------------
