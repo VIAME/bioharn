@@ -33,7 +33,7 @@ class DetectPredictConfig(scfg.Config):
 
         'workers': 0,
 
-        'overlap': scfg.Value(0.0, help='overlap of the sliding window'),
+        'window_overlap': scfg.Value(0.0, help='overlap of the sliding window'),
 
         'channels': scfg.Value(
             'native',
@@ -390,7 +390,7 @@ class DetectPredictor(object):
 
         # Break large images into chunks to fit on the GPU
         slider = nh.util.SlidingWindow(full_dims, window=window_dims,
-                                       overlap=predictor.config['overlap'],
+                                       overlap=predictor.config['window_overlap'],
                                        keepbound=True, allow_overshoot=True)
 
         input_dims = predictor.config['input_dims']

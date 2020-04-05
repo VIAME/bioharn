@@ -29,7 +29,7 @@ class DetectEvaluateConfig(scfg.Config):
             'size of sliding window chip; or "full" which uses the entire frame; '
             'or "native", which uses window_dims specified in training')),
 
-        'overlap': scfg.Value(0.0, help='overlap of the sliding window'),
+        'window_overlap': scfg.Value(0.0, help='overlap of the sliding window'),
 
         'workers': scfg.Value(4, help='num CPUs for data loading'),
 
@@ -219,7 +219,7 @@ class DetectEvaluator(object):
 
     Ignore:
         from bioharn.detect_eval import *  # NOQA
-        config = {'xpu': 0, 'batch_size': 2, 'overlap': 0.5}
+        config = {'xpu': 0, 'batch_size': 2, 'window_overlap': 0.5}
         config['deployed'] = '/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v27/dxziuzrv/deploy_MM_CascadeRCNN_dxziuzrv_019_GQDHOF.zip'
         config['dataset'] = ub.expandpath('/home/joncrall/data/private/_combo_cfarm/cfarm_test.mscoco.json')
 
@@ -308,7 +308,7 @@ class DetectEvaluator(object):
         pred_params = ub.dict_subset(evaluator.predictor.config, [
             'input_dims',
             'window_dims',
-            'overlap',
+            'window_overlap',
         ])
         evaluator.pred_cfg = nh.util.make_short_idstr(pred_params)
         evaluator.predcfg_tag = evaluator.pred_cfg

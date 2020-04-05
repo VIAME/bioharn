@@ -459,8 +459,8 @@ class DetectHarn(nh.FitHarn):
                 --window_overlap=0.0 \
                 --normalize_inputs=True \
                 --workers=4 --xpu=0 --batch_size=8 --bstep=1 \
-                --sampler_backend=cog
-                --timeout=30
+                --sampler_backend=cog \
+                --timeout=1
 
         """
         from bioharn import detect_eval
