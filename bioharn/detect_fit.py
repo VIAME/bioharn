@@ -475,7 +475,7 @@ class DetectHarn(nh.FitHarn):
             'dataset': harn.datasets['test'],
             'input_dims': harn.script_config['input_dims'],
             'window_dims': harn.script_config['window_dims'],
-            'overlap': harn.script_config['overlap'],
+            'window_overlap': harn.script_config['window_overlap'],
             'workers': harn.script_config['workers'],
             'channels': harn.script_config['channels'],
             'out_dpath': ub.ensuredir(harn.train_dpath, 'out_eval'),  # fixme
