@@ -472,7 +472,7 @@ class DetectHarn(nh.FitHarn):
         Ignore:
             # test to make sure this works
             python -m bioharn.detect_fit \
-                --nice=bioharn_shapes_example \
+                --nice=bioharn_shapes_example2 \
                 --datasets=special:shapes256 \
                 --schedule=step-10-30 \
                 --augment=complex \
