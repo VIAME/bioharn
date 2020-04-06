@@ -158,7 +158,7 @@ class ChannelSpec(ub.NiceRepr):
             >>> print('input_shapes = {}'.format(ub.repr2(input_shapes, nl=1)))
         """
         import torch
-        inputs = {}
+        inputs = dict()
         parsed = self.parse()
         unique = self.unique()
         components = {k: item[k] for k in unique}
@@ -186,7 +186,7 @@ class ChannelSpec(ub.NiceRepr):
             >>> components = self.decode(batch)
         """
         parsed = self.parse()
-        components = {}
+        components = dict()
         for key, parts in parsed.items():
             idx1 = 0
             for part in parts:

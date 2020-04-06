@@ -204,6 +204,19 @@ def evaluate_models(cmdline=True, **kw):
     print(df.to_string(float_format=lambda x: '%0.3f' % x))
 
 
+def _coerce_dataset(dset):
+    if isinstance(dset, str):
+        dset_fpath = ub.expandpath(dset)
+        dset = ndsampler.CocoDataset(dset_fpath)
+    elif type(dset).__name__ == 'CocoDataset':
+        dset = dset
+    elif type(dset).__name__ == 'CocoSampler':
+        dset = dset.dset
+    else:
+        raise TypeError(type(dset))
+    return dset
+
+
 class DetectEvaluator(object):
     """
     Evaluation harness for a detection task.
@@ -239,10 +252,14 @@ class DetectEvaluator(object):
         evaluator.predictor = None
         evaluator.sampler = None
 
+    def _init(evaluator):
+        evaluator._ensure_sampler()
+        evaluator._init_predictor()
+
     def _ensure_sampler(evaluator):
         if evaluator.sampler is None:
             print('loading dataset')
-            coco_dset = ndsampler.CocoDataset(ub.expandpath(evaluator.config['dataset']))
+            coco_dset = _coerce_dataset(evaluator.config['dataset'])
             print('loaded dataset')
             workdir = ub.expandpath(evaluator.config['workdir'])
             sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
@@ -253,9 +270,7 @@ class DetectEvaluator(object):
             evaluator.sampler.frames.prepare(workers=evaluator.config['workers'])
             print('finished dataset load')
 
-    def _init(evaluator):
-        evaluator._ensure_sampler()
-
+    def _init_predictor(evaluator):
         # Load model
         deployed = nh.export.DeployedModel.coerce(evaluator.config['deployed'])
         nice = deployed.train_info()['nice']

@@ -186,21 +186,17 @@ class DetectHarn(nh.FitHarn):
             >>> outputs, loss = harn.run_batch(batch)
 
         """
-        # Compute how many images have been seen before
+        if not getattr(harn, '_draw_timer', None):
+            harn._draw_timer = ub.Timer().tic()
+        # need to hack do draw here, because we need to call
+        # mmdet forward in a special way
+        harn._hack_do_draw = (harn.batch_index < harn.script_config['num_draw'])
+        harn._hack_do_draw |= ((harn._draw_timer.toc() > 60 * harn.script_config['draw_interval']) and
+                               (harn.script_config['draw_interval'] > 0))
+        return_result = harn._hack_do_draw
+
         if getattr(harn.raw_model, '__BUILTIN_CRITERION__', False):
-
             harn.raw_model.detector.test_cfg['score_thr'] = 0.0
-
-            if not getattr(harn, '_draw_timer', None):
-                harn._draw_timer = ub.Timer().tic()
-            # need to hack do draw here, because we need to call
-            # mmdet forward in a special way
-
-            harn._hack_do_draw = (harn.batch_index < harn.script_config['num_draw'])
-            harn._hack_do_draw |= ((harn._draw_timer.toc() > 60 * harn.script_config['draw_interval']) and
-                                   (harn.script_config['draw_interval'] > 0))
-
-            return_result = harn._hack_do_draw
 
             batch = batch.copy()
             batch.pop('tr')
@@ -222,17 +218,44 @@ class DetectHarn(nh.FitHarn):
             loss_parts = {k: v.sum() for k, v in outputs['loss_parts'].items()}
 
         else:
+            # import xdev
+            # xdev.embed()
+            from bioharn.channel_spec import ChannelSpec
 
-            assert False, 'out of date'
+            inputs = batch['inputs']
+            channels = ChannelSpec.coerce(harn.script_config['channels'])
+            item = {k: v.data[0] for k, v in inputs.items()}
+            im = channels.encode(item, axis=1)['rgb']
+
+            # Compute how many images have been seen before
             bsize = harn.loaders['train'].batch_sampler.batch_size
             nitems = (len(harn.datasets['train']) // bsize) * bsize
             bx = harn.bxs['train']
             n_seen = (bx * bsize) + (nitems * harn.epoch)
 
-            inputs = batch['im']
-            target = batch['label']
-            outputs = harn.model(inputs)
-            loss_parts = harn.criterion(outputs, target, seen=n_seen)
+            batch = batch.copy()
+
+            im = harn.xpu.move(im)
+            raw_outputs = harn.model(im)
+
+            outputs = dict()
+
+            label = batch['label']
+            unwrapped = {k: v.data[0] for k, v in label.items()}
+            target = {
+                'cxywh': nh.data.collate.padded_collate(unwrapped['cxywh']),
+                'class_idxs': nh.data.collate.padded_collate(unwrapped['class_idxs']),
+                'weight': nh.data.collate.padded_collate(unwrapped['weight']),
+                'indices': nh.data.collate.padded_collate(unwrapped['indices']),
+                'orig_sizes': nh.data.collate.padded_collate(unwrapped['orig_sizes']),
+                'bg_weights': nh.data.collate.padded_collate(unwrapped['bg_weights']),
+            }
+            target = harn.xpu.move(target)
+            loss_parts = harn.criterion(raw_outputs, target, seen=n_seen)
+
+            if return_result:
+                outputs['batch_results'] = harn.raw_model.coder.decode_batch(raw_outputs)
+
         return outputs, loss_parts
 
     def on_batch(harn, batch, outputs, losses):
@@ -454,8 +477,8 @@ class DetectHarn(nh.FitHarn):
                 --schedule=step-10-30 \
                 --augment=complex \
                 --init=noop \
-                --arch=retinanet \
-                --optim=sgd --lr=1e-3 \
+                --arch=yolo2 \
+                --optim=sgd --lr=1e-8 \
                 --input_dims=window \
                 --window_dims=128,128 \
                 --window_overlap=0.0 \
@@ -1151,3 +1174,40 @@ if __name__ == '__main__':
             return s
         warnings.formatwarning = _monkeypatch_formatwarning_tb
     fit()
+
+
+def _pad_batch(inbatch, fill_value):
+    num_items = [len(item) for item in inbatch]
+    if ub.allsame(num_items):
+        if len(num_items) == 0:
+            batch = torch.FloatTensor()
+        elif num_items[0] == 0:
+            batch = torch.FloatTensor()
+        else:
+            batch = default_collate(inbatch)
+    else:
+        max_size = max(num_items)
+        real_tail_shape = None
+        for item in inbatch:
+            if item.numel():
+                tail_shape = item.shape[1:]
+                if real_tail_shape is not None:
+                    assert real_tail_shape == tail_shape
+                real_tail_shape = tail_shape
+
+        padded_inbatch = []
+        for item in inbatch:
+            n_extra = max_size - len(item)
+            if n_extra > 0:
+                shape = (n_extra,) + tuple(real_tail_shape)
+                if torch.__version__.startswith('0.3'):
+                    extra = torch.Tensor(np.full(shape, fill_value=fill_value))
+                else:
+                    extra = torch.full(shape, fill_value=fill_value,
+                                       dtype=item.dtype)
+                padded_item = torch.cat([item, extra], dim=0)
+                padded_inbatch.append(padded_item)
+            else:
+                padded_inbatch.append(item)
+        batch = inbatch
+        batch = default_collate(padded_inbatch)
