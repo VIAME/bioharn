@@ -54,6 +54,7 @@ class DetectPredictor(object):
     A detector API for bioharn trained models
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> import ubelt as ub
         >>> from bioharn.detect_predict import *  # NOQA
         >>> deployed_fpath = ub.grabdata(

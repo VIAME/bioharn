@@ -474,13 +474,13 @@ class DetectHarn(nh.FitHarn):
             # test to make sure this works
             python -m bioharn.detect_fit \
                 --nice=bioharn_shapes_example2 \
-                --datasets=special:shapes256 \
+                --datasets=special:shapes2048 \
                 --schedule=step-10-30 \
-                --augment=complex \
+                --augment=simple \
                 --init=imagenet \
                 --arch=yolo2 \
-                --optim=sgd --lr=1e-3 \
-                --input_dims=128,128 \
+                --optim=sgd --lr=1e-2 \
+                --input_dims=window \
                 --window_dims=256,256 \
                 --window_overlap=0.0 \
                 --normalize_inputs=True \
