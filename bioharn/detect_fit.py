@@ -473,17 +473,17 @@ class DetectHarn(nh.FitHarn):
         Ignore:
             # test to make sure this works
             python -m bioharn.detect_fit \
-                --nice=bioharn_shapes_example2 \
+                --nice=bioharn_shapes_example3 \
                 --datasets=special:shapes2048 \
-                --schedule=step-10-30 \
+                --schedule=step-60-80 \
                 --augment=simple \
-                --init=imagenet \
+                --init=lightnet \
                 --arch=yolo2 \
                 --optim=sgd --lr=1e-2 \
                 --input_dims=window \
                 --window_dims=256,256 \
                 --window_overlap=0.0 \
-                --normalize_inputs=True \
+                --normalize_inputs=False \
                 --workers=4 --xpu=0 --batch_size=8 --bstep=1 \
                 --sampler_backend=cog \
                 --timeout=100000000000
