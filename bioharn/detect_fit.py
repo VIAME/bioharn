@@ -738,22 +738,25 @@ def setup_harn(cmdline=True, **kw):
             model._init_backbone_from_pretrained(config['backbone_init'])
     elif arch == 'yolo2':
         from bioharn.models.yolo2 import yolo2
-        if False:
-            dset = samplers['train'].dset
-            print('dset = {!r}'.format(dset))
-            # anchors = yolo2.find_anchors(dset)
-            # anchors = yolo2.find_anchors2(dset.sampler)
 
+        _dset = torch_datasets['train']
+        cacher = ub.Cacher('dset_anchors', cfgstr=_dset.input_id + 'v3')
+        anchors = cacher.tryload()
+        if anchors is None:
+            anchors = _dset.sampler.dset.boxsize_stats(anchors=4, perclass=False)['all']['anchors']
+            anchors = anchors.round(1)
+            cacher.save(anchors)
+
+        print('anchors = {!r}'.format(anchors))
         # HACKED IN:
         # anchors = np.array([[1.0, 1.0],
         #                     [0.1, 0.1 ],
         #                     [0.01, 0.01],
         #                     [0.07781961, 0.10329947],
         #                     [0.03830135, 0.05086466]])
-
-        anchors = np.array([(1.3221, 1.73145), (3.19275, 4.00944),
-                            (5.05587, 8.09892), (9.47112, 4.84053),
-                            (11.2364, 10.0071)]) * 32
+        # anchors = np.array([(1.3221, 1.73145), (3.19275, 4.00944),
+        #                     (5.05587, 8.09892), (9.47112, 4.84053),
+        #                     (11.2364, 10.0071)]) * 32
 
         model_ = (yolo2.Yolo2, {
             'classes': classes,
