@@ -10,5 +10,3 @@ ndsampler
 netharn 
 scriptconfig
 ubelt
-mmcv
-mmdet

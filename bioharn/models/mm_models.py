@@ -46,6 +46,7 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
     Convert our netharn style batch to mmdet style
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> # Test batch with empty item
         >>> bsize = [2, 0, 1, 1]
         >>> batch = _demo_batch(bsize)
@@ -251,6 +252,7 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
     Input data for testing this detector
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> from bioharn.models.mm_models import _demo_batch, _batch_to_mm_inputs
         >>> globals().update(**xdev.get_func_kwargs(_demo_batch))
@@ -370,6 +372,7 @@ class MM_Coder(object):
                 result[1][k] is a N-len list of coco sseg dicts for class k
 
         Example:
+            >>> # xdoctest: +REQUIRES(module:mmdet)
             >>> from bioharn.models.mm_models import *  # NOQA
             >>> import torch
             >>> classes = ['a', 'b', 'c']
@@ -381,6 +384,7 @@ class MM_Coder(object):
             >>> batch_dets = model.coder.decode_batch(outputs)
 
         Example:
+            >>> # xdoctest: +REQUIRES(module:mmdet)
             >>> from bioharn.models.mm_models import *  # NOQA
             >>> classes = ['a', 'b', 'c']
             >>> xpu = data_containers.ContainerXPU(0)
@@ -639,6 +643,7 @@ class MM_RetinaNet(MM_Detector):
         ~/code/mmdetection/mmdet/models/detectors/retinanet.py
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> import torch
         >>> import mmcv
@@ -776,6 +781,7 @@ class MM_CascadeRCNN(MM_Detector):
         xdoctest -m ~/code/bioharn/bioharn/models/mm_models.py MM_CascadeRCNN
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> import torch
         >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
@@ -787,6 +793,7 @@ class MM_CascadeRCNN(MM_Detector):
         >>> batch_dets = self.coder.decode_batch(outputs)
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> # Test multiple channels
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> import torch
@@ -1012,6 +1019,7 @@ class MM_CascadeRCNN(MM_Detector):
 class MM_MaskRCNN(MM_Detector):
     """
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> # Test multiple channels
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> import torch

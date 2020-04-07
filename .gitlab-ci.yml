@@ -270,8 +270,8 @@ stages:
         - pip install pip setuptools -U
         - python -V  # Print out python version for debugging
         - pip install cython scikit-build cmake ninja numpy torch  # Hack installation for mmdet (not even sure if possible)
-        - pip install mmdet  # this doesn't really work, which prevents bioharn from being well-tested
-        - pip install -r requirements.txt
+        - pip install -r requirements/runtime.txt
+        - pip install -r requirements/tests.txt
         - pip install .  
 
     script: 

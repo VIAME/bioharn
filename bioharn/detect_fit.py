@@ -17,7 +17,6 @@ import warnings
 # import ubelt as ub
 import scriptconfig as scfg
 # from os.path import join
-from netharn.models.yolo2 import yolo2
 
 
 class DetectFitConfig(scfg.Config):
@@ -113,8 +112,10 @@ class DetectFitConfig(scfg.Config):
 
         key = self.get('pretrained', None) or self.get('init', None)
         if key == 'imagenet':
+            from bioharn.models.yolo2 import yolo2
             self['pretrained'] = yolo2.initial_imagenet_weights()
         elif key == 'lightnet':
+            from bioharn.models.yolo2 import yolo2
             self['pretrained'] = yolo2.demo_voc_weights()
 
         if self['pretrained'] is not None:
@@ -174,6 +175,11 @@ class DetectHarn(nh.FitHarn):
             >>> from bioharn.detect_fit import *  # NOQA
             >>> harn = setup_harn(bsize=2, datasets='special:habcam',
             >>>     arch='cascade', init='noop', xpu=0, channels='rgb|disparity',
+            >>>     workers=0, normalize_inputs=False, sampler_backend=None)
+
+            >>> from bioharn.detect_fit import *  # NOQA
+            >>> harn = setup_harn(bsize=2, datasets='special:shapes256',
+            >>>     arch='yolo2', init='lightnet', xpu=0, channels='rgb',
             >>>     workers=0, normalize_inputs=False, sampler_backend=None)
 
         Example:
@@ -236,9 +242,7 @@ class DetectHarn(nh.FitHarn):
             batch = batch.copy()
 
             im = harn.xpu.move(im)
-            raw_outputs = harn.model(im)
-
-            outputs = dict()
+            outputs = harn.model(im)
 
             label = batch['label']
             unwrapped = {k: v.data[0] for k, v in label.items()}
@@ -246,15 +250,12 @@ class DetectHarn(nh.FitHarn):
                 'cxywh': nh.data.collate.padded_collate(unwrapped['cxywh']),
                 'class_idxs': nh.data.collate.padded_collate(unwrapped['class_idxs']),
                 'weight': nh.data.collate.padded_collate(unwrapped['weight']),
-                'indices': nh.data.collate.padded_collate(unwrapped['indices']),
-                'orig_sizes': nh.data.collate.padded_collate(unwrapped['orig_sizes']),
-                'bg_weights': nh.data.collate.padded_collate(unwrapped['bg_weights']),
+                # 'indices': nh.data.collate.padded_collate(unwrapped['indices']),
+                # 'orig_sizes': nh.data.collate.padded_collate(unwrapped['orig_sizes']),
+                # 'bg_weights': nh.data.collate.padded_collate(unwrapped['bg_weights']),
             }
             target = harn.xpu.move(target)
-            loss_parts = harn.criterion(raw_outputs, target, seen=n_seen)
-
-            if return_result:
-                outputs['batch_results'] = harn.raw_model.coder.decode_batch(raw_outputs)
+            loss_parts = harn.criterion(outputs, target, seen=n_seen)
 
         return outputs, loss_parts
 
@@ -285,9 +286,9 @@ class DetectHarn(nh.FitHarn):
         bx = harn.bxs[harn.current_tag]
         try:
             if harn._hack_do_draw:
-                detections = harn.raw_model.coder.decode_batch(outputs)
+                batch_dets = harn.raw_model.coder.decode_batch(outputs)
                 harn._draw_timer.tic()
-                stacked = harn.draw_batch(batch, outputs, detections, thresh=0.0)
+                stacked = harn.draw_batch(batch, outputs, batch_dets, thresh=0.0)
                 dump_dpath = ub.ensuredir((harn.train_dpath, 'monitor', harn.current_tag, 'batch'))
                 dump_fname = 'pred_bx{:04d}_epoch{:08d}.png'.format(bx, harn.epoch)
                 fpath = os.path.join(dump_dpath, dump_fname)
@@ -476,16 +477,16 @@ class DetectHarn(nh.FitHarn):
                 --datasets=special:shapes256 \
                 --schedule=step-10-30 \
                 --augment=complex \
-                --init=noop \
+                --init=imagenet \
                 --arch=yolo2 \
-                --optim=sgd --lr=1e-8 \
-                --input_dims=window \
-                --window_dims=128,128 \
+                --optim=sgd --lr=1e-3 \
+                --input_dims=128,128 \
+                --window_dims=256,256 \
                 --window_overlap=0.0 \
                 --normalize_inputs=True \
                 --workers=4 --xpu=0 --batch_size=8 --bstep=1 \
                 --sampler_backend=cog \
-                --timeout=1
+                --timeout=100000000000
 
         """
         from bioharn import detect_eval
@@ -736,6 +737,7 @@ def setup_harn(cmdline=True, **kw):
         elif config['backbone_init'] is not None:
             model._init_backbone_from_pretrained(config['backbone_init'])
     elif arch == 'yolo2':
+        from bioharn.models.yolo2 import yolo2
         if False:
             dset = samplers['train'].dset
             print('dset = {!r}'.format(dset))
@@ -743,15 +745,15 @@ def setup_harn(cmdline=True, **kw):
             # anchors = yolo2.find_anchors2(dset.sampler)
 
         # HACKED IN:
-        anchors = np.array([[1.0, 1.0],
-                            [0.1, 0.1 ],
-                            [0.01, 0.01],
-                            [0.07781961, 0.10329947],
-                            [0.03830135, 0.05086466]])
+        # anchors = np.array([[1.0, 1.0],
+        #                     [0.1, 0.1 ],
+        #                     [0.01, 0.01],
+        #                     [0.07781961, 0.10329947],
+        #                     [0.03830135, 0.05086466]])
 
-        # anchors = np.array([(1.3221, 1.73145), (3.19275, 4.00944),
-        #                     (5.05587, 8.09892), (9.47112, 4.84053),
-        #                     (11.2364, 10.0071)])
+        anchors = np.array([(1.3221, 1.73145), (3.19275, 4.00944),
+                            (5.05587, 8.09892), (9.47112, 4.84053),
+                            (11.2364, 10.0071)]) * 32
 
         model_ = (yolo2.Yolo2, {
             'classes': classes,
