@@ -72,6 +72,8 @@ def atomic_move(src, dst):
 
     References:
         .. [1] https://alexwlchan.net/2019/03/atomic-cross-filesystem-moves-in-python/
+        .. [2] https://bugs.python.org/issue8828
+        .. [3] https://stackoverflow.com/questions/167414/is-an-atomic-file-rename-with-overwrite-possible-on-windows
 
     Notes:
         *   Moves must be atomic.  ``shutil.move()`` is not atomic.
@@ -93,11 +95,16 @@ def atomic_move(src, dst):
         >>> fpath1 = join(dpath, 'foo')
         >>> fpath2 = join(dpath, 'bar')
         >>> ub.touch(fpath1)
+        >>> print(exists(fpath2))
         >>> atomic_move(fpath1, fpath2)
         >>> assert not exists(fpath1)
         >>> assert exists(fpath2)
     """
     import os
+    if ub.WIN32 and os.path.exists(dst):
+        # hack, this isn't atomic on win32, but it fixes a bug so punt for now
+        # Would be best to try doing this better in the future.
+        os.unlink(dst)
     try:
         os.rename(src, dst)
     except OSError as err:

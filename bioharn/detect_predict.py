@@ -817,21 +817,16 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
     unique to this particular dataset.
 
     Ignore:
-        pass
-
         >>> import ndsampler
         >>> config = {}
         >>> config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000042.pt')
         >>> predictor = DetectPredictor(config)
         >>> predictor._ensure_model()
-
         >>> out_dpath = './cached_out'
-
         >>> gids = None
         >>> coco_dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
         >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
         >>>                                 backend=None)
-
     """
     import kwarray
     import ndsampler
