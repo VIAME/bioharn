@@ -270,6 +270,12 @@ stages:
         - pip install pip setuptools -U
         - python -V  # Print out python version for debugging
         - pip install cython scikit-build cmake ninja numpy torch  # Hack installation for mmdet (not even sure if possible)
+        - apt-get update -y
+        - apt-get install software-properties-common -y
+        - apt-add-repository ppa:ubuntugis/ubuntugis-unstable -y
+        - apt-get update -y
+        - apt-get install libgdal-dev
+        - pip install --global-option=build_ext --global-option="-I/usr/include/gdal" GDAL==`gdal-config --version`
         - pip install -r requirements/runtime.txt
         - pip install -r requirements/tests.txt
         - pip install .  
