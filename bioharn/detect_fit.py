@@ -97,6 +97,7 @@ class DetectFitConfig(scfg.Config):
 
         'collapse_classes': scfg.Value(False, help='force one-class detector'),
         'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
+        'test_on_finish': False,
     }
 
     def normalize(self):
@@ -494,39 +495,40 @@ class DetectHarn(nh.FitHarn):
         """
         from bioharn import detect_eval
 
-        eval_dataset = harn.datasets.get('test', None)
-        if eval_dataset is None:
-            harn.warn('No test dataset to evaluate')
+        if harn.script_config['test_on_finish']:
+            eval_dataset = harn.datasets.get('test', None)
+            if eval_dataset is None:
+                harn.warn('No test dataset to evaluate')
 
-        if eval_dataset is None:
-            harn.warn('No evaluation dataset')
-        else:
-            print('eval_dataset = {!r}'.format(eval_dataset))
-            eval_config = {
-                'xpu': harn.xpu,
+            if eval_dataset is None:
+                harn.warn('No evaluation dataset')
+            else:
+                print('eval_dataset = {!r}'.format(eval_dataset))
+                eval_config = {
+                    'xpu': harn.xpu,
 
-                'deployed': harn.model,
+                    'deployed': harn.model,
 
-                # fixme: should be able to pass the dataset as an object
-                'dataset': harn.datasets['test'].sampler.dset.fpath,
+                    # fixme: should be able to pass the dataset as an object
+                    'dataset': harn.datasets['test'].sampler.dset.fpath,
 
-                'input_dims': harn.script_config['input_dims'],
-                'window_dims': harn.script_config['window_dims'],
-                'window_overlap': harn.script_config['window_overlap'],
-                'workers': harn.script_config['workers'],
-                'channels': harn.script_config['channels'],
-                'out_dpath': ub.ensuredir(harn.train_dpath, 'out_eval'),  # fixme
-                'eval_in_train_dpath': True,
-                'draw': 10,
-                'batch_size': harn.script_config['batch_size'],
-            }
-            eval_config = detect_eval.DetectEvaluateConfig(eval_config)
-            evaluator = detect_eval.DetectEvaluator(config=eval_config)
+                    'input_dims': harn.script_config['input_dims'],
+                    'window_dims': harn.script_config['window_dims'],
+                    'window_overlap': harn.script_config['window_overlap'],
+                    'workers': harn.script_config['workers'],
+                    'channels': harn.script_config['channels'],
+                    'out_dpath': ub.ensuredir(harn.train_dpath, 'out_eval'),  # fixme
+                    'eval_in_train_dpath': True,
+                    'draw': 10,
+                    'batch_size': harn.script_config['batch_size'],
+                }
+                eval_config = detect_eval.DetectEvaluateConfig(eval_config)
+                evaluator = detect_eval.DetectEvaluator(config=eval_config)
 
-            # Fixme: the evaluator should be able to handle being passed the
-            # sampler / dataset in the config.
-            evaluator.sampler = eval_dataset.sampler
-            evaluator.evaluate()
+                # Fixme: the evaluator should be able to handle being passed the
+                # sampler / dataset in the config.
+                evaluator.sampler = eval_dataset.sampler
+                evaluator.evaluate()
 
 
 def setup_harn(cmdline=True, **kw):

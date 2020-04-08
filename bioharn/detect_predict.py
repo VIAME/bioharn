@@ -856,6 +856,8 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         have_gids = [gid for gid, fpath in gid_to_pred_fpath.items() if exists(fpath)]
     else:
         have_gids = []
+
+    print('enable_cache = {!r}'.format(enable_cache))
     print('Found {} existing predictions'.format(len(have_gids)))
 
     gids = ub.oset(gids) - have_gids
