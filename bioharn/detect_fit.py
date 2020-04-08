@@ -220,14 +220,9 @@ class DetectHarn(nh.FitHarn):
             loss_parts = {k: v.sum() for k, v in outputs['loss_parts'].items()}
 
         else:
-            # import xdev
-            # xdev.embed()
-            from bioharn.channel_spec import ChannelSpec
-
             inputs = batch['inputs']
-            channels = ChannelSpec.coerce(harn.script_config['channels'])
-            item = {k: v.data[0] for k, v in inputs.items()}
-            im = channels.encode(item, axis=1)
+            # unpack the BatchContainer
+            im = {k: v.data[0] for k, v in inputs.items()}
 
             # Compute how many images have been seen before
             bsize = harn.loaders['train'].batch_sampler.batch_size
@@ -762,6 +757,7 @@ def setup_harn(cmdline=True, **kw):
             'classes': classes,
             'anchors': anchors,
             'input_stats': input_stats,
+            'channels': config['channels'],
             'conf_thresh': 0.001,
             'nms_thresh': 0.5,
         })
@@ -793,7 +789,7 @@ def setup_harn(cmdline=True, **kw):
     import sys
 
     hyper = nh.HyperParams(**{
-        'nice': config['nice'],
+        'name': config['nice'],
         'workdir': config['workdir'],
 
         'datasets': torch_datasets,

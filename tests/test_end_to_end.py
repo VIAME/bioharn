@@ -59,3 +59,11 @@ def test_train_and_eval_model_rgbd():
     xdoctest tests/test_end_to_end.py test_train_and_eval_model_rgbd
     """
     _test_train_and_eval_model(aux=True)
+
+
+if __name__ == '__main__':
+    """
+    CommandLine:
+        python ~/code/bioharn/tests/test_end_to_end.py
+    """
+    test_train_and_eval_model_rgbd()
