@@ -64,6 +64,6 @@ def test_train_and_eval_model_rgbd():
 if __name__ == '__main__':
     """
     CommandLine:
-        python ~/code/bioharn/tests/test_end_to_end.py
+        python tests/test_end_to_end.py
     """
     test_train_and_eval_model_rgbd()
