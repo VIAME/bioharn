@@ -11,12 +11,7 @@ import ubelt as ub
 import kwarray
 import kwimage
 import warnings
-# import numpy as np
-# import torch
-# import netharn as nh
-# import ubelt as ub
 import scriptconfig as scfg
-# from os.path import join
 
 
 class DetectFitConfig(scfg.Config):
