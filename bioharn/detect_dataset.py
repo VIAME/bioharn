@@ -409,6 +409,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     pin_memory=False, drop_last=False, multiscale=False,
                     balance=False, xpu=None):
         """
+        CommandLine:
+            xdoctest -m /home/joncrall/code/bioharn/bioharn/detect_dataset.py DetectFitDataset.make_loader
+
         Example:
             >>> from bioharn.detect_dataset import *  # NOQA
             >>> self = DetectFitDataset.demo('shapes32')

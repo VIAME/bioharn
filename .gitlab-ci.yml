@@ -275,6 +275,7 @@ stages:
         - apt-get update -y
         - apt-get install libgdal-dev -y
         - pip install --global-option=build_ext --global-option="-I/usr/include/gdal" GDAL==`gdal-config --version`
+        - pip install lru-dict
         - pip install -r requirements/runtime.txt
         - pip install -r requirements/tests.txt
         - pip install .  
