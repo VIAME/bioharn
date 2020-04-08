@@ -382,7 +382,7 @@ class DetectEvaluator(object):
         gid_to_pred, gid_to_pred_fpath = detect_predict._cached_predict(
             predictor, sampler, out_dpath, gids=None,
             draw=evaluator.config['draw'],
-            enable_cache=0 and evaluator.config['enable_cache']
+            enable_cache=evaluator.config['enable_cache']
         )
         return gid_to_pred
 
