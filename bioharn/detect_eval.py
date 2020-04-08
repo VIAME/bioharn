@@ -368,7 +368,7 @@ class DetectEvaluator(object):
         evaluator.paths['base'] = base_dpath
         evaluator.paths['metrics'] = ub.ensuredir((evaluator.paths['base'], 'metrics'))
         evaluator.paths['viz'] = ub.ensuredir((evaluator.paths['base'], 'viz'))
-        print('evaluator.paths = {!r}'.format(evaluator.paths))
+        print('evaluator.paths = {}'.format(ub.repr2(evaluator.paths, nl=1)))
 
     def _run_predictions(evaluator):
 
