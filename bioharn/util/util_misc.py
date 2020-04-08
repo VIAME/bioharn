@@ -28,6 +28,7 @@ def find_files(dpath, glob_pat='*', recursive=True, ignorecase=True,
 
     Example:
         >>> import kwimage
+        >>> from os.path import dirname
         >>> ignorecase = True
         >>> dpath = dirname(kwimage.__file__)
         >>> glob_pat = '*.So'
@@ -55,3 +56,12 @@ def find_files(dpath, glob_pat='*', recursive=True, ignorecase=True,
                 yield fpath
         if not recursive:
             break
+
+
+if __name__ == '__main__':
+    """
+    CommandLine:
+        python ~/code/bioharn/bioharn/util/util_misc.py all
+    """
+    import xdoctest
+    xdoctest.doctest_module(__file__)

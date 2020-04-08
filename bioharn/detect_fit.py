@@ -472,19 +472,22 @@ class DetectHarn(nh.FitHarn):
 
         Ignore:
             # test to make sure this works
+            python -m netharn.data.grab_voc
+
             python -m bioharn.detect_fit \
-                --nice=bioharn_shapes_example3 \
-                --datasets=special:shapes2048 \
+                --nice=bioharn_voc_example \
+                --train_dataset=$HOME/data/VOC/voc-trainval.mscoco.json \
+                --vali_dataset=$HOME/data/VOC/voc-test-2007.mscoco.json \
                 --schedule=step-60-80 \
                 --augment=simple \
                 --init=lightnet \
                 --arch=yolo2 \
                 --optim=sgd --lr=1e-2 \
                 --input_dims=window \
-                --window_dims=256,256 \
+                --window_dims=512,512 \
                 --window_overlap=0.0 \
                 --normalize_inputs=False \
-                --workers=4 --xpu=0 --batch_size=8 --bstep=1 \
+                --workers=4 --xpu=0 --batch_size=16 --bstep=1 \
                 --sampler_backend=cog \
                 --timeout=100000000000
 

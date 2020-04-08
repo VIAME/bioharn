@@ -989,7 +989,7 @@ class DetectionAugmentor(object):
 
     def augment_data(self, imdata, dets, disp_im=None):
         """
-        Example:
+        Ignore:
             self = DetectionAugmentor(mode='heavy')
             s = 128
             rng = kwarray.ensure_rng(0)

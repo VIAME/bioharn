@@ -24,7 +24,8 @@ def _test_train_and_eval_model(aux):
 
     deploy_fpath = detect_fit.fit(
         cmdline=False,
-        arch='cascade',
+        # arch='cascade',
+        arch='yolo2',
         train_dataset=dset.fpath,
         channels=channels,
         workers=0,

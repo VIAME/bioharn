@@ -10,7 +10,7 @@ class _AsyncConsumerThread(Thread):
     Example:
         >>> import queue
         >>> q = queue.Queue()
-        >>> c = _background_consumer(q, range(3))
+        >>> c = _AsyncConsumerThread(q, range(3))
         >>> c.start()
         >>> q.get(True, 1)
         0
@@ -88,6 +88,7 @@ def atomic_move(src, dst):
 
     Example:
         >>> import ubelt as ub
+        >>> from os.path import join, exists
         >>> dpath = ub.ensure_app_cache_dir('ubelt')
         >>> fpath1 = join(dpath, 'foo')
         >>> fpath2 = join(dpath, 'bar')
@@ -119,3 +120,12 @@ def atomic_move(src, dst):
             os.unlink(src)
         else:
             raise
+
+
+if __name__ == '__main__':
+    """
+    CommandLine:
+        python ~/code/bioharn/bioharn/util/util_parallel.py all
+    """
+    import xdoctest
+    xdoctest.doctest_module(__file__)

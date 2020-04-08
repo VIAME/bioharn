@@ -16,8 +16,9 @@ def test_toydata():
             --window_dims=128,128 \
             --window_overlap=0.0 \
             --normalize_inputs=True \
-            --workers=4 --xpu=0 --batch_size=8 --bstep=1 \
+            --workers=4 --xpu=auto --batch_size=8 --bstep=1 \
             --balance=tfidf
             --sampler_backend=cog
+            --timeout=1
         """)
     info = ub.cmd(command, verbose=3, check=True)

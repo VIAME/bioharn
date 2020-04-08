@@ -999,42 +999,6 @@ def bbox_ious(boxes1, boxes2):
     return intersections / unions
 
 
-def find_anchors3(sampler, num_anchors=5):
-    """
-    Ignore:
-        import ndsampler
-        sampler = ndsampler.CocoSampler.demo('shapes')
-        import sys, ubelt
-        from netharn.models.yolo2.yolo2 import *  # NOQA
-        sys.path.append(ubelt.expandpath('~/code/netharn/examples'))
-        from object_detection import setup_harn
-        cmdline = False
-        kw = {
-            'train_dataset': '~/data/VOC/voc-trainval.mscoco.json',
-            'vali_dataset': '~/data/VOC/voc-test-2007.mscoco.json',
-        }
-        harn = setup_harn(**kw)
-        torch_dset = harn.hyper.datasets['train']
-        sampler = torch_dset.sampler
-        anchors = find_anchors3(sampler)
-        print('anchors = {!r}'.format(anchors))
-    """
-    from sklearn import cluster
-    all_wh = sampler.regions.targets._getcols(['width', 'height'])
-    all_imgwh = sampler.regions.targets._getcols(['img_width', 'img_height'])
-    all_norm_wh = all_wh / all_imgwh
-
-    ogrid_wh = 18
-    all_ogrid_wh = all_norm_wh * ogrid_wh
-
-    algo = cluster.KMeans(
-        n_clusters=num_anchors, n_init=20, max_iter=10000, tol=1e-6,
-        algorithm='elkan', verbose=0)
-    algo.fit(all_ogrid_wh)
-    anchors = algo.cluster_centers_
-    return anchors
-
-
 def demo_voc_weights(key='lightnet'):
     """
     Demo weights for Pascal VOC dataset
