@@ -227,7 +227,7 @@ class DetectHarn(nh.FitHarn):
             inputs = batch['inputs']
             channels = ChannelSpec.coerce(harn.script_config['channels'])
             item = {k: v.data[0] for k, v in inputs.items()}
-            im = channels.encode(item, axis=1)['rgb']
+            im = channels.encode(item, axis=1)
 
             # Compute how many images have been seen before
             bsize = harn.loaders['train'].batch_sampler.batch_size

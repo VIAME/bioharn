@@ -257,6 +257,10 @@ class Yolo2(layers.AnalyticModule):
             >>> dets.scale(inputs.shape[-2:][::-1]).draw()
             >>> kwplot.show_if_requested()
         """
+        if isinstance(inputs, dict):
+            assert len(inputs) == 1, ('only early fusion for now')
+            inputs = ub.peek(inputs.values())
+
         normed = self.input_norm(inputs)
         out0 = self.layers[0](normed)
         out1 = self.layers[1](out0)
