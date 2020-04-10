@@ -232,11 +232,11 @@ class DetectEvaluator(object):
 
     Ignore:
         from bioharn.detect_eval import *  # NOQA
-        config = {'xpu': 0, 'batch_size': 2, 'window_overlap': 0.5}
-        config['deployed'] = '/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v27/dxziuzrv/deploy_MM_CascadeRCNN_dxziuzrv_019_GQDHOF.zip'
-        config['dataset'] = ub.expandpath('/home/joncrall/data/private/_combo_cfarm/cfarm_test.mscoco.json')
+        config = {}
+        config['deployed'] = ub.expandpath('$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v30-bigger-balanced/etvvhzni/deploy_MM_CascadeRCNN_etvvhzni_007_IPEIQA.zip')
+        config['dataset'] = ub.expandpath('$HOME/remote/namek/data/private/_combos/test_cfarm_habcam_v1.mscoco.json')
 
-        evaluator = evaluator = DetectEvaluator(config)
+        evaluator = DetectEvaluator(config)
         evaluator._init()
         predictor = evaluator.predictor
         sampler = evaluator.sampler
@@ -466,53 +466,10 @@ class DetectEvaluator(object):
         print('roc_result = {!r}'.format(roc_result))
         print('pr_result = {!r}'.format(pr_result))
 
-        if evaluator.config['draw']:
-            import kwplot
-            kwplot.autompl()
-
-            fig = kwplot.figure(fnum=1, pnum=(1, 2, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
-            fig.set_size_inches((11, 6))
-            pr_result.draw()
-
-            # TODO: MCC / G-score / F-score vs threshold
-
-            kwplot.figure(fnum=1, pnum=(1, 2, 2))
-            roc_result.draw()
-
-            fig_fpath = join(evaluator.paths['metrics'], 'pr_roc.png')
-            print('write fig_fpath = {!r}'.format(fig_fpath))
-            fig.savefig(fig_fpath)
-
         # Get per-class detection results
         ovr_binvecs = cfsn_vecs.binarize_ovr()
-
         ovr_roc_result = ovr_binvecs.roc()['perclass']
         ovr_pr_result = ovr_binvecs.precision_recall()['perclass']
-        if evaluator.config['draw']:
-            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
-            fig.set_size_inches((11, 6))
-            ovr_roc_result.draw(fnum=2)
-
-            # TODO: MCC / G-score / F-score vs threshold
-            fig_fpath = join(evaluator.paths['metrics'], 'perclass_roc.png')
-            print('write fig_fpath = {!r}'.format(fig_fpath))
-            fig.savefig(fig_fpath)
-
-            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
-            fig.set_size_inches((11, 6))
-            ovr_pr_result.draw(fnum=2)
-            fig_fpath = join(evaluator.paths['metrics'], 'perclass_pr.png')
-            print('write fig_fpath = {!r}'.format(fig_fpath))
-            fig.savefig(fig_fpath)
 
         # print(dmet.score_voc())
         # print(dmet.score_coco(verbose=1))
@@ -570,10 +527,148 @@ class DetectEvaluator(object):
             metrics, normalize_containers=True, verbose=0)
 
         metrics_fpath = join(evaluator.paths['metrics'], 'metrics.json')
+        print('dumping metrics_fpath = {!r}'.format(metrics_fpath))
         with open(metrics_fpath, 'w') as file:
-            json.dump(metrics, file)
+            json.dump(metrics, file, indent='    ')
+
+        if evaluator.config['draw']:
+            print('drawing evaluation metrics')
+            import kwplot
+            kwplot.autompl()
+
+            fig = kwplot.figure(fnum=1, pnum=(1, 2, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            pr_result.draw()
+
+            # TODO: MCC / G-score / F-score vs threshold
+
+            kwplot.figure(fnum=1, pnum=(1, 2, 2))
+            roc_result.draw()
+
+            fig_fpath = join(evaluator.paths['metrics'], 'pr_roc.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
+
+            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            ovr_roc_result.draw(fnum=2)
+
+            # TODO: MCC / G-score / F-score vs threshold
+            fig_fpath = join(evaluator.paths['metrics'], 'perclass_roc.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
+
+            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            ovr_pr_result.draw(fnum=2)
+            fig_fpath = join(evaluator.paths['metrics'], 'perclass_pr.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
+
+            # NOTE: The threshold on these confusion matrices is VERY low.
+            fig = kwplot.figure(fnum=3, doclf=True)
+            confusion = cfsn_vecs.confusion_matrix()
+            import kwplot
+            ax = kwplot.plot_matrix(confusion, fnum=3, showvals=0, logscale=True)
+            fig_fpath = join(evaluator.paths['metrics'], 'confusion.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            ax.figure.savefig(fig_fpath)
+
+            fig = kwplot.figure(fnum=3, doclf=True)
+            row_norm_cfsn = confusion / confusion.values.sum(axis=1, keepdims=True)
+            row_norm_cfsn = row_norm_cfsn.fillna(0)
+            ax = kwplot.plot_matrix(row_norm_cfsn, fnum=3, showvals=0, logscale=0)
+            ax.set_title('Row (truth) normalized confusions')
+            fig_fpath = join(evaluator.paths['metrics'], 'row_confusion.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            ax.figure.savefig(fig_fpath)
+
+            fig = kwplot.figure(fnum=3, doclf=True)
+            col_norm_cfsn = confusion / confusion.values.sum(axis=0, keepdims=True)
+            col_norm_cfsn = col_norm_cfsn.fillna(0)
+            ax = kwplot.plot_matrix(col_norm_cfsn, fnum=3, showvals=0, logscale=0)
+            ax.set_title('Column (pred) normalized confusions')
+            fig_fpath = join(evaluator.paths['metrics'], 'col_confusion.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            ax.figure.savefig(fig_fpath)
+
+            if True:
+                print('Choosing representative truth images')
+                truth_dset = evaluator.sampler.dset
+                selected_gids = find_representative_images(truth_dset)
+                dpath = ub.ensuredir((evaluator.paths['viz'], 'selected'))
+
+                for gid in ub.ProgIter(selected_gids, desc='draw selected imgs'):
+                    truth_dets = gid_to_truth[gid]
+                    pred_dets = gid_to_pred[gid]
+
+                    thresh = 0.4
+                    pred_dets = pred_dets.compress(pred_dets.data['scores'] > thresh)
+                    truth_dset.imgs[gid]['file_name'] = truth_dset.imgs[gid]['file_name'].replace('joncrall/data', 'joncrall/remote/namek/data')
+                    canvas = truth_dset.load_image(gid)
+                    canvas = truth_dets.draw_on(canvas, color='green')
+                    canvas = pred_dets.draw_on(canvas, color='blue')
+
+                    fig_fpath = join(dpath, 'eval-gid={}.jpg'.format(gid))
+                    kwimage.imwrite(fig_fpath, canvas)
 
         return metrics_fpath
+
+
+def find_representative_images(truth_dset):
+    # Select representative images to draw such that each category
+    # appears at least once.
+    gid_to_cidfreq = ub.map_vals(
+        lambda aids: ub.dict_hist([truth_dset.anns[aid]['category_id'] for aid in aids]),
+        truth_dset.gid_to_aids)
+
+    gid_to_nannots = ub.map_vals(len, truth_dset.gid_to_aids)
+
+    gid_to_cids = {
+        gid: list(cidfreq.keys())
+        for gid, cidfreq in gid_to_cidfreq.items()
+    }
+    # Solve setcover with different weight schemes to get a better
+    # representative sample.
+    all_cids = list(truth_dset.cid_to_aids.keys())
+
+    candidate_sets = gid_to_cids.copy()
+
+    selected = {}
+
+    large_image_weights = gid_to_nannots
+    small_image_weights = ub.map_vals(lambda x: 1 / x, gid_to_nannots)
+
+    import kwarray
+    cover1 = kwarray.setcover(candidate_sets, items=all_cids)
+    selected.update(cover1)
+    candidate_sets = ub.dict_diff(candidate_sets, cover1)
+
+    cover2 = kwarray.setcover(
+            candidate_sets,
+            items=all_cids,
+            set_weights=large_image_weights)
+    selected.update(cover2)
+    candidate_sets = ub.dict_diff(candidate_sets, cover2)
+
+    cover3 = kwarray.setcover(
+            candidate_sets,
+            items=all_cids,
+            set_weights=small_image_weights)
+    selected.update(cover3)
+    candidate_sets = ub.dict_diff(candidate_sets, cover3)
+
+    selected_gids = sorted(selected.keys())
+    return selected_gids
 
 
 class CocoEvaluator(object):

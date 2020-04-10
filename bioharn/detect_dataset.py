@@ -142,7 +142,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> # DISABLE_DOCTSET
             >>> from bioharn.detect_dataset import *  # NOQA
             >>> torch_dset = self = DetectFitDataset.demo(key='shapes8', augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
-            >>> index = 0
+            >>> index = 1
             >>> spec = {'index': index, 'input_dims': (120, 120)}
             >>> item = self[spec]
             >>> hwc01 = item['inputs']['rgb'].data.numpy().transpose(1, 2, 0)
@@ -150,12 +150,16 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
             >>> # xdoc: +REQUIRES(--show)
             >>> import kwplot
-            >>> kwplot.autompl()  # xdoc: +SKIP
+            >>> plt = kwplot.autoplt()  # xdoc: +SKIP
             >>> kwplot.figure(doclf=True, fnum=1)
             >>> kwplot.imshow(hwc01)
-            >>> boxes.draw()
+            >>> labels = ['w={}'.format(w) for w in item['label']['weight'].data]
+            >>> boxes.draw(labels=labels)
             >>> for mask in item['label']['class_masks'].data:
             ...     kwimage.Mask(mask.data.cpu().numpy(), 'c_mask').draw()
+            >>> fig = plt.gcf()
+            >>> for o in fig.findobj():  # http://matplotlib.1069221.n5.nabble.com/How-to-turn-off-all-clipping-td1813.html
+            >>>     o.set_clip_on(False)
             >>> kwplot.show_if_requested()
 
         Ignore:
@@ -298,18 +302,15 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 disp_im = disp_im[y_sl, x_sl]
             dets = dets.translate([-x_sl.start, -y_sl.start])
 
-        # Clip any bounding boxes that went out of bounds
+        # Ignore any box that is cutoff.
+        ignore_thresh = 0.4
         h, w = imdata.shape[0:2]
-        tlbr = dets.boxes.to_tlbr()
-        old_area = tlbr.area
-        tlbr = tlbr.clip(0, 0, w - 1, h - 1, inplace=True)
-        new_area = tlbr.area
-        dets.data['boxes'] = tlbr
+        frame_box = kwimage.Boxes([[0, 0, w, h]], 'xywh')
+        visibility = (dets.boxes.isect_area(frame_box) / dets.boxes.area)[:, 0]
+        ignore_flags = (visibility < ignore_thresh).astype(np.float)
+        dets.data['weights'] *= (1 - ignore_flags)
 
-        # Remove any boxes that have gone significantly out of bounds.
-        remove_thresh = 0.1
-        flags = (new_area / old_area).ravel() > remove_thresh
-        dets = dets.compress(flags)
+        dets = dets.compress(visibility > 0)
 
         # Apply letterbox resize transform to train and test
         _debug('imresize')
@@ -335,9 +336,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
         dets = dets.compress(flags)
 
         chw01 = torch.FloatTensor(imdata.transpose(2, 0, 1) / 255.0)
-
-        # FIXME: yolo expects normalized boxes, but boxes relative to the input
-        # chip dimensions are really what you want here. MMdet models work.
         cxwh = dets.boxes.toformat('cxywh')
 
         # Return index information in the label as well
