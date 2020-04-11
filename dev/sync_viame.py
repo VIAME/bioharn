@@ -15,6 +15,9 @@ rsync -avrRP viame:data/private/./US_NE_2019_CFARM_HABCAM $HOME/data/private/
 rsync -avrRP viame:data/private/./US_NE_2019_CFARM_HABCAM_PART2 $HOME/data/private/
 
 rsync -avrRP $HOME/data/private/./_combos viame:data/private
+rsync -avrRP $HOME/data/private/US_NE_2018_CFARM_HABCAM/./_dev viame:data/private/US_NE_2018_CFARM_HABCAM
+rsync -avrRP $HOME/data/private/US_NE_2017_CFARM_HABCAM/./_dev viame:data/private/US_NE_2017_CFARM_HABCAM
+rsync -avrP $HOME/data/private/US_NE_2019_CFARM_HABCAM/raws/./_dev viame:data/private/US_NE_2019_CFARM_HABCAM/raws
 
 
 kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_test.mscoco.json
@@ -55,6 +58,54 @@ import pandas as pd
 import kwimage
 import kwarray
 import ubelt as ub
+
+
+def hack_rebase_dset():
+    import kwcoco
+    self = kwcoco.CocoDataset('/home/joncrall/remote/namek/data/private/_combos/test_cfarm_habcam_v1.mscoco.json')
+
+    new_root = self.img_root
+
+    # HACK
+    for gid, img in ub.ProgIter(self.imgs.items(), desc='relativize'):
+        path = img['file_name']
+        if 'private/_combo_cfarm' in path:
+            new_rel_path = normpath(img['file_name']).replace('/home/joncrall/data/private', '..')
+        elif 'public/Benthic' in path:
+            new_rel_path = path.replace('/home/joncrall/data', '../..')
+        else:
+            assert False
+        # new_path = relpath(realpath(normpath(path)), realpath(new_root))
+        assert exists(join(new_root, new_rel_path))
+        img['file_name'] = new_rel_path
+
+    self.dump(self.fpath.replace('_v1', '_v2'))
+
+    # prefixes = {}
+    # suffixes = {}
+    # idx = None
+
+    # import itertools as it
+    # worked_idxs = ub.oset()
+
+    # for gid, img in ub.ProgIter(self.imgs.items(), desc='relativize'):
+    #     import os
+    #     path = img['file_name']
+    #     parts = path.split(os.path.sep)
+    #     found = None
+    #     for idx in it.chain(worked_idxs, range(len(parts))):
+    #         suffix = join(*parts[idx:])
+    #         cand = join(new_root, suffix)
+    #         if exists(cand):
+    #             worked_idxs.add(idx)
+    #             prefixes[gid] = parts[:idx]
+    #             suffixes[gid] = suffix
+    #             found = idx
+    #             break
+    #     if not found:
+    #         raise Exception
+    #     if gid > 100:
+    #         break
 
 
 # Simplify the categories

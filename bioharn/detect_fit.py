@@ -1103,6 +1103,30 @@ if __name__ == '__main__':
             --bstep=8
 
         python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgb-v31-bigger-balanced \
+            --train_dataset=$HOME/data/private/_combos/train_cfarm_habcam_v2.mscoco.json \
+            --vali_dataset=$HOME/data/private/_combos/vali_cfarm_habcam_v2.mscoco.json \
+            --schedule=step-10-20 \
+            --augment=complex \
+            --init=noop \
+            --workdir=/home/joncrall/work/bioharn \
+            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+            --arch=cascade \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --workers=0 \
+            --xpu=0 \
+            --batch_size=3 \
+            --balance=tfidf \
+            --bstep=8
+
+        python -m bioharn.detect_fit \
             --nice=detect-sealion-cascade-v6 \
             --workdir=$HOME/work/sealions \
             --train_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_train.mscoco.json \
@@ -1159,8 +1183,6 @@ if __name__ == '__main__':
             --workers=4 --xpu=0 --batch_size=8 --bstep=1
 
 
-
-
     coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json
     coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json
 
@@ -1175,40 +1197,3 @@ if __name__ == '__main__':
             return s
         warnings.formatwarning = _monkeypatch_formatwarning_tb
     fit()
-
-
-def _pad_batch(inbatch, fill_value):
-    num_items = [len(item) for item in inbatch]
-    if ub.allsame(num_items):
-        if len(num_items) == 0:
-            batch = torch.FloatTensor()
-        elif num_items[0] == 0:
-            batch = torch.FloatTensor()
-        else:
-            batch = default_collate(inbatch)
-    else:
-        max_size = max(num_items)
-        real_tail_shape = None
-        for item in inbatch:
-            if item.numel():
-                tail_shape = item.shape[1:]
-                if real_tail_shape is not None:
-                    assert real_tail_shape == tail_shape
-                real_tail_shape = tail_shape
-
-        padded_inbatch = []
-        for item in inbatch:
-            n_extra = max_size - len(item)
-            if n_extra > 0:
-                shape = (n_extra,) + tuple(real_tail_shape)
-                if torch.__version__.startswith('0.3'):
-                    extra = torch.Tensor(np.full(shape, fill_value=fill_value))
-                else:
-                    extra = torch.full(shape, fill_value=fill_value,
-                                       dtype=item.dtype)
-                padded_item = torch.cat([item, extra], dim=0)
-                padded_inbatch.append(padded_item)
-            else:
-                padded_inbatch.append(item)
-        batch = inbatch
-        batch = default_collate(padded_inbatch)

@@ -249,7 +249,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         _debug('sample = {!r}'.format(sample))
         imdata = kwimage.atleast_3channels(sample['im'])[..., 0:3]
 
-        boxes = sample['annots']['rel_boxes']
+        boxes = sample['annots']['rel_boxes'].view(-1, 4)
         cids = sample['annots']['cids']
         aids = sample['annots']['aids']
         ssegs = sample['annots']['rel_ssegs']
@@ -306,7 +306,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         ignore_thresh = 0.4
         h, w = imdata.shape[0:2]
         frame_box = kwimage.Boxes([[0, 0, w, h]], 'xywh')
-        visibility = (dets.boxes.isect_area(frame_box) / dets.boxes.area)[:, 0]
+        isect = dets.boxes.isect_area(frame_box)
+        visibility = (isect / dets.boxes.area)[:, 0]
         ignore_flags = (visibility < ignore_thresh).astype(np.float)
         dets.data['weights'] *= (1 - ignore_flags)
 
