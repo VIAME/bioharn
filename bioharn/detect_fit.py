@@ -298,6 +298,66 @@ class DetectHarn(nh.FitHarn):
         metrics_dict = ub.odict()
         return metrics_dict
 
+    def overfit(harn, batch, interactive=0):
+        """
+        Ensure that the model can overfit to a single batch.
+
+        Example:
+            >>> # DISABLE_DOCTSET
+            >>> from bioharn.detect_fit import *  # NOQA
+            >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
+            >>> harn = setup_harn(
+            >>>     bsize=1, datasets='special:shapes8',
+            >>>     arch='yolo2', pretrained='imagenet',
+            >>>     normalize_inputs=False, channels='rgb',
+            >>>     sampler_backend=None)
+            >>> harn.initialize()
+            >>> batch = harn._demo_batch(0, 'train')
+            >>> import kwplot
+            >>> kwplot.autompl()  # xdoc: +SKIP
+            >>> harn.overfit(batch, interactive=True)
+
+            >>> # xdoc: +REQUIRES(--show)
+            >>> kwplot.imshow(stacked)
+            >>> kwplot.show_if_requested()
+        """
+
+        if interactive:
+            import xdev
+            import kwplot
+            kwplot.autompl()
+            niters = 100
+            for bx in xdev.InteractiveIter(list(range(niters))):
+                outputs, loss_parts = harn.run_batch(batch)
+
+                batch_dets = harn.raw_model.coder.decode_batch(outputs)
+                stacked = harn.draw_batch(batch, outputs, batch_dets)
+                kwplot.imshow(stacked)
+                xdev.InteractiveIter.draw()
+
+                # TODO: draw to files
+
+                loss = sum(loss_parts.values())
+                loss.backward()
+                harn.optimizer.step()
+                harn.optimizer.zero_grad()
+        else:
+            niters = 100
+            dpath = ub.ensuredir((harn.train_dpath, 'monitor', 'overfit'))
+            for bx in range(niters):
+
+                outputs, loss_parts = harn.run_batch(batch)
+                loss = sum(loss_parts.values())
+                loss.backward()
+                harn.optimizer.step()
+                harn.optimizer.zero_grad()
+
+                fpath = join(dpath, 'overfit_{:05d}.jpg'.format(bx))
+                batch_dets = harn.raw_model.coder.decode_batch(outputs)
+                stacked = harn.draw_batch(batch, outputs, batch_dets)
+                print('fpath = {!r}'.format(fpath))
+                kwimage.imwrite(fpath, stacked)
+
     def draw_batch(harn, batch, outputs, batch_dets, idx=None, thresh=None,
                    num_extra=3):
         """
