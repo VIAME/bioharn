@@ -302,6 +302,9 @@ class DetectHarn(nh.FitHarn):
         """
         Ensure that the model can overfit to a single batch.
 
+        CommandLine:
+            xdoctest -m /home/joncrall/code/bioharn/bioharn/detect_fit.py overfit
+
         Example:
             >>> # DISABLE_DOCTSET
             >>> from bioharn.detect_fit import *  # NOQA
