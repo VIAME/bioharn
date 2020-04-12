@@ -298,7 +298,7 @@ class DetectHarn(nh.FitHarn):
         metrics_dict = ub.odict()
         return metrics_dict
 
-    def overfit(harn, batch, interactive=0):
+    def overfit(harn, batch, interactive=False):
         """
         Ensure that the model can overfit to a single batch.
 
@@ -308,14 +308,15 @@ class DetectHarn(nh.FitHarn):
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
             >>> harn = setup_harn(
             >>>     bsize=1, datasets='special:shapes8',
-            >>>     arch='yolo2', pretrained='imagenet',
+            >>>     #arch='yolo2', pretrained='lightnet',
+            >>>     arch='retinanet', init='noop',
             >>>     normalize_inputs=False, channels='rgb',
             >>>     sampler_backend=None)
             >>> harn.initialize()
             >>> batch = harn._demo_batch(0, 'train')
             >>> import kwplot
             >>> kwplot.autompl()  # xdoc: +SKIP
-            >>> harn.overfit(batch, interactive=True)
+            >>> harn.overfit(batch, interactive=False)
 
             >>> # xdoc: +REQUIRES(--show)
             >>> kwplot.imshow(stacked)
