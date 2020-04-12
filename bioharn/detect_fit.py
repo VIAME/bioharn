@@ -303,7 +303,7 @@ class DetectHarn(nh.FitHarn):
         Ensure that the model can overfit to a single batch.
 
         CommandLine:
-            xdoctest -m /home/joncrall/code/bioharn/bioharn/detect_fit.py overfit
+            xdoctest -m /home/joncrall/code/bioharn/bioharn/detect_fit.py DetectHarn.overfit
 
         Example:
             >>> # DISABLE_DOCTSET
@@ -312,8 +312,8 @@ class DetectHarn(nh.FitHarn):
             >>> harn = setup_harn(
             >>>     bsize=1, datasets='special:shapes8',
             >>>     #arch='yolo2', pretrained='lightnet',
-            >>>     arch='retinanet', init='noop',
-            >>>     normalize_inputs=False, channels='rgb',
+            >>>     arch='retinanet', init='noop', lr=1e-2,
+            >>>     normalize_inputs=True, channels='rgb',
             >>>     sampler_backend=None)
             >>> harn.initialize()
             >>> batch = harn._demo_batch(0, 'train')
@@ -325,12 +325,11 @@ class DetectHarn(nh.FitHarn):
             >>> kwplot.imshow(stacked)
             >>> kwplot.show_if_requested()
         """
-
+        niters = 10000
         if interactive:
             import xdev
             import kwplot
             kwplot.autompl()
-            niters = 100
             for bx in xdev.InteractiveIter(list(range(niters))):
                 outputs, loss_parts = harn.run_batch(batch)
 
@@ -346,7 +345,6 @@ class DetectHarn(nh.FitHarn):
                 harn.optimizer.step()
                 harn.optimizer.zero_grad()
         else:
-            niters = 100
             dpath = ub.ensuredir((harn.train_dpath, 'monitor', 'overfit'))
             for bx in range(niters):
 
