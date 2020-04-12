@@ -310,7 +310,7 @@ class DetectHarn(nh.FitHarn):
             >>> from bioharn.detect_fit import *  # NOQA
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
             >>> harn = setup_harn(
-            >>>     batch_size=1, datasets='special:shapes8',
+            >>>     nice='overfit_test', batch_size=1, datasets='special:shapes8',
             >>>     #arch='yolo2', pretrained='lightnet',
             >>>     arch='retinanet', init='noop', lr=1e-2,
             >>>     normalize_inputs=True, channels='rgb',
