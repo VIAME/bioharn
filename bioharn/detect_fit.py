@@ -311,8 +311,8 @@ class DetectHarn(nh.FitHarn):
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
             >>> harn = setup_harn(
             >>>     nice='overfit_test', batch_size=1, datasets='special:shapes8',
-            >>>     #arch='yolo2', pretrained='lightnet',
-            >>>     arch='retinanet', init='noop', lr=1e-2,
+            >>>     arch='yolo2', pretrained='lightnet',
+            >>>     #arch='retinanet', init='noop', lr=1e-2,
             >>>     normalize_inputs=True, channels='rgb',
             >>>     sampler_backend=None)
             >>> harn.initialize()
@@ -331,14 +331,18 @@ class DetectHarn(nh.FitHarn):
             import kwplot
             kwplot.autompl()
             for bx in xdev.InteractiveIter(list(range(niters))):
+
                 outputs, loss_parts = harn.run_batch(batch)
+                print(ub.repr2(loss_parts, nl=1))
 
                 batch_dets = harn.raw_model.coder.decode_batch(outputs)
+                dets0 = batch_dets[0]
+                print('dets0.scores = {!r}'.format(dets0.scores[0:3]))
+                print('dets0.boxes = {!r}'.format(dets0.boxes.to_xywh()))
+
                 stacked = harn.draw_batch(batch, outputs, batch_dets)
                 kwplot.imshow(stacked)
                 xdev.InteractiveIter.draw()
-
-                # TODO: draw to files
 
                 loss = sum(loss_parts.values())
                 loss.backward()
@@ -355,7 +359,9 @@ class DetectHarn(nh.FitHarn):
                 harn.optimizer.zero_grad()
 
                 fpath = join(dpath, 'overfit_{:05d}.jpg'.format(bx))
+
                 batch_dets = harn.raw_model.coder.decode_batch(outputs)
+
                 stacked = harn.draw_batch(batch, outputs, batch_dets)
                 print('fpath = {!r}'.format(fpath))
                 kwimage.imwrite(fpath, stacked)
