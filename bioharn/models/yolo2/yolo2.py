@@ -14,6 +14,7 @@ import ubelt as ub
 from netharn import layers
 from distutils.version import LooseVersion
 from bioharn.channel_spec import ChannelSpec
+import torch.nn.functional as F
 
 
 _TORCH_HAS_BOOL_COMP = LooseVersion(torch.__version__) >= LooseVersion('1.2.0')
@@ -245,11 +246,13 @@ class Yolo2(layers.AnalyticModule):
         Example:
             >>> # DISABLE_DOCTEST
             >>> # xdoc: +REQUIRES(--download, module:ndsampler)
+            >>> from bioharn.models.yolo2.yolo2 import *  # NOQA
             >>> self = Yolo2.demo()
             >>> inputs = self.demo_inputs()
             >>> output = self(inputs)
             >>> batch_dets = self.coder.decode_batch(output)
             >>> dets = batch_dets[0]
+            >>> print('dets.boxes = {!r}'.format(dets.boxes))
             >>> # xdoc: +REQUIRES(--show)
             >>> import kwplot
             >>> kwplot.autompl()  # xdoc: +SKIP
@@ -430,12 +433,13 @@ class YoloCoder(object):
             >>> model = info['model']
             >>> coder, output = ub.take(info, ['coder', 'outputs'])
             >>> batch_dets = coder.decode_batch(output)
-            >>> dets = batch_dets[0]
+            >>> dets = batch_dets[0].sort()
+            >>> print('dets.boxes = {!r}'.format(dets.boxes))
             >>> # xdoctest: +REQUIRES(--show)
             >>> import kwplot
             >>> kwplot.autompl()
             >>> kwplot.figure(fnum=1, doclf=True)
-            >>> kwplot.imshow(info['rgb255'], colorspace='rgb')
+            >>> kwplot.imshow(info['inputs'][0], colorspace='rgb')
             >>> dets.draw()
             >>> kwplot.show_if_requested()
         """
@@ -474,21 +478,12 @@ class YoloCoder(object):
         coord[:, :, 2:4, :, :] = cxywh_energy[:, :, 2:4, :, :]              # w,h
 
         with torch.no_grad():
-            # Convert coords to absolute output cxywh
+            # Convert coords to cxywh in input space
             cxywh = coord.clone()
-            cxywh[:, :, 0, :].add_(lin_x).mul_(nW * sf)          # X center
-            cxywh[:, :, 1, :].add_(lin_y).mul_(nH * sf)          # Y center
-
-            # NOTE: to be compatible with the lightnet weights
-            # we need to multiply anchors_w / h by nW / nH.
-            # This is changed not to do that so the output size predictions
-            # don't depend on the input size of the image.
-            if False:
-                cxywh[:, :, 2, :].exp_().mul_(anchor_w * nW)         # Width
-                cxywh[:, :, 3, :].exp_().mul_(anchor_h * nH)         # Height
-            else:
-                cxywh[:, :, 2, :].exp_().mul_(anchor_w)              # Width
-                cxywh[:, :, 3, :].exp_().mul_(anchor_h)              # Height
+            cxywh[:, :, 0, :].add_(lin_x).mul_(sf)          # X center
+            cxywh[:, :, 1, :].add_(lin_y).mul_(sf)          # Y center
+            cxywh[:, :, 2, :].exp_().mul_(anchor_w)         # Width
+            cxywh[:, :, 3, :].exp_().mul_(anchor_h)         # Height
 
             # Permute so the bbox dim (i.e. cxywh) is trailing
             pred_cxywh = cxywh.permute(0, 1, 3, 4, 2).contiguous().view(-1, 4)
@@ -503,7 +498,6 @@ class YoloCoder(object):
             info = {
                 # Input space boxes for computing truth-to-pred assignments
                 'pred_cxywh': pred_cxywh,
-
                 # relative output space data for backprop
                 'coord': coord,
                 'conf': conf,
@@ -765,17 +759,63 @@ class YoloLoss(layers.common.Loss):
             else:
                 pcls = cls.view(-1, nC)[pcls_mask.view(-1)]
 
-        coord_mask = masks['coord'].repeat(1, 1, 4, 1)
-        coord_ = coord.view(coord_mask.shape)
-        conf_ = conf.view(masks['conf'].shape)
-
-        # Compute losses
-        coord_part = criterion.mse(coord_ * coord_mask, truth['coord'] * coord_mask)
-        conf_part = criterion.mse(conf_ * masks['conf'], truth['conf'] * masks['conf'])
-
         loss_parts = {}
-        loss_parts['coord'] = criterion.coord_scale * (coord_part / nB)
+        if 0:
+            coord_mask = masks['coord']
+            pcoord_x = coord[:, :, 0:1, :, :]
+            pcoord_y = coord[:, :, 1:2, :, :]
+            pcoord_w = coord[:, :, 2:3, :, :]
+            pcoord_h = coord[:, :, 3:4, :, :]
+
+            tcoord_x = truth['coord'][:, :, 0:1, :, :]
+            tcoord_y = truth['coord'][:, :, 1:2, :, :]
+            tcoord_w = truth['coord'][:, :, 2:3, :, :]
+            tcoord_h = truth['coord'][:, :, 3:4, :, :]
+
+            # Compute losses
+            flags = coord_mask > 0
+            sel_weight = coord_mask[flags]
+            coord_scale = criterion.coord_scale
+            coord_loss_x = (sel_weight * F.mse_loss(
+                            pcoord_x[flags], tcoord_x[flags],
+                            reduction='none')).sum()
+            loss_parts['coord_x'] = coord_scale * coord_loss_x / nB
+
+            coord_loss_y = (sel_weight * F.mse_loss(
+                            pcoord_y[flags], tcoord_y[flags],
+                            reduction='none')).sum()
+            loss_parts['coord_y'] = coord_scale * coord_loss_y / nB
+
+            coord_loss_w = (sel_weight * F.mse_loss(
+                            pcoord_w[flags], tcoord_w[flags],
+                            reduction='none')).sum()
+            loss_parts['coord_w'] = coord_scale * coord_loss_w / nB
+
+            coord_loss_h = (sel_weight * F.mse_loss(
+                            pcoord_h[flags], tcoord_h[flags],
+                            reduction='none')).sum()
+            loss_parts['coord_h'] = coord_scale * coord_loss_h / nB
+        else:
+            # Compute losses
+            coord_mask = masks['coord'].repeat(1, 1, 4, 1, 1)
+            flags = coord_mask > 0
+            sel_pcoord = coord[flags]
+            sel_tcoord = truth['coord'][flags]
+            sel_weight = coord_mask[flags]
+            coord_loss = (sel_weight * F.mse_loss(
+                    sel_tcoord, sel_pcoord, reduction='none')).sum()
+            loss_parts['coord'] = criterion.coord_scale * coord_loss / nB
+
+        # conf_part = criterion.mse(conf * masks['conf'], truth['conf'] * masks['conf'])
+        flags = masks['conf'] > 0
+        sel_pconf = conf[flags]
+        sel_tconf = truth['conf'][flags]
+        sel_weight = truth['conf'][flags]
+
+        conf_part = (sel_weight * F.mse_loss(
+            sel_pconf, sel_tconf, reduction='none')).sum()
         loss_parts['conf'] = conf_part / nB
+
         if nC > 1 and pcls.numel() > 0:
             clf_part = (criterion.clf(pcls, tcls) / nB)
             loss_parts['cls'] = criterion.class_scale * 2 * clf_part
@@ -851,15 +891,15 @@ class YoloLoss(layers.common.Loss):
         assert len(pred_cxywh) == (nB * nA * nCells)
 
         # Ignore masks to mark the predictions we will backprop on
-        conf_mask = torch.full((nB, nA, nCells), criterion.noobject_scale, requires_grad=False)
-        coord_mask = torch.zeros(nB, nA, 1, nCells, requires_grad=False)
-        cls_mask = torch.zeros(nB, nA, nCells, requires_grad=False).byte()
+        conf_mask = torch.full((nB, nA, 1, nH, nW), criterion.noobject_scale, requires_grad=False)
+        coord_mask = torch.zeros(nB, nA, 1, nH, nW, requires_grad=False)
+        cls_mask = torch.zeros(nB, nA, 1, nH, nW, requires_grad=False).byte()
 
         # Allocate output for truth assignments for every prediction
         # (in prediction space for numerical stability)
-        tcoord = torch.zeros(nB, nA, 4, nCells, requires_grad=False)
-        tconf = torch.zeros(nB, nA, nCells, requires_grad=False)
-        tcls = torch.zeros(nB, nA, nCells, requires_grad=False)
+        tcoord = torch.zeros(nB, nA, 4, nH, nW, requires_grad=False)
+        tconf = torch.zeros(nB, nA, 1, nH, nW, requires_grad=False)
+        tcls = torch.zeros(nB, nA, 1, nH, nW, requires_grad=False)
 
         sf = criterion.coder.output_stride
 
@@ -869,8 +909,8 @@ class YoloLoss(layers.common.Loss):
 
             if criterion.anchor_step == 4:
                 # TODO: use permute
-                tcoord[:, :, 0] = criterion.anchors[:, 2].contiguous().view(1, nA, 1, 1).repeat(nB, 1, 1, nCells)
-                tcoord[:, :, 1] = criterion.anchors[:, 3].contiguous().view(1, nA, 1, 1).repeat(nB, 1, 1, nCells)
+                tcoord[:, :, 0] = criterion.anchors[:, 2].contiguous().view(1, nA, 1, 1).repeat(nB, 1, 1, nH, nW)
+                tcoord[:, :, 1] = criterion.anchors[:, 3].contiguous().view(1, nA, 1, 1).repeat(nB, 1, 1, nH, nW)
             else:
                 tcoord[:, :, 0].fill_(0.5)
                 tcoord[:, :, 1].fill_(0.5)
@@ -918,31 +958,50 @@ class YoloLoss(layers.common.Loss):
                         cx, cy, w, h = cur_true_boxes[i, 0:4]
 
                         # Output grid cell indexes
-                        gi = min(nW - 1, max(0, int(cx // sf)))
-                        gj = min(nH - 1, max(0, int(cy // sf)))
+                        gi_frac = min(nW - 1, max(0, (cx / sf)))
+                        gj_frac = min(nH - 1, max(0, (cy / sf)))
+                        gi = int(gi_frac)
+                        gj = int(gj_frac)
+
                         anch_idx = best_anchors[i]
                         grid_idx = gj * nW + gi
 
                         weight = gtw[i]
 
-                        coord_mask[b, anch_idx, 0, grid_idx] = (2 - (w * h) / (sf * sf * nCells)) * weight
-                        cls_mask[b, anch_idx, grid_idx] = weight
-                        conf_mask[b, anch_idx, grid_idx] = criterion.object_scale * weight
+                        _size_factor = (2 - (w * h) / (sf * sf * nCells))
+                        coord_mask[b, anch_idx, 0, gj, gi] = _size_factor * weight
+                        cls_mask[b, anch_idx, 0, gj, gi] = weight
+                        conf_mask[b, anch_idx, 0, gj, gi] = criterion.object_scale * weight
 
                         # Fill in the relative truth value for this prediction
-                        tcoord[b, anch_idx, 0, grid_idx] = (cx / sf) - gi
-                        tcoord[b, anch_idx, 1, grid_idx] = (cy / sf) - gj
-                        tcoord[b, anch_idx, 2, grid_idx] = math.log(w / criterion.anchors[anch_idx, 0])
-                        tcoord[b, anch_idx, 3, grid_idx] = math.log(h / criterion.anchors[anch_idx, 1])
+                        tcoord[b, anch_idx, 0, gj, gi] = (cx / sf) - gi
+                        tcoord[b, anch_idx, 1, gj, gi] = (cy / sf) - gj
+                        tcoord[b, anch_idx, 2, gj, gi] = math.log(w / criterion.anchors[anch_idx, 0])
+                        tcoord[b, anch_idx, 3, gj, gi] = math.log(h / criterion.anchors[anch_idx, 1])
+
+                        if False:
+                            pred_box = pred_cxywh[anch_idx * nCells + grid_idx]
+                            true_box = cur_true_boxes[i, 0:4]
+
+                            # print(coord[b, anch_idx, :, gj, gi])
+                            print((pred_box[0:2] / sf) - torch.FloatTensor([gi, gj]).to(device))
+                            print(math.log(pred_box[2] / criterion.anchors[anch_idx, 0]))
+                            print(math.log(pred_box[3] / criterion.anchors[anch_idx, 1]))
+
+                            print(tcoord[b, anch_idx, :, gj, gi])
+                            print((true_box[0:2] / sf) - torch.FloatTensor([gi, gj]).to(device))
+                            print(math.log(true_box[2] / criterion.anchors[anch_idx, 0]))
+                            print(math.log(true_box[3] / criterion.anchors[anch_idx, 1]))
 
                         iou = iou_gt_pred[i, anch_idx * nCells + grid_idx]
-                        tconf[b, anch_idx, grid_idx] = iou
-
-                        tcls[b, anch_idx, grid_idx] = gtc[i]
+                        tconf[b, anch_idx, 0, gj, gi] = iou
+                        tcls[b, anch_idx, 0, gj, gi] = gtc[i]
 
         masks = {
-            'coord': coord_mask.to(device).sqrt_(),
-            'conf': conf_mask.to(device).sqrt_(),
+            # 'coord': coord_mask.to(device).sqrt_(),
+            # 'conf': conf_mask.to(device).sqrt_(),
+            'coord': coord_mask.to(device),
+            'conf': conf_mask.to(device),
             'cls': cls_mask.to(device),
         }
         truth = {

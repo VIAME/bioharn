@@ -75,9 +75,12 @@ class DetectFitConfig(scfg.Config):
         'pretrained': scfg.Path(None, help='path to a netharn deploy file'),
 
         'backbone_init': scfg.Value('url', help='path to backbone weights for mmdetection initialization'),
+        'anchors': scfg.Value('auto', help='how to choose anchor boxes'),
 
         # Loss Terms
         'focus': scfg.Value(0.0, help='focus for Focal Loss'),
+
+        'seen_thresh': scfg.Value(12800, help='for yolo criterion'),
 
         # Hacked Dynamics
         'warmup_iters': 800,
@@ -91,6 +94,7 @@ class DetectFitConfig(scfg.Config):
         'draw_per_batch': scfg.Value(8, help='Number of items to draw within each batch'),
 
         'collapse_classes': scfg.Value(False, help='force one-class detector'),
+        'ensure_background_class': scfg.Value(True, help='ensure a background category exists'),
         'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
         'test_on_finish': False,
     }
@@ -100,8 +104,10 @@ class DetectFitConfig(scfg.Config):
             self['pretrained'] = None
 
         if self['datasets'] == 'special:voc':
-            self['train_dataset'] = ub.expandpath('~/data/VOC/voc-trainval.mscoco.json')
-            self['vali_dataset'] = ub.expandpath('~/data/VOC/voc-test-2007.mscoco.json')
+            from netharn.data.grab_voc import ensure_voc_coco
+            paths = ensure_voc_coco()
+            self['train_dataset'] = paths['trainval']
+            self['vali_dataset'] = paths['test']
         elif self['datasets'] == 'special:habcam':
             self['train_dataset'] = ub.expandpath('~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json')
             self['vali_dataset'] = ub.expandpath('~/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
@@ -310,38 +316,52 @@ class DetectHarn(nh.FitHarn):
             >>> from bioharn.detect_fit import *  # NOQA
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
             >>> harn = setup_harn(
-            >>>     nice='overfit_test', batch_size=1, datasets='special:shapes8',
-            >>>     arch='yolo2', pretrained='lightnet',
-            >>>     #arch='retinanet', init='noop', lr=1e-2,
-            >>>     normalize_inputs=True, channels='rgb',
+            >>>     nice='overfit_test', batch_size=1,
+            >>>     # datasets='special:voc',
+            >>>     datasets='special:shapes8',
+            >>>     gravity=1, augment=None,
+            >>>     arch='yolo2', pretrained='lightnet', lr=3e-5, normalize_inputs=False, anchors='lightnet', ensure_background_class=0, seen_thresh=110,
+            >>>     #arch='retinanet', init='noop', normalize_inputs=True, lr=1e-3,
+            >>>     #arch='cascade', init='noop', normalize_inputs=True, lr=1e-3,
+            >>>     channels='rgb',
             >>>     sampler_backend=None)
             >>> harn.initialize()
-            >>> batch = harn._demo_batch(0, 'train')
+            >>> batch = harn._demo_batch(0, 'vali')
             >>> import kwplot
             >>> kwplot.autompl()  # xdoc: +SKIP
-            >>> harn.overfit(batch, interactive=False)
-
+            >>> harn.overfit(batch, interactive=True)
             >>> # xdoc: +REQUIRES(--show)
-            >>> kwplot.imshow(stacked)
-            >>> kwplot.show_if_requested()
         """
         niters = 10000
         if interactive:
             import xdev
             import kwplot
             kwplot.autompl()
+
+            curves = ub.ddict(list)
             for bx in xdev.InteractiveIter(list(range(niters))):
 
                 outputs, loss_parts = harn.run_batch(batch)
                 print(ub.repr2(loss_parts, nl=1))
 
+                for k, v in loss_parts.items():
+                    curves[k].append(float(v.item()))
+
+                # loss_parts.pop('coord_x')
+                # loss_parts.pop('coord_y')
+                # loss_parts.pop('coord_h')
+                # loss_parts.pop('coord_w')
+                # loss_parts.pop('conf')
+                # loss_parts.pop('cls')
+
                 batch_dets = harn.raw_model.coder.decode_batch(outputs)
-                dets0 = batch_dets[0]
+                dets0 = batch_dets[0].numpy().sort()
                 print('dets0.scores = {!r}'.format(dets0.scores[0:3]))
-                print('dets0.boxes = {!r}'.format(dets0.boxes.to_xywh()))
+                print('dets0.boxes = {!r}'.format(dets0.boxes.to_cxywh()[0:3]))
 
                 stacked = harn.draw_batch(batch, outputs, batch_dets)
-                kwplot.imshow(stacked)
+                kwplot.imshow(stacked, fnum=1, pnum=(1, 2, 1))
+                kwplot.multi_plot(ydata=curves, fnum=1, pnum=(1, 2, 2))
                 xdev.InteractiveIter.draw()
 
                 loss = sum(loss_parts.values())
@@ -534,21 +554,21 @@ class DetectHarn(nh.FitHarn):
             python -m netharn.data.grab_voc
 
             python -m bioharn.detect_fit \
-                --nice=bioharn_voc_example \
-                --train_dataset=$HOME/data/VOC/voc-trainval.mscoco.json \
-                --vali_dataset=$HOME/data/VOC/voc-test-2007.mscoco.json \
+                --nice=bioharn_shape_example \
+                --datasets=special:shapes1024 \
                 --schedule=step-60-80 \
                 --augment=simple \
                 --init=lightnet \
                 --arch=yolo2 \
-                --optim=sgd --lr=1e-2 \
+                --optim=sgd --lr=1e-3 \
                 --input_dims=window \
                 --window_dims=512,512 \
                 --window_overlap=0.0 \
                 --normalize_inputs=False \
                 --workers=4 --xpu=0 --batch_size=16 --bstep=1 \
                 --sampler_backend=cog \
-                --timeout=100000000000
+                --test_on_finish=True \
+                --timeout=1
 
         """
         from bioharn import detect_eval
@@ -648,10 +668,11 @@ def setup_harn(cmdline=True, **kw):
             subset.rename_categories(mapper)
 
     classes = subsets['train'].object_categories()
-    print('classes = {!r}'.format(classes))
-    if 'background' not in classes:
-        for k, subset in subsets.items():
-            subset.add_category('background', id=0)
+    if config['ensure_background_class']:
+        print('classes = {!r}'.format(classes))
+        if 'background' not in classes:
+            for k, subset in subsets.items():
+                subset.add_category('background', id=0)
 
     classes = subsets['train'].object_categories()
     print('classes = {!r}'.format(classes))
@@ -802,24 +823,28 @@ def setup_harn(cmdline=True, **kw):
     elif arch == 'yolo2':
         from bioharn.models.yolo2 import yolo2
 
-        _dset = torch_datasets['train']
-        cacher = ub.Cacher('dset_anchors', cfgstr=_dset.input_id + 'v3')
-        anchors = cacher.tryload()
-        if anchors is None:
-            anchors = _dset.sampler.dset.boxsize_stats(anchors=4, perclass=False)['all']['anchors']
-            anchors = anchors.round(1)
-            cacher.save(anchors)
+        if config['anchors'] == 'auto':
+            _dset = torch_datasets['train']
+            cacher = ub.Cacher('dset_anchors', cfgstr=_dset.input_id + 'v4')
+            anchors = cacher.tryload()
+            if anchors is None:
+                anchors = _dset.sampler.dset.boxsize_stats(anchors=5, perclass=False)['all']['anchors']
+                anchors = anchors.round(1)
+                cacher.save(anchors)
+        elif config['anchors'] == 'lightnet':
+            # HACKED IN:
+            # anchors = np.array([[1.0, 1.0],
+            #                     [0.1, 0.1 ],
+            #                     [0.01, 0.01],
+            #                     [0.07781961, 0.10329947],
+            #                     [0.03830135, 0.05086466]])
+            anchors = np.array([(1.3221, 1.73145), (3.19275, 4.00944),
+                                (5.05587, 8.09892), (9.47112, 4.84053),
+                                (11.2364, 10.0071)]) * 32
+        else:
+            raise KeyError(config['anchors'])
 
         print('anchors = {!r}'.format(anchors))
-        # HACKED IN:
-        # anchors = np.array([[1.0, 1.0],
-        #                     [0.1, 0.1 ],
-        #                     [0.01, 0.01],
-        #                     [0.07781961, 0.10329947],
-        #                     [0.03830135, 0.05086466]])
-        # anchors = np.array([(1.3221, 1.73145), (3.19275, 4.00944),
-        #                     (5.05587, 8.09892), (9.47112, 4.84053),
-        #                     (11.2364, 10.0071)]) * 32
 
         model_ = (yolo2.Yolo2, {
             'classes': classes,
@@ -840,7 +865,7 @@ def setup_harn(cmdline=True, **kw):
             'object_scale'   : 5.0,
             'class_scale'    : 1.0,
             'thresh'         : 0.6,  # iou_thresh
-            # 'seen_thresh': 12800,
+            'seen_thresh': config['seen_thresh'],
         })
     else:
         raise KeyError(arch)
