@@ -646,7 +646,7 @@ def find_representative_images(truth_dset):
     selected = {}
 
     large_image_weights = gid_to_nannots
-    small_image_weights = ub.map_vals(lambda x: 1 / x, gid_to_nannots)
+    small_image_weights = ub.map_vals(lambda x: 1 / (x + 1), gid_to_nannots)
 
     import kwarray
     cover1 = kwarray.setcover(candidate_sets, items=all_cids)
