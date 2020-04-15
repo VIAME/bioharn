@@ -273,9 +273,12 @@ class DetectEvaluator(object):
     def _init_predictor(evaluator):
         # Load model
         deployed = nh.export.DeployedModel.coerce(evaluator.config['deployed'])
-        nice = deployed.train_info()['nice']
 
-        evaluator.train_info = deployed.train_info()
+        if hasattr(deployed, '_train_info'):
+            evaluator.train_info = deployed._train_info
+        else:
+            evaluator.train_info = deployed.train_info()
+        nice = evaluator.train_info['nice']
 
         # hack together a model tag
         if hasattr(deployed, 'model_tag'):

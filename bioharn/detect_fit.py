@@ -581,11 +581,21 @@ class DetectHarn(nh.FitHarn):
             if eval_dataset is None:
                 harn.warn('No evaluation dataset')
             else:
+                # hack together special attributes into "deployed" to work with
+                # what detect_eval expects. Eventually we should clean this up.
+                if getattr(harn, 'deploy_fpath', None) is None:
+                    harn.deploy_fpath = harn._deploy()
+
+                deployed = nh.export.DeployedModel.coerce(harn.deploy_fpath)
+                deployed._model = harn.model
+                deployed._train_info = harn.train_info
+                deployed.train_dpath = harn.train_dpath
+
                 print('eval_dataset = {!r}'.format(eval_dataset))
                 eval_config = {
                     'xpu': harn.xpu,
 
-                    'deployed': harn.model,
+                    'deployed': deployed,
 
                     # fixme: should be able to pass the dataset as an object
                     'dataset': harn.datasets['test'].sampler.dset.fpath,
