@@ -3,7 +3,7 @@ torch
 six
 numpy 
 opencv_python 
-kwarray 
+kwarray >= 0.5.8
 kwplot
 kwimage 
 ndsampler 
