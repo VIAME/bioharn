@@ -108,7 +108,8 @@ def preproc_cfarm():
     from cfarm_preproc import *  # NOQA
     # vimtk encountered a syntax error
     """
-    root = ub.expandpath('$HOME/remote/namek/') workdir = ub.ensuredir((root, 'data/noaa_habcam'))
+    root = ub.expandpath('$HOME/remote/namek/')
+    workdir = ub.ensuredir((root, 'data/noaa_habcam'))
     viame_install = join(root, 'data/raid/viame_install/viame')
     dpath = join(root, 'data/private')
 
