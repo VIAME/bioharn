@@ -98,11 +98,13 @@ from os.path import exists
 import ubelt as ub
 from os.path import join
 import glob
+from ndsampler.utils import util_futures
 
 
 def preproc_cfarm():
-
     root = ub.expandpath('$HOME/remote/namek/')
+    workdir = ub.ensuredir((root, 'data/noaa_habcam'))
+    viame_install = join(root, 'data/raid/viame_install/viame')
     dpath = join(root, 'data/private')
 
     raw_dpaths = {
@@ -119,20 +121,13 @@ def preproc_cfarm():
         gpaths[key] = raw_gpaths
         print('#raw_gpaths = {!r}'.format(len(raw_gpaths)))
 
-    workdir = ub.ensuredir((root, 'data/noaa_habcam'))
-    viame_install = join(root, 'data/raid/viame_install/viame')
-
-    from ndsampler.utils import util_futures
     for key, raw_gpaths in ub.ProgIter(gpaths.items()):
-
         jobs = util_futures.JobPool('thread', max_workers=8)
-
         dset_dir = ub.ensuredir((workdir, key))
         left_dpath = ub.ensuredir((dset_dir, 'raw', 'left'))
         right_dpath = ub.ensuredir((dset_dir, 'raw', 'right'))
         for raw_gpath in raw_gpaths:
             jobs.submit(split_raws, raw_gpath, left_dpath, right_dpath)
-
         left_paths = []
         right_paths = []
         for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
@@ -140,11 +135,8 @@ def preproc_cfarm():
             left_gpath, right_gpath = job.result()
             left_paths.append(left_gpath)
             right_paths.append(right_gpath)
-
         do_debayer(left_dpath, left_paths, viame_install)
         do_debayer(right_dpath, right_paths, viame_install)
-
-    jobs = util_futures.JobPool('thread', max_workers=8)
 
     for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
         dset_dir = ub.ensuredir((workdir, key))
@@ -154,6 +146,7 @@ def preproc_cfarm():
         left_dpath = ub.ensuredir((dset_dir, 'images', 'left'))
         right_dpath = ub.ensuredir((dset_dir, 'images', 'right'))
 
+        jobs = util_futures.JobPool('thread', max_workers=8)
         for src_fpath in left_png_gpaths:
             dst_fpath = ub.augpath(src_fpath, dpath=left_dpath, ext='.cog.tif')
             jobs.submit(convert_to_cog, src_fpath, dst_fpath)
@@ -161,10 +154,9 @@ def preproc_cfarm():
         for src_fpath in right_png_gpaths:
             dst_fpath = ub.augpath(src_fpath, dpath=right_dpath, ext='.cog.tif')
             jobs.submit(convert_to_cog, src_fpath, dst_fpath)
-
-    for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
-                           desc='collect convert-to-cog jobs'):
-        job.result()
+        for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
+                               desc='collect convert-to-cog jobs'):
+            job.result()
 
     csv_fpaths = {
         '2017_CFARM': join(dpath, 'US_NE_2017_CFARM_HABCAM/HabCam 2017 dataset1 annotations.csv'),
@@ -176,7 +168,7 @@ def preproc_cfarm():
         assert exists(csv_fpath)
         df = pd.read_csv(csv_fpath)
         print('df.columns = {!r}'.format(df.columns))
-        img_root = dirname(csv_fpath)
+        img_root = dset_dir = ub.ensuredir((workdir, key))
         convert_cfarm(df, img_root)
 
 
@@ -231,6 +223,8 @@ catname_map = {
     'probable scallop-like rock': 'rock',
     'misc manmade objects': 'misc',
     'waved whelk egg mass': 'misc',
+    'whelk': 'misc',
+    'unknown whelk': 'skate',
 
     'dust cloud': 'dust cloud',
 
@@ -245,6 +239,7 @@ catname_map = {
     'unknown crab': 'crab',
 
     'dead scallop (width)': 'dead sea scallop',
+    'dead scallop': 'dead sea scallop',
     'dead sea scallop inexact': 'dead sea scallop',
     'dead sea scallop': 'dead sea scallop',
     'probable dead sea scallop inexact': 'dead sea scallop',
@@ -326,13 +321,10 @@ catname_map = {
 
 
 def convert_cfarm(df, img_root):
-    import multiprocessing
     from ndsampler.utils import util_futures
     import ndsampler
     import kwimage
-
     records = df.to_dict(orient='records')
-
     for row in ub.ProgIter(records, desc='fix formatting'):
         for k, v in list(row.items()):
             if isinstance(v, str):
@@ -353,23 +345,31 @@ def convert_cfarm(df, img_root):
 
     coco_dset = ndsampler.CocoDataset(img_root=img_root)
 
-    dev_root = ub.ensuredir((img_root, '_dev'))
-    cog_root = ub.ensuredir((dev_root, 'cog_rgb'))
+    left_img_root = join('images', 'left')
+    right_img_root = join('images', 'right')
+    # dev_root = ub.ensuredir((img_root, '_dev'))
+    # cog_root = ub.ensuredir((dev_root, 'cog_rgb'))
 
     # if 1:
     #     ub.delete(cog_root)
     #     ub.ensuredir(cog_root)
 
-    workers = min(10, multiprocessing.cpu_count())
-    jobs = util_futures.JobPool(mode='thread', max_workers=workers)
     for row in ub.ProgIter(records):
-        image_name = row['Imagename']
+        # image_name = row['Imagename']
 
-        # TODO: de-bayer and preprocess
-        # image_name = row['TIFImagename']
+        # ASSUME WE HAVE de-bayered and preprocessed
+        image_name = row['TIFImagename']
+
+        left_cog_name = ub.augpath(image_name, dpath=left_img_root, ext='.cog.tif')
+        right_cog_name = ub.augpath(image_name, dpath=left_img_root, ext='.cog.tif')
+
+        left_gpath = join(img_root, left_cog_name)
+        right_gpath = join(img_root, right_cog_name)
+        assert exists(right_gpath), f'{right_gpath}'
+        assert exists(left_gpath), f'{left_gpath}'
 
         # Handle Image
-        gid = coco_dset.ensure_image(file_name=image_name)
+        gid = coco_dset.ensure_image(file_name=left_cog_name)
         img = coco_dset.imgs[gid]
 
         if img.get('is_bad', False):
@@ -384,16 +384,9 @@ def convert_cfarm(df, img_root):
                 img['is_bad'] = True
                 print('Bad image gpath = {!r}'.format(gpath))
                 continue
-
             height, width = shape[0:2]
             img['height'] = height
             img['width'] = width
-
-        if 'in_queue' not in img:
-            # Convert to COG in the background
-            job = jobs.submit(_ensure_rgb_cog, coco_dset, gid, cog_root)
-            job.img = img
-            img['in_queue'] = True  # hack
 
         # Handle Category
         object_name = row['Name']
@@ -433,12 +426,6 @@ def convert_cfarm(df, img_root):
         }
         coco_dset.add_annotation(**ann)
 
-    for job in ub.ProgIter(jobs, desc='redirect to cog images'):
-        img = job.img
-        img.pop('in_queue', None)
-        cog_fpath = job.result()
-        img['file_name'] = cog_fpath
-
     # Remove hyper-small annotations, they are probably bad
     weird_anns = []
     for ann in coco_dset.anns.values():
@@ -447,7 +434,7 @@ def convert_cfarm(df, img_root):
     coco_dset.remove_annotations(weird_anns)
 
     coco_dset.dataset.pop('img_root', None)
-    coco_dset.img_root = dev_root
+    coco_dset.img_root = img_root
     bad_images = coco_dset._ensure_imgsize(workers=16, fail=False)
     coco_dset.remove_images(bad_images)
 
@@ -460,11 +447,11 @@ def convert_cfarm(df, img_root):
     suffix = 'g{n_imgs:06d}_a{n_anns:08d}_c{n_cats:04d}'.format(**stats)
 
     coco_dset.fpath = ub.augpath(
-        '', dpath=dev_root, ext='',
-        base=dset_name + '_{}_v3.mscoco.json'.format(suffix))
+        '', dpath=img_root, ext='',
+        base=dset_name + '_{}_v4.mscoco.json'.format(suffix))
 
-    coco_dset.rebase(dev_root)
-    coco_dset.img_root = dev_root
+    coco_dset.rebase(img_root)
+    coco_dset.img_root = img_root
 
     if 0:
         import kwplot
@@ -474,7 +461,7 @@ def convert_cfarm(df, img_root):
             coco_dset.show_image(gid)
             xdev.InteractiveIter.draw()
 
-    datasets = train_vali_split(coco_dset)
+    datasets = train_vali_split(coco_dset, vali_factor=6)
     print('datasets = {!r}'.format(datasets))
 
     def _split_annot_freq_table(datasets):
@@ -506,9 +493,8 @@ def _ensure_rgb_cog(dset, gid, cog_root):
     return cog_fpath
 
 
-def train_vali_split(coco_dset):
-
-    split_gids = _split_train_vali_test_gids(coco_dset)
+def train_vali_split(coco_dset, **kw):
+    split_gids = _split_train_vali_test_gids(coco_dset, **kw)
     datasets = {}
     for tag, gids in split_gids.items():
         tag_dset = coco_dset.subset(gids)
@@ -519,11 +505,10 @@ def train_vali_split(coco_dset):
         tag_dset.fpath = ub.augpath(coco_dset.fpath, suffix=suffix,
                                     multidot=True)
         datasets[tag] = tag_dset
-
     return datasets
 
 
-def _split_train_vali_test_gids(coco_dset, factor=3):
+def _split_train_vali_test_gids(coco_dset, test_factor=3, vali_factor=6):
 
     def _stratified_split(gids, cids, n_splits=2, rng=None):
         """ helper to split while trying to maintain class balance within images """
@@ -545,8 +530,6 @@ def _split_train_vali_test_gids(coco_dset, factor=3):
     # Split into learn/test then split learn into train/vali
     rng = kwarray.ensure_rng(1617402282)
     # FIXME: make train bigger with 2
-    test_factor = factor
-    vali_factor = factor
     learnx, testx = _stratified_split(gids, cids, rng=rng,
                                       n_splits=test_factor)
 
@@ -570,47 +553,3 @@ def _split_train_vali_test_gids(coco_dset, factor=3):
     }
     print('splits = {}'.format(ub.repr2(ub.map_vals(len, split_gids))))
     return split_gids
-
-
-def convert_cfarm_2017():
-    """
-    import sys, ubelt
-    sys.path.append(ubelt.expandpath('~/code/bioharn/dev'))
-    from sync_viame import *  # NOQA
-    from sync_viame import _ensure_rgb_cog, _split_train_vali_test_gids
-    """
-    csv_fpath = ub.expandpath('~/data/private/US_NE_2017_CFARM_HABCAM/HabCam 2017 dataset1 annotations.csv')
-    assert exists(csv_fpath)
-    df = pd.read_csv(csv_fpath)
-    print('df.columns = {!r}'.format(df.columns))
-    img_root = dirname(csv_fpath)
-    convert_cfarm(df, img_root)
-
-
-def convert_cfarm_2018():
-    csv_fpath =  ub.expandpath('~/data/private/US_NE_2018_CFARM_HABCAM/annotations.csv')
-    assert exists(csv_fpath)
-    df = pd.read_csv(csv_fpath)
-    print('df.columns = {!r}'.format(df.columns))
-    img_root = dirname(csv_fpath)
-    # csv_fpath =  ub.expandpath('~/remote/viame/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_AnnotatedObjects.csv')
-    convert_cfarm(df, img_root)
-
-
-def convert_cfarm_2019():
-    csv_fpath =  ub.expandpath('~/data/private/US_NE_2019_CFARM_HABCAM/raws/annotations-corrected.csv')
-    assert exists(csv_fpath)
-    df = pd.read_csv(csv_fpath)
-    print('df.columns = {!r}'.format(df.columns))
-    # img_root = join(dirname(dirname(csv_fpath)), 'processed')
-    img_root = dirname(csv_fpath)
-    # csv_fpath =  ub.expandpath('~/remote/viame/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_AnnotatedObjects.csv')
-    convert_cfarm(df, img_root)
-
-
-def convert_cfarm_2019_part2():
-    csv_fpath =  ub.expandpath('~/data/private/US_NE_2019_CFARM_HABCAM_PART2/HabCam 2019 dataset2 annotations.csv')
-    assert exists(csv_fpath)
-    df = pd.read_csv(csv_fpath)
-    print('df.columns = {!r}'.format(df.columns))
-    # csv_fpath =  ub.expandpath('~/remote/viame/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/Habcam_2015_AnnotatedObjects.csv')
