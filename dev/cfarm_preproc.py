@@ -102,6 +102,12 @@ from ndsampler.utils import util_futures
 
 
 def preproc_cfarm():
+    """
+    import sys, ubelt
+    sys.path.append(ubelt.expandpath('~/code/bioharn/dev'))
+    from cfarm_preproc import *  # NOQA
+    # vimtk encountered a syntax error
+    """
     root = ub.expandpath('$HOME/remote/namek/') workdir = ub.ensuredir((root, 'data/noaa_habcam'))
     viame_install = join(root, 'data/raid/viame_install/viame')
     dpath = join(root, 'data/private')
