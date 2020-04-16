@@ -457,7 +457,8 @@ def convert_cfarm(df, img_root):
         import kwplot
         import xdev
         kwplot.autompl()
-        for gid in xdev.InteractiveIter(list(coco_dset.imgs.keys())):
+        gids = coco_dset.find_representative_images()
+        for gid in xdev.InteractiveIter(list(gids)):
             coco_dset.show_image(gid)
             xdev.InteractiveIter.draw()
 
@@ -477,6 +478,8 @@ def convert_cfarm(df, img_root):
     for tag, tag_dset in datasets.items():
         print('{} fpath = {!r}'.format(tag, tag_dset.fpath))
         tag_dset.dump(tag_dset.fpath, newlines=True)
+
+    return coco_dset
 
 
 def _ensure_rgb_cog(dset, gid, cog_root):
