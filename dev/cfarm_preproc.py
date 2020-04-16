@@ -102,8 +102,7 @@ from ndsampler.utils import util_futures
 
 
 def preproc_cfarm():
-    root = ub.expandpath('$HOME/remote/namek/')
-    workdir = ub.ensuredir((root, 'data/noaa_habcam'))
+    root = ub.expandpath('$HOME/remote/namek/') workdir = ub.ensuredir((root, 'data/noaa_habcam'))
     viame_install = join(root, 'data/raid/viame_install/viame')
     dpath = join(root, 'data/private')
 
@@ -171,6 +170,58 @@ def preproc_cfarm():
         print('df.columns = {!r}'.format(df.columns))
         img_root = dset_dir = ub.ensuredir((workdir, key))
         coco_dset = convert_cfarm(df, img_root)
+
+    split_fpaths = ub.ddict(list)
+    for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
+        dset_dir = ub.ensuredir((workdir, key))
+        train_fpath = list(glob.glob(join(dset_dir, '*_v5*train*.mscoco.json')))[0]
+        vali_fpath = list(glob.glob(join(dset_dir, '*_v5*vali*.mscoco.json')))[0]
+        test_fpath = list(glob.glob(join(dset_dir, '*_v5*test*.mscoco.json')))[0]
+        split_fpaths['train'].append(train_fpath)
+        split_fpaths['vali'].append(vali_fpath)
+        split_fpaths['test'].append(test_fpath)
+
+    split_fpaths['train'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json'))
+    split_fpaths['vali'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json'))
+    split_fpaths['test'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_test.mscoco.json'))
+
+    splits = {}
+    import kwcoco
+    out_dpath = ub.ensuredir((workdir, 'combos'))
+    for tag, paths in split_fpaths.items():
+        print('tag = {!r}'.format(tag))
+        for fpath in ub.ProgIter(paths, desc='read datasets'):
+            assert exists(fpath)
+            dset = kwcoco.CocoDataset(fpath)
+            dset.dataset.pop('img_root')
+            dset.img_root = normpath(dset.img_root)
+            dset.reroot(out_dpath, absolute=False)
+            dset.missing_images()
+            dsets.append(dset)
+        splits[tag] = dsets
+
+    combo_dsets = {}
+    for tag, dsets in splits.items():
+        print('merging')
+        combo_dset = kwcoco.CocoDataset.union(*dsets, tag=tag)
+        combo_dset.fpath = join(out_dpath, 'cfarm_{}.mscoco.json'.format(tag))
+        print('{!r}'.format(combo_dset.fpath))
+        combo_dset.rebase(out_dpath)
+        combo_dsets[tag] = combo_dset
+
+    for tag, combo_dset in combo_dsets.items():
+        combo_dset.dump(combo_dset.fpath, newlines=True)
+
+    for tag, combo_dset in combo_dsets.items():
+
+        combo_dset = kwcoco.CocoDataset(combo_dset.fpath)
+
+        for gid, img in ub.ProgIter(list(combo_dset.imgs.items()),
+                                    desc='test load gids'):
+            imdata = combo_dset.load_image(gid)
+            shape = imdata.shape
+            assert img['width'] == shape[1]
+            assert img['height'] == shape[0]
 
     if 0:
         import kwplot
@@ -563,24 +614,9 @@ def _split_train_vali_test_gids(coco_dset, test_factor=3, vali_factor=6):
 
 
 def merge():
-    import ndsampler
-    split_fpaths = {
-        'train':  [
-            '/home/joncrall/data/private/US_NE_2017_CFARM_HABCAM/_dev/US_NE_2017_CFARM_HABCAM_g001921_a00024144_c0010_v3_44_train.mscoco.json',
-            '/home/joncrall/data/private/US_NE_2018_CFARM_HABCAM/_dev/US_NE_2018_CFARM_HABCAM_g001412_a00012452_c0013_v3_44_train.mscoco.json',
-            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_44_train.mscoco.json',
-        ],
-        'vali':  [
-            '/home/joncrall/data/private/US_NE_2017_CFARM_HABCAM/_dev/US_NE_2017_CFARM_HABCAM_g001921_a00024144_c0010_v3_22_vali.mscoco.json',
-            '/home/joncrall/data/private/US_NE_2018_CFARM_HABCAM/_dev/US_NE_2018_CFARM_HABCAM_g001412_a00012452_c0013_v3_22_vali.mscoco.json',
-            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_22_vali.mscoco.json',
-        ],
-        'test': [
-            '/home/joncrall/data/private/US_NE_2017_CFARM_HABCAM/_dev/US_NE_2017_CFARM_HABCAM_g001921_a00024144_c0010_v3_33_test.mscoco.json',
-            '/home/joncrall/data/private/US_NE_2018_CFARM_HABCAM/_dev/US_NE_2018_CFARM_HABCAM_g001412_a00012452_c0013_v3_33_test.mscoco.json',
-            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_33_test.mscoco.json',
-        ],
-    }
+    split_fpaths['train'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json')
+    split_fpaths['vali'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json')
+    split_fpaths['test'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_test.mscoco.json')
 
     splits = {}
     for tag, paths in split_fpaths.items():
@@ -591,7 +627,6 @@ def merge():
             dset.rebase(absolute=True)
             dsets.append(dset)
         splits[tag] = dsets
-
     out_dpath = ub.ensuredir('/home/joncrall/data/private/_combo_cfarm')
 
     combo_dsets = {}
