@@ -196,7 +196,7 @@ def preproc_cfarm():
     import kwcoco
     out_dpath = ub.ensuredir((workdir, 'combos'))
     for tag, paths in split_fpaths.items():
-        print('tag = {!r}'.format(tag))
+        dsets = []
         for fpath in ub.ProgIter(paths, desc='read datasets'):
             assert exists(fpath)
             dset = kwcoco.CocoDataset(fpath)
@@ -621,8 +621,8 @@ def _split_train_vali_test_gids(coco_dset, test_factor=3, vali_factor=6):
 
 
 def merge():
-    split_fpaths['train'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json')
-    split_fpaths['vali'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json')
+    split_fpaths['train'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json'))
+    split_fpaths['vali'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json'))
     split_fpaths['test'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_test.mscoco.json')
 
     splits = {}
