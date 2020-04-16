@@ -98,7 +98,6 @@ import glob
 def preproc_cfarm():
 
     root = ub.expandpath('$HOME/remote/namek/')
-    viame_bin = join(root, 'data/raid/viame_install/viame')
     dpath = join(root, 'data/private')
 
     globstrs = {
@@ -111,31 +110,55 @@ def preproc_cfarm():
     gpaths = {}
     for key, globstr in ub.ProgIter(globstrs.items()):
         print(dirname(globstr))
-        raw_gpaths = sorted(glob.glob(globstr))[0:4]
+        raw_gpaths = sorted(glob.glob(globstr))
         gpaths[key] = raw_gpaths
         print('#raw_gpaths = {!r}'.format(len(raw_gpaths)))
 
     workdir = ub.ensuredir((root, 'data/noaa_habcam'))
-
-    from ndsampler.utils import util_futures
-    jobs = util_futures.JobPool('thread', max_workers=8)
+    viame_install = join(root, 'data/raid/viame_install/viame')
 
     for key, raw_gpaths in ub.ProgIter(gpaths.items()):
+
+        from ndsampler.utils import util_futures
+        jobs = util_futures.JobPool('thread', max_workers=8)
+
         dset_dir = ub.ensuredir((workdir, key))
         left_dpath = ub.ensuredir((dset_dir, 'raw', 'left'))
         right_dpath = ub.ensuredir((dset_dir, 'raw', 'right'))
         for raw_gpath in raw_gpaths:
             jobs.submit(split_raws, raw_gpath, left_dpath, right_dpath)
 
-    paths = []
-    for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
-                           desc='collect split jobs'):
-        left_gpath, right_gpath = job.result()
-        paths += [left_gpath, right_gpath]
+        left_paths = []
+        right_paths = []
+        for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
+                               desc='collect split jobs'):
+            left_gpath, right_gpath = job.result()
+            left_paths.append(left_gpath)
+            right_paths.append(right_gpath)
 
-    debayer_input_fpath = join(workdir, 'input_list_raw_images.txt')
+        do_debayer(left_dpath, left_paths, viame_install)
+        do_debayer(right_dpath, right_paths, viame_install)
+
+
+def do_debayer(dpath, fpaths, viame_install):
+    debayer_input_fpath = join(dpath, 'input_list_raw_images.txt')
     with open(debayer_input_fpath, 'w') as file:
-        file.write()
+        file.write('\n'.join(fpaths))
+    sh_text = ub.codeblock(
+        r'''
+        #!/bin/sh
+        # Setup VIAME Paths (no need to run multiple times if you already ran it)
+        export VIAME_INSTALL="{viame_install}"
+        source $VIAME_INSTALL/setup_viame.sh
+        # Run pipeline
+        kwiver runner $VIAME_INSTALL/configs/pipelines/filter_debayer_and_enhance.pipe \
+                      -s input:video_filename={debayer_input_fpath}
+
+        ''').format(viame_install=viame_install, debayer_input_fpath=debayer_input_fpath)
+    sh_fpath = join(dpath, 'debayer.sh')
+    ub.writeto(sh_fpath, sh_text)
+    ub.cmd('chmod +x ' + sh_fpath)
+    ub.cmd('bash ' + sh_fpath, cwd=dpath, shell=0, verbose=3)
 
 
 def split_raws(raw_gpath, left_dpath, right_dpath):
