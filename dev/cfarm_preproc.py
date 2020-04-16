@@ -90,7 +90,6 @@ one these days I should adjust so it runs it on both camera sides independently 
 """
 from os.path import exists
 import ubelt as ub
-from os.path import dirname
 from os.path import join
 import glob
 
@@ -100,26 +99,26 @@ def preproc_cfarm():
     root = ub.expandpath('$HOME/remote/namek/')
     dpath = join(root, 'data/private')
 
-    globstrs = {
-        '2017_CFARM': join(dpath, 'US_NE_2017_CFARM_HABCAM/*.tif'),
-        '2018_CFARM': join(dpath, 'US_NE_2018_CFARM_HABCAM/*.tif'),
-        '2019_CFARM_P1': join(dpath, 'US_NE_2019_CFARM_HABCAM/raws/*.tif'),
-        '2019_CFARM_P2': join(dpath, 'US_NE_2019_CFARM_HABCAM_PART2/*.tif'),
+    raw_dpaths = {
+        '2017_CFARM': join(dpath, 'US_NE_2017_CFARM_HABCAM'),
+        '2018_CFARM': join(dpath, 'US_NE_2018_CFARM_HABCAM'),
+        '2019_CFARM_P1': join(dpath, 'US_NE_2019_CFARM_HABCAM/raws'),
+        '2019_CFARM_P2': join(dpath, 'US_NE_2019_CFARM_HABCAM_PART2'),
     }
 
     gpaths = {}
-    for key, globstr in ub.ProgIter(globstrs.items()):
-        print(dirname(globstr))
-        raw_gpaths = sorted(glob.glob(globstr))
+    for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
+        print('raw_dpath = {!r}'.format(raw_dpath))
+        raw_gpaths = sorted(glob.glob(join(raw_dpath, '*.tif')))
         gpaths[key] = raw_gpaths
         print('#raw_gpaths = {!r}'.format(len(raw_gpaths)))
 
     workdir = ub.ensuredir((root, 'data/noaa_habcam'))
     viame_install = join(root, 'data/raid/viame_install/viame')
 
+    from ndsampler.utils import util_futures
     for key, raw_gpaths in ub.ProgIter(gpaths.items()):
 
-        from ndsampler.utils import util_futures
         jobs = util_futures.JobPool('thread', max_workers=8)
 
         dset_dir = ub.ensuredir((workdir, key))
@@ -138,6 +137,35 @@ def preproc_cfarm():
 
         do_debayer(left_dpath, left_paths, viame_install)
         do_debayer(right_dpath, right_paths, viame_install)
+
+    jobs = util_futures.JobPool('thread', max_workers=8)
+
+    for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
+        dset_dir = ub.ensuredir((workdir, key))
+        left_png_gpaths = sorted(glob.glob(join(dset_dir, 'raw', 'left', '*.png')))
+        right_png_gpaths = sorted(glob.glob(join(dset_dir, 'raw', 'right', '*.png')))
+
+        left_dpath = ub.ensuredir((dset_dir, 'images', 'left'))
+        right_dpath = ub.ensuredir((dset_dir, 'images', 'right'))
+
+        for src_fpath in left_png_gpaths:
+            dst_fpath = ub.augpath(src_fpath, dpath=left_dpath, ext='.cog.tif')
+            jobs.submit(convert_to_cog, src_fpath, dst_fpath)
+
+        for src_fpath in right_png_gpaths:
+            dst_fpath = ub.augpath(src_fpath, dpath=right_dpath, ext='.cog.tif')
+            jobs.submit(convert_to_cog, src_fpath, dst_fpath)
+
+    for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
+                           desc='collect convert-to-cog jobs'):
+        job.result()
+
+
+def convert_to_cog(src_fpath, dst_fpath):
+    from ndsampler.utils.util_gdal import _cli_convert_cloud_optimized_geotiff
+    if not exists(dst_fpath):
+        _cli_convert_cloud_optimized_geotiff(
+            src_fpath, dst_fpath, compress='LZW', blocksize=256)
 
 
 def do_debayer(dpath, fpaths, viame_install):
