@@ -172,6 +172,15 @@ def preproc_cfarm():
         img_root = dset_dir = ub.ensuredir((workdir, key))
         coco_dset = convert_cfarm(df, img_root)
 
+    if 0:
+        import kwplot
+        import xdev
+        kwplot.autompl()
+        gids = coco_dset.find_representative_images()
+        for gid in xdev.InteractiveIter(list(gids)):
+            coco_dset.show_image(gid)
+            xdev.InteractiveIter.draw()
+
 
 def convert_to_cog(src_fpath, dst_fpath):
     from ndsampler.utils.util_gdal import _cli_convert_cloud_optimized_geotiff
@@ -322,7 +331,6 @@ catname_map = {
 
 
 def convert_cfarm(df, img_root):
-    from ndsampler.utils import util_futures
     import ndsampler
     import kwimage
     records = df.to_dict(orient='records')
@@ -348,12 +356,6 @@ def convert_cfarm(df, img_root):
 
     left_img_root = join('images', 'left')
     right_img_root = join('images', 'right')
-    # dev_root = ub.ensuredir((img_root, '_dev'))
-    # cog_root = ub.ensuredir((dev_root, 'cog_rgb'))
-
-    # if 1:
-    #     ub.delete(cog_root)
-    #     ub.ensuredir(cog_root)
 
     for row in ub.ProgIter(records):
         # image_name = row['Imagename']
@@ -362,7 +364,7 @@ def convert_cfarm(df, img_root):
         image_name = row['TIFImagename']
 
         left_cog_name = ub.augpath(image_name, dpath=left_img_root, ext='.cog.tif')
-        right_cog_name = ub.augpath(image_name, dpath=left_img_root, ext='.cog.tif')
+        right_cog_name = ub.augpath(image_name, dpath=right_img_root, ext='.cog.tif')
 
         left_gpath = join(img_root, left_cog_name)
         right_gpath = join(img_root, right_cog_name)
@@ -370,7 +372,9 @@ def convert_cfarm(df, img_root):
         assert exists(left_gpath), f'{left_gpath}'
 
         # Handle Image
-        gid = coco_dset.ensure_image(file_name=left_cog_name)
+        gid = coco_dset.ensure_image(file_name=left_cog_name, aux={
+            'right': right_cog_name,
+        })
         img = coco_dset.imgs[gid]
 
         if img.get('is_bad', False):
@@ -444,12 +448,11 @@ def convert_cfarm(df, img_root):
     for img in coco_dset.imgs.values():
         img['source'] = dset_name
 
-    stats = coco_dset.basic_stats()
-    suffix = 'g{n_imgs:06d}_a{n_anns:08d}_c{n_cats:04d}'.format(**stats)
-
+    # stats = coco_dset.basic_stats()
+    # suffix = 'g{n_imgs:06d}_a{n_anns:08d}_c{n_cats:04d}'.format(**stats)
     coco_dset.fpath = ub.augpath(
         '', dpath=img_root, ext='',
-        base=dset_name + '_{}_v4.mscoco.json'.format(suffix))
+        base=dset_name + '_v5.mscoco.json'.format())
 
     coco_dset.rebase(img_root)
     coco_dset.img_root = img_root
@@ -557,3 +560,59 @@ def _split_train_vali_test_gids(coco_dset, test_factor=3, vali_factor=6):
     }
     print('splits = {}'.format(ub.repr2(ub.map_vals(len, split_gids))))
     return split_gids
+
+
+def merge():
+    import ndsampler
+    split_fpaths = {
+        'train':  [
+            '/home/joncrall/data/private/US_NE_2017_CFARM_HABCAM/_dev/US_NE_2017_CFARM_HABCAM_g001921_a00024144_c0010_v3_44_train.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2018_CFARM_HABCAM/_dev/US_NE_2018_CFARM_HABCAM_g001412_a00012452_c0013_v3_44_train.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_44_train.mscoco.json',
+        ],
+        'vali':  [
+            '/home/joncrall/data/private/US_NE_2017_CFARM_HABCAM/_dev/US_NE_2017_CFARM_HABCAM_g001921_a00024144_c0010_v3_22_vali.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2018_CFARM_HABCAM/_dev/US_NE_2018_CFARM_HABCAM_g001412_a00012452_c0013_v3_22_vali.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_22_vali.mscoco.json',
+        ],
+        'test': [
+            '/home/joncrall/data/private/US_NE_2017_CFARM_HABCAM/_dev/US_NE_2017_CFARM_HABCAM_g001921_a00024144_c0010_v3_33_test.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2018_CFARM_HABCAM/_dev/US_NE_2018_CFARM_HABCAM_g001412_a00012452_c0013_v3_33_test.mscoco.json',
+            '/home/joncrall/data/private/US_NE_2019_CFARM_HABCAM/raws/_dev/raws_g003795_a00018894_c0012_v3_33_test.mscoco.json',
+        ],
+    }
+
+    splits = {}
+    for tag, paths in split_fpaths.items():
+        print('tag = {!r}'.format(tag))
+        dsets = []
+        for fpath in ub.ProgIter(paths, desc='read datasets'):
+            dset = ndsampler.CocoDataset(fpath)
+            dset.rebase(absolute=True)
+            dsets.append(dset)
+        splits[tag] = dsets
+
+    out_dpath = ub.ensuredir('/home/joncrall/data/private/_combo_cfarm')
+
+    combo_dsets = {}
+    for tag, dsets in splits.items():
+        print('merging')
+        combo_dset = ndsampler.CocoDataset.union(*dsets, tag=tag)
+        combo_dset.fpath = join(out_dpath, 'cfarm_{}.mscoco.json'.format(tag))
+        print('{!r}'.format(combo_dset.fpath))
+        combo_dset.rebase(out_dpath)
+        combo_dsets[tag] = combo_dset
+
+    for tag, combo_dset in combo_dsets.items():
+        combo_dset.dump(combo_dset.fpath, newlines=True)
+
+    for tag, combo_dset in combo_dsets.items():
+
+        combo_dset = ndsampler.CocoDataset(combo_dset.fpath)
+
+        for gid, img in ub.ProgIter(list(combo_dset.imgs.items()),
+                                    desc='test load gids'):
+            imdata = combo_dset.load_image(gid)
+            shape = imdata.shape
+            assert img['width'] == shape[1]
+            assert img['height'] == shape[0]
