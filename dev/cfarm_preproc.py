@@ -461,7 +461,7 @@ def convert_cfarm(df, img_root):
             coco_dset.show_image(gid)
             xdev.InteractiveIter.draw()
 
-    datasets = train_vali_split(coco_dset, vali_factor=6)
+    datasets = train_vali_split(coco_dset, vali_factor=5)
     print('datasets = {!r}'.format(datasets))
 
     def _split_annot_freq_table(datasets):
