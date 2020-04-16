@@ -121,42 +121,43 @@ def preproc_cfarm():
         gpaths[key] = raw_gpaths
         print('#raw_gpaths = {!r}'.format(len(raw_gpaths)))
 
-    for key, raw_gpaths in ub.ProgIter(gpaths.items()):
-        jobs = util_futures.JobPool('thread', max_workers=8)
-        dset_dir = ub.ensuredir((workdir, key))
-        left_dpath = ub.ensuredir((dset_dir, 'raw', 'left'))
-        right_dpath = ub.ensuredir((dset_dir, 'raw', 'right'))
-        for raw_gpath in raw_gpaths:
-            jobs.submit(split_raws, raw_gpath, left_dpath, right_dpath)
-        left_paths = []
-        right_paths = []
-        for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
-                               desc='collect split jobs'):
-            left_gpath, right_gpath = job.result()
-            left_paths.append(left_gpath)
-            right_paths.append(right_gpath)
-        do_debayer(left_dpath, left_paths, viame_install)
-        do_debayer(right_dpath, right_paths, viame_install)
+    if 1:
+        for key, raw_gpaths in ub.ProgIter(gpaths.items()):
+            jobs = util_futures.JobPool('thread', max_workers=8)
+            dset_dir = ub.ensuredir((workdir, key))
+            left_dpath = ub.ensuredir((dset_dir, 'raw', 'left'))
+            right_dpath = ub.ensuredir((dset_dir, 'raw', 'right'))
+            for raw_gpath in raw_gpaths:
+                jobs.submit(split_raws, raw_gpath, left_dpath, right_dpath)
+            left_paths = []
+            right_paths = []
+            for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
+                                   desc='collect split jobs'):
+                left_gpath, right_gpath = job.result()
+                left_paths.append(left_gpath)
+                right_paths.append(right_gpath)
+            do_debayer(left_dpath, left_paths, viame_install)
+            do_debayer(right_dpath, right_paths, viame_install)
 
-    for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
-        dset_dir = ub.ensuredir((workdir, key))
-        left_png_gpaths = sorted(glob.glob(join(dset_dir, 'raw', 'left', '*.png')))
-        right_png_gpaths = sorted(glob.glob(join(dset_dir, 'raw', 'right', '*.png')))
+        for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
+            dset_dir = ub.ensuredir((workdir, key))
+            left_png_gpaths = sorted(glob.glob(join(dset_dir, 'raw', 'left', '*.png')))
+            right_png_gpaths = sorted(glob.glob(join(dset_dir, 'raw', 'right', '*.png')))
 
-        left_dpath = ub.ensuredir((dset_dir, 'images', 'left'))
-        right_dpath = ub.ensuredir((dset_dir, 'images', 'right'))
+            left_dpath = ub.ensuredir((dset_dir, 'images', 'left'))
+            right_dpath = ub.ensuredir((dset_dir, 'images', 'right'))
 
-        jobs = util_futures.JobPool('thread', max_workers=8)
-        for src_fpath in left_png_gpaths:
-            dst_fpath = ub.augpath(src_fpath, dpath=left_dpath, ext='.cog.tif')
-            jobs.submit(convert_to_cog, src_fpath, dst_fpath)
+            jobs = util_futures.JobPool('thread', max_workers=8)
+            for src_fpath in left_png_gpaths:
+                dst_fpath = ub.augpath(src_fpath, dpath=left_dpath, ext='.cog.tif')
+                jobs.submit(convert_to_cog, src_fpath, dst_fpath)
 
-        for src_fpath in right_png_gpaths:
-            dst_fpath = ub.augpath(src_fpath, dpath=right_dpath, ext='.cog.tif')
-            jobs.submit(convert_to_cog, src_fpath, dst_fpath)
-        for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
-                               desc='collect convert-to-cog jobs'):
-            job.result()
+            for src_fpath in right_png_gpaths:
+                dst_fpath = ub.augpath(src_fpath, dpath=right_dpath, ext='.cog.tif')
+                jobs.submit(convert_to_cog, src_fpath, dst_fpath)
+            for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
+                                   desc='collect convert-to-cog jobs'):
+                job.result()
 
     csv_fpaths = {
         '2017_CFARM': join(dpath, 'US_NE_2017_CFARM_HABCAM/HabCam 2017 dataset1 annotations.csv'),
@@ -169,7 +170,7 @@ def preproc_cfarm():
         df = pd.read_csv(csv_fpath)
         print('df.columns = {!r}'.format(df.columns))
         img_root = dset_dir = ub.ensuredir((workdir, key))
-        convert_cfarm(df, img_root)
+        coco_dset = convert_cfarm(df, img_root)
 
 
 def convert_to_cog(src_fpath, dst_fpath):
@@ -399,9 +400,9 @@ def convert_cfarm(df, img_root):
         # add category modifiers
         weight = 1.0
         if 'probable' in object_name:
-            weight *= 0.5
+            weight *= 0.2
         if 'inexact' in object_name:
-            weight *= 0.5
+            weight *= 0.2
 
         # Assume these are line annotations
         x1, y1, x2, y2 = list(ub.take(row, ['X1', 'Y1', 'X2', 'Y2']))
