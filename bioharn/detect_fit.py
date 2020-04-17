@@ -1293,17 +1293,16 @@ if __name__ == '__main__':
             --train_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_train.mscoco.json \
 
         python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-v33-bigger-balanced \
+            --nice=bioharn-det-mc-cascade-rgb-v35-bigger-balanced \
             --train_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_train.mscoco.json \
             --vali_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_vali.mscoco.json \
             --schedule=step-10-20 \
-            --augment=complex \
-            --workdir=/home/joncrall/work/bioharn \
-            --pretrained=/home/joncrall/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v30-bigger-balanced/deploy.zip \
+            --augment=simple \
+            --workdir=/home/joncrall/work/bioharn_vhack \
             --arch=cascade \
             --channels="rgb" \
             --optim=sgd \
-            --lr=1e-3 \
+            --lr=1e-4 \
             --input_dims=window \
             --window_dims=512,512 \
             --window_overlap=0.0 \
@@ -1315,8 +1314,11 @@ if __name__ == '__main__':
             --balance=tfidf \
             --sampler_backend=None \
             --bstep=8 \
-            --init=noop \
-            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth
+            --init=noop
+
+        /home/joncrall/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v30-bigger-balanced/deploy.zip
+
+            # --init=noop
 
     python -m bioharn.detect_fit \
         --nice=bioharn-det-mc-cascade-rgb-v32-bigger-balanced \
