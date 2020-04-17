@@ -230,7 +230,7 @@ def preproc_cfarm():
         missing = combo_dset.missing_images()
         assert not missing
         combo_dset.fpath = join(out_dpath, 'habcam_cfarm_v5_{}.mscoco.json'.format(tag))
-        # print('{!r}'.format(combo_dset.fpath))
+        print('{!r}'.format(combo_dset.fpath))
         # combo_dset.rebase(out_dpath)
         combo_dsets[tag] = combo_dset
 
@@ -238,9 +238,7 @@ def preproc_cfarm():
         combo_dset.dump(combo_dset.fpath, newlines=True)
 
     for tag, combo_dset in combo_dsets.items():
-
         combo_dset = kwcoco.CocoDataset(combo_dset.fpath)
-
         for gid, img in ub.ProgIter(list(combo_dset.imgs.items()),
                                     desc='test load gids'):
             imdata = combo_dset.load_image(gid)
@@ -256,6 +254,38 @@ def preproc_cfarm():
         for gid in xdev.InteractiveIter(list(gids)):
             coco_dset.show_image(gid)
             xdev.InteractiveIter.draw()
+
+
+def hack():
+    fpath = '/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_train.mscoco.json'
+
+    for fpath in glob.glob('/home/joncrall/remote/namek/data/noaa_habcam/combos/*v5*.mscoco.json'):
+        from os.path import realpath
+        from ndsampler.utils import validate_cog
+        import kwcoco
+        dset = kwcoco.CocoDataset(fpath)
+        for gid, img in dset.imgs.items():
+            img['file_name'] = realpath(img['file_name'])
+            img.pop('aux', None)
+            img.pop('auxillary', None)
+
+        bad_gids = []
+        for gid, img in ub.ProgIter(dset.imgs.items(), total=len(dset.imgs)):
+            gpath = img['file_name']
+            try:
+                warn, err, details = validate_cog.validate(gpath)
+            except Exception:
+                err = 1
+            if err:
+                print('err = {!r}'.format(err))
+                bad_gids.append(gid)
+        dset._build_index()
+        dset.remove_images(bad_gids)
+
+        print('dset.fpath = {!r}'.format(dset.fpath))
+        dset.dump(dset.fpath, newlines=True)
+
+    # '/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_vali.mscoco.json'
 
 
 def convert_to_cog(src_fpath, dst_fpath):

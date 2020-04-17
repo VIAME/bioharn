@@ -1290,15 +1290,16 @@ if __name__ == '__main__':
     coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json
     coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json
 
+            --train_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_train.mscoco.json \
+
         python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-v31-bigger-balanced \
-            --train_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_train.mscoco.json
-            --vali_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_vali.mscoco.json
+            --nice=bioharn-det-mc-cascade-rgb-v33-bigger-balanced \
+            --train_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_train.mscoco.json \
+            --vali_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_vali.mscoco.json \
             --schedule=step-10-20 \
             --augment=complex \
-            --init=noop \
             --workdir=/home/joncrall/work/bioharn \
-            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+            --pretrained=/home/joncrall/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v30-bigger-balanced/deploy.zip \
             --arch=cascade \
             --channels="rgb" \
             --optim=sgd \
@@ -1309,10 +1310,38 @@ if __name__ == '__main__':
             --multiscale=False \
             --normalize_inputs=True \
             --workers=0 \
-            --xpu=0 \
+            --xpu=1 \
             --batch_size=3 \
             --balance=tfidf \
-            --bstep=8
+            --sampler_backend=None \
+            --bstep=8 \
+            --init=noop \
+            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth
+
+    python -m bioharn.detect_fit \
+        --nice=bioharn-det-mc-cascade-rgb-v32-bigger-balanced \
+        --schedule=step-10-20 \
+        --augment=complex \
+        --workdir=/home/joncrall/work/bioharn \
+        --channels="rgb" \
+        --optim=sgd \
+        --lr=1e-3 \
+        --input_dims=window \
+        --window_dims=512,512 \
+        --window_overlap=0.0 \
+        --multiscale=False \
+        --normalize_inputs=True \
+        --workers=0 \
+        --xpu=auto \
+        --batch_size=3 \
+        --balance=tfidf \
+        --sampler_backend=cog \
+        --bstep=8 \
+        --arch=cascade \
+        --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+        --init=noop
+
+        --init=/home/joncrall/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v30-bigger-balanced/deploy.zip \
 
     """
     if 0:
