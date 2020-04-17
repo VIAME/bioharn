@@ -1286,8 +1286,33 @@ if __name__ == '__main__':
             --workers=4 --xpu=0 --batch_size=8 --bstep=1
 
 
+
     coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json
     coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgb-v31-bigger-balanced \
+            --train_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_train.mscoco.json
+            --vali_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_vali.mscoco.json
+            --schedule=step-10-20 \
+            --augment=complex \
+            --init=noop \
+            --workdir=/home/joncrall/work/bioharn \
+            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+            --arch=cascade \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --workers=0 \
+            --xpu=0 \
+            --batch_size=3 \
+            --balance=tfidf \
+            --bstep=8
 
     """
     if 0:

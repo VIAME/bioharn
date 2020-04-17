@@ -177,6 +177,9 @@ def preproc_cfarm():
         img_root = dset_dir = ub.ensuredir((workdir, key))
         coco_dset = convert_cfarm(df, img_root)
 
+
+    # ---
+
     split_fpaths = ub.ddict(list)
     for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
         dset_dir = ub.ensuredir((workdir, key))
@@ -193,26 +196,42 @@ def preproc_cfarm():
 
     splits = {}
     import kwcoco
+    from os.path import normpath, relpath, realpath, abspath
     out_dpath = ub.ensuredir((workdir, 'combos'))
     for tag, paths in split_fpaths.items():
         dsets = []
-        for fpath in ub.ProgIter(paths, desc='read datasets'):
+        for fpath in ub.ProgIter(paths, desc='read datasets', verbose=3):
             assert exists(fpath)
+            print('fpath = {!r}'.format(fpath))
             dset = kwcoco.CocoDataset(fpath)
+            dset.dataset.get('img_root', None)
+            # try:
+            #     # dset.img_root = normpath(dset.img_root)
+            #     dset.reroot(realpath(out_dpath), absolute=False)
+            # except Exception:
+            for gid, img in dset.imgs.items():
+                gpath = dset.get_image_fpath(gid)
+                gpath = normpath(gpath)
+                assert exists(gpath)
+                img['file_name'] = abspath(gpath)
             dset.dataset.pop('img_root')
-            dset.img_root = normpath(dset.img_root)
-            dset.reroot(out_dpath, absolute=False)
-            dset.missing_images()
+            assert not dset.missing_images()
             dsets.append(dset)
         splits[tag] = dsets
 
     combo_dsets = {}
     for tag, dsets in splits.items():
         print('merging')
-        combo_dset = kwcoco.CocoDataset.union(*dsets, tag=tag)
-        combo_dset.fpath = join(out_dpath, 'cfarm_{}.mscoco.json'.format(tag))
-        print('{!r}'.format(combo_dset.fpath))
-        combo_dset.rebase(out_dpath)
+        print(ub.peek(dsets[0].imgs.values()))
+        combo_dset = kwcoco.CocoDataset.union(*dsets, tag=tag, img_root='/')
+        print(ub.peek(combo_dset.imgs.values()))
+
+        combo_dset.img_root = out_dpath
+        missing = combo_dset.missing_images()
+        assert not missing
+        combo_dset.fpath = join(out_dpath, 'habcam_cfarm_v5_{}.mscoco.json'.format(tag))
+        # print('{!r}'.format(combo_dset.fpath))
+        # combo_dset.rebase(out_dpath)
         combo_dsets[tag] = combo_dset
 
     for tag, combo_dset in combo_dsets.items():
