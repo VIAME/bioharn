@@ -169,6 +169,8 @@ def demo_calibrate():
     # left_unrect = cv2.remap(left_rect, map11, map12, cv2.INTER_CUBIC)
     # right_unrect = cv2.remap(right_rect, map21, map22, cv2.INTER_CUBIC)
 
+    left_corners = np.array(left_corners.tolist() + [[0, 0], [120, 120], [90, 90], [11, 11], [19, 19], [31, 31]])
+
     left_corners_rect = cv2.undistortPoints(left_corners, K1, D1, R=R1, P=P1)[:, 0, :]
     right_corners_rect = cv2.undistortPoints(right_corners, K2, D2, R=R2, P=P2)[:, 0, :]
 
@@ -201,17 +203,38 @@ def demo_calibrate():
     kwplot.draw_points(left_corners_rect, color='red', radius=7, ax=ax1)
     kwplot.draw_points(right_corners_rect, color='red', radius=7, ax=ax2)
 
-    _, ax1 = kwplot.imshow(left_unrect, pnum=(3, 2, 5), title='un-rectified')
     _, ax2 = kwplot.imshow(right_unrect, pnum=(3, 2, 6), title='un-rectified')
+    _, ax1 = kwplot.imshow(left_unrect, pnum=(3, 2, 5), title='un-rectified')
 
+    # K1_inv = np.linalg.inv(K1)
+    # left_corners_unrect = cv2.undistortPoints(left_corners_rect, K1, D1, R=R1, P=P1)[:, 0, :]
+
+    # left_corners_unrect = cv2.undistortPoints(left_corners_rect, P1[:, 0:3], D1, R=R1, P=K1)[:, 0, :]
+    # left_corners_unrect = cv2.undistortPoints(left_corners_rect, P1[:, 0:3], D1, R=None, P=K1)[:, 0, :]
+
+    # M = np.linalg.inv(P1[:, 0:3]) @ R1 @ K1
+    # M = K1 @ R1 @ np.linalg.inv(P1[:, 0:3])
+    # left_corners_unrect = kwimage.warp_points(M, left_corners_rect)
+    # kwplot.draw_points(left_corners_unrect, color='red', radius=7, ax=ax1)
+
+    # left_corners_unrect = cv2.undistortPoints(left_corners_rect, P1[:, 0:3], D1, R=None, P=K1)[:, 0, :]
+
+    # https://answers.opencv.org/question/129425/difference-between-undistortpoints-and-projectpoints-in-opencv/
     rvec = np.zeros(3)
     tvec = np.zeros(3)
-    left_corners_unrect, _ = cv2.projectPoints(
-            kwimage.add_homog(left_corners_rect),
-            rvec, tvec, cameraMatrix=K1, distCoeffs=D1)
-
+    # left_corners_unrect, _ = cv2.projectPoints(
+    #         kwimage.add_homog(left_corners_rect),
+    #         rvec, tvec, cameraMatrix=K1, distCoeffs=D1)
+    # tvec = T.ravel()
+    rect = kwimage.add_homog(np.array(left_corners_rect.tolist() + []))
+    rect = kwimage.warp_points(np.linalg.inv(P1[:, 0:3]), rect)
+    # left_corners_unrect, _ = cv2.projectPoints(rect, rvec, tvec, cameraMatrix=K1, distCoeffs=D1)
+    left_corners_unrect, _ = cv2.projectPoints(rect, rvec, tvec, cameraMatrix=K1, distCoeffs=None)
     left_corners_unrect = left_corners_unrect.reshape(-1, 2)
-    kwplot.draw_points(left_corners_unrect, color='red', radius=7, ax=ax1)
+    left_corners_unrect[:, 0] += 100
+    print('left_corners_unrect = {!r}'.format(left_corners_unrect))
+    kwplot.draw_points(left_corners_unrect, color='orange', radius=7, ax=ax1)
+
 
 
 def _notes():
