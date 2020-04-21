@@ -2,6 +2,7 @@ from os.path import exists
 from os.path import join
 from os.path import dirname
 import os
+import six
 import ndsampler
 import kwimage
 import netharn as nh
@@ -17,7 +18,7 @@ class DetectEvaluateConfig(scfg.Config):
 
         # Evaluation dataset
         'dataset': scfg.Value(None, help='path to an mscoco dataset'),
-        'workdir': scfg.Path('~/work/bioharn', help='Dump all results in your workdir'),
+        'workdir': scfg.Path('~/work/bioharn', help='Workdir for sampler'),
 
         'batch_size': scfg.Value(4, help=(
             'number of images that run through the network at a time')),
@@ -47,7 +48,8 @@ class DetectEvaluateConfig(scfg.Config):
             help='a specification of channels needed by this model. See ChannelSpec for details. '
             'Typically this can be inferred from the model'),
 
-        'out_dpath': scfg.Path('./detect_eval_out/', help='folder to send the output'),
+        # 'out_dpath': scfg.Path('./detect_eval_out/', help='folder to send the output'),
+        'out_dpath': scfg.Path('special:train_dpath', help='folder to send the output'),
 
         'eval_in_train_dpath': scfg.Path(True, help='write eval results into the training directory if its known'),
 
@@ -273,7 +275,6 @@ class DetectEvaluator(object):
     def _init_predictor(evaluator):
         # Load model
         deployed = nh.export.DeployedModel.coerce(evaluator.config['deployed'])
-
         if hasattr(deployed, '_train_info'):
             evaluator.train_info = deployed._train_info
         else:
@@ -331,43 +332,73 @@ class DetectEvaluator(object):
         evaluator.pred_cfg = nh.util.make_short_idstr(pred_params)
         evaluator.predcfg_tag = evaluator.pred_cfg
 
-        evaluator.paths = {}
-        out_dpath = ub.ensuredir(evaluator.config['out_dpath'])
+        # ---- PATHS ----
 
-        base_dpath = join(out_dpath, evaluator.dset_tag, evaluator.model_tag,
-                          evaluator.pred_cfg)
+        # TODO: make path initialization separate?
+        # evaluator._init_paths()
+        # def _init_paths(evaluator):
+
+        require_train_dpath = evaluator.config['eval_in_train_dpath']
+        out_dpath = evaluator.config['out_dpath']
+        out_dpath = None
+        if isinstance(out_dpath, six.string_types):
+            if out_dpath == 'special:train_dpath':
+                out_dpath = None
+                require_train_dpath = True
+            else:
+                out_dpath = ub.ensuredir(evaluator.config['out_dpath'])
+
+        # Use tags to make a relative directory structure based on configs
+        rel_cfg_dir = join(evaluator.dset_tag, evaluator.model_tag,
+                           evaluator.pred_cfg)
 
         class UnknownTrainDpath(Exception):
             pass
 
-        try:
-            if evaluator.config['eval_in_train_dpath']:
-                # NOTE: the train_dpath in the info directory is wrt to the
-                # machine the model was trained on. Used the deployed model to
-                # grab that path instead wrt to the current machine.
-                if hasattr(deployed, 'train_dpath'):
-                    train_dpath = deployed.train_dpath
+        def _introspect_train_dpath(deployed):
+            # NOTE: the train_dpath in the info directory is wrt to the
+            # machine the model was trained on. Used the deployed model to
+            # grab that path instead wrt to the current machine.
+            if hasattr(deployed, 'train_dpath'):
+                train_dpath = deployed.train_dpath
+            else:
+                if deployed.path is None:
+                    train_dpath = dirname(deployed.info['train_info_fpath'])
                 else:
-                    if deployed.path is None:
-                        train_dpath = dirname(deployed.info['train_info_fpath'])
+                    if os.path.isdir(deployed.path):
+                        train_dpath = deployed.path
                     else:
-                        if os.path.isdir(deployed.path):
-                            train_dpath = deployed.path
-                        else:
-                            train_dpath = dirname(deployed.path)
-                print('train_dpath = {!r}'.format(train_dpath))
-                eval_dpath = join(train_dpath, 'eval', evaluator.dset_tag,
-                                  evaluator.model_tag, evaluator.pred_cfg)
+                        train_dpath = dirname(deployed.path)
+            print('train_dpath = {!r}'.format(train_dpath))
+            return train_dpath
+
+        try:
+            if require_train_dpath:
+                train_dpath = _introspect_train_dpath(deployed)
+                assert exists(train_dpath), (
+                    'train_dpath={} does not exist. Is this the right '
+                    'machine?'.format(train_dpath))
+                eval_dpath = join(train_dpath, 'eval', rel_cfg_dir)
                 ub.ensuredir(eval_dpath)
-                ub.ensuredir(dirname(base_dpath))
-                if not os.path.islink(base_dpath) and exists(base_dpath):
-                    ub.delete(base_dpath)
-                ub.symlink(eval_dpath, base_dpath, overwrite=True, verbose=3)
+
+                if out_dpath is not None:
+                    base_dpath = join(out_dpath, rel_cfg_dir)
+                    ub.ensuredir(dirname(base_dpath))
+                    if not os.path.islink(base_dpath) and exists(base_dpath):
+                        ub.delete(base_dpath)
+                    ub.symlink(eval_dpath, base_dpath, overwrite=True, verbose=3)
+                else:
+                    base_dpath = eval_dpath
             else:
                 raise UnknownTrainDpath
         except UnknownTrainDpath:
-            ub.ensuredir(base_dpath)
+            if out_dpath is None:
+                raise Exception('Must specify out_dpath if train_dpath is unknown')
+            else:
+                base_dpath = join(out_dpath, rel_cfg_dir)
+                ub.ensuredir(base_dpath)
 
+        evaluator.paths = {}
         evaluator.paths['base'] = base_dpath
         evaluator.paths['metrics'] = ub.ensuredir((evaluator.paths['base'], 'metrics'))
         evaluator.paths['viz'] = ub.ensuredir((evaluator.paths['base'], 'viz'))
@@ -386,10 +417,15 @@ class DetectEvaluator(object):
         gids = None
         # gids = sorted(sampler.dset.imgs.keys())[0:10]
 
+        draw = evaluator.config['draw']
+        enable_cache = evaluator.config['enable_cache']
+        async_buffer = False
+
         gid_to_pred, gid_to_pred_fpath = detect_predict._cached_predict(
             predictor, sampler, out_dpath, gids=gids,
-            draw=evaluator.config['draw'],
-            enable_cache=evaluator.config['enable_cache']
+            draw=draw,
+            async_buffer=async_buffer,
+            enable_cache=enable_cache,
         )
         return gid_to_pred
 
@@ -442,7 +478,7 @@ class DetectEvaluator(object):
 
         # Build true dets
         gid_to_truth = {}
-        for gid in gid_to_pred.keys():
+        for gid in ub.ProgIter(gid_to_pred.keys(), desc='build truth'):
             annots = truth_sampler.load_annotations(gid)
             true_cids = [a['category_id'] for a in annots]
             # remap truth cids to be consistent with "classes"
@@ -470,6 +506,7 @@ class DetectEvaluator(object):
             dmet.add_truth(true_dets, gid=gid)
 
         # Detection only scoring
+        print('Building confusion vectors')
         cfsn_vecs = dmet.confusion_vectors(ignore_class='ignore')
 
         # Get pure detection results

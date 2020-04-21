@@ -854,10 +854,9 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         have_gids = []
 
     print('enable_cache = {!r}'.format(enable_cache))
-    print('Found {} existing predictions'.format(len(have_gids)))
+    print('Found {} / {} existing predictions'.format(len(have_gids), len(gids)))
 
     gids = ub.oset(gids) - have_gids
-
     pred_gen = predictor.predict_sampler(sampler, gids=gids)
 
     if async_buffer:
@@ -923,13 +922,40 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
             kwimage.imwrite(viz_fpath, toshow, space='rgb')
 
     if enable_cache:
-        for gid in ub.ProgIter(have_gids, desc='loading cached pred gids'):
-            single_pred_fpath = gid_to_pred_fpath[gid]
-            single_img_coco = ndsampler.CocoDataset(single_pred_fpath)
-            dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
-                                                       dset=single_img_coco)
-            gid_to_pred[gid] = dets
+        MODE = 'simple'
+        MODE = 'parallel'
+        if MODE == 'simple':
+            for gid in ub.ProgIter(have_gids, desc='loading cached pred gids'):
+                single_pred_fpath = gid_to_pred_fpath[gid]
+                break
+
+                single_img_coco = ndsampler.CocoDataset(single_pred_fpath)
+                dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
+                                                           dset=single_img_coco)
+                gid_to_pred[gid] = dets
+        elif MODE == 'parallel':
+            # Process mode is much faster than thread.
+            from ndsampler.utils import util_futures
+            # 15,000 images took about 7 minutes on 4 workers
+            # 15,000 images took about 3 minutes on 8 workers
+            # 15,000 images took about 3 minutes on 16 workers
+            jobs = util_futures.JobPool(mode='process', max_workers=6)
+            for gid in ub.ProgIter(have_gids, desc='submit load jobs'):
+                single_pred_fpath = gid_to_pred_fpath[gid]
+                job = jobs.submit(_load_dets_worker, single_pred_fpath)
+                job.gid = gid
+            for job in ub.ProgIter(jobs.as_completed(), total=len(jobs), desc='loading cached predictions'):
+                gid_to_pred[job.gid] = job.result()
+
     return gid_to_pred, gid_to_pred_fpath
+
+
+def _load_dets_worker(single_pred_fpath):
+    import ndsampler
+    single_img_coco = ndsampler.CocoDataset(single_pred_fpath, autobuild=False)
+    dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
+                                               dset=single_img_coco)
+    return dets
 
 
 class DetectPredictCLIConfig(scfg.Config):
