@@ -99,6 +99,9 @@ import ubelt as ub
 from os.path import join
 import glob
 from ndsampler.utils import util_futures
+import kwcoco
+from os.path import normpath, realpath, abspath
+
 
 
 def preproc_cfarm():
@@ -144,6 +147,9 @@ def preproc_cfarm():
             do_debayer(left_dpath, left_paths, viame_install)
             do_debayer(right_dpath, right_paths, viame_install)
 
+    if 1:
+        src_fpaths = []
+        dst_fpaths = []
         for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
             dset_dir = ub.ensuredir((workdir, key))
             left_png_gpaths = sorted(glob.glob(join(dset_dir, 'raw', 'left', '*.png')))
@@ -152,17 +158,34 @@ def preproc_cfarm():
             left_dpath = ub.ensuredir((dset_dir, 'images', 'left'))
             right_dpath = ub.ensuredir((dset_dir, 'images', 'right'))
 
-            jobs = util_futures.JobPool('thread', max_workers=8)
             for src_fpath in left_png_gpaths:
                 dst_fpath = ub.augpath(src_fpath, dpath=left_dpath, ext='.cog.tif')
-                jobs.submit(convert_to_cog, src_fpath, dst_fpath)
+                src_fpaths.append(src_fpath)
+                dst_fpaths.append(dst_fpath)
 
             for src_fpath in right_png_gpaths:
                 dst_fpath = ub.augpath(src_fpath, dpath=right_dpath, ext='.cog.tif')
-                jobs.submit(convert_to_cog, src_fpath, dst_fpath)
-            for job in ub.ProgIter(jobs.as_completed(), total=len(jobs),
-                                   desc='collect convert-to-cog jobs'):
-                job.result()
+                src_fpaths.append(src_fpath)
+                dst_fpaths.append(dst_fpath)
+
+        if 0:
+            from ndsampler.utils.util_gdal import batch_validate_cog
+            existing_fpaths = [fpath for fpath in dst_fpaths if exists(fpath)]
+            infos = list(batch_validate_cog(existing_fpaths, mode='process', max_workers=2))
+            bad_infos = [info for info in infos if info['errors']]
+            for info in bad_infos:
+                ub.delete(info['fpath'])
+            missing_fpaths = [fpath for fpath in dst_fpaths if not exists(fpath)]
+            print('missing_fpaths = {!r}'.format(missing_fpaths))
+
+        cog_config = {
+            'compress': 'DEFLATE', 'blocksize': 256,
+        }
+        from ndsampler.utils.util_gdal import batch_validate_cog
+        from ndsampler.utils.util_gdal import batch_convert_to_cog
+        batch_convert_to_cog(
+            src_fpaths, dst_fpaths, cog_config=cog_config, mode='process',
+            max_workers=4)
 
     csv_fpaths = {
         '2017_CFARM': join(dpath, 'US_NE_2017_CFARM_HABCAM/HabCam 2017 dataset1 annotations.csv'),
@@ -177,26 +200,26 @@ def preproc_cfarm():
         img_root = dset_dir = ub.ensuredir((workdir, key))
         coco_dset = convert_cfarm(df, img_root)
 
-
     # ---
 
     split_fpaths = ub.ddict(list)
     for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
         dset_dir = ub.ensuredir((workdir, key))
+        all_fpath = list(glob.glob(join(dset_dir, '*_v5.mscoco.json')))[0]
         train_fpath = list(glob.glob(join(dset_dir, '*_v5*train*.mscoco.json')))[0]
         vali_fpath = list(glob.glob(join(dset_dir, '*_v5*vali*.mscoco.json')))[0]
         test_fpath = list(glob.glob(join(dset_dir, '*_v5*test*.mscoco.json')))[0]
+        split_fpaths['all'].append(all_fpath)
         split_fpaths['train'].append(train_fpath)
         split_fpaths['vali'].append(vali_fpath)
         split_fpaths['test'].append(test_fpath)
 
+    # Include habcam
     split_fpaths['train'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json'))
     split_fpaths['vali'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json'))
     split_fpaths['test'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_test.mscoco.json'))
 
     splits = {}
-    import kwcoco
-    from os.path import normpath, relpath, realpath, abspath
     out_dpath = ub.ensuredir((workdir, 'combos'))
     for tag, paths in split_fpaths.items():
         dsets = []
@@ -258,11 +281,8 @@ def preproc_cfarm():
 
 def hack():
     fpath = '/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_train.mscoco.json'
-
     for fpath in glob.glob('/home/joncrall/remote/namek/data/noaa_habcam/combos/*v5*.mscoco.json'):
-        from os.path import realpath
         from ndsampler.utils import validate_cog
-        import kwcoco
         dset = kwcoco.CocoDataset(fpath)
         for gid, img in dset.imgs.items():
             img['file_name'] = realpath(img['file_name'])
@@ -286,13 +306,6 @@ def hack():
         dset.dump(dset.fpath, newlines=True)
 
     # '/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_vali.mscoco.json'
-
-
-def convert_to_cog(src_fpath, dst_fpath):
-    from ndsampler.utils.util_gdal import _cli_convert_cloud_optimized_geotiff
-    if not exists(dst_fpath):
-        _cli_convert_cloud_optimized_geotiff(
-            src_fpath, dst_fpath, compress='LZW', blocksize=256)
 
 
 def do_debayer(dpath, fpaths, viame_install):
@@ -478,9 +491,9 @@ def convert_cfarm(df, img_root):
         assert exists(left_gpath), f'{left_gpath}'
 
         # Handle Image
-        gid = coco_dset.ensure_image(file_name=left_cog_name, aux={
-            'right': right_cog_name,
-        })
+        gid = coco_dset.ensure_image(
+                file_name=left_cog_name,
+                right_cog_name=right_cog_name)
         img = coco_dset.imgs[gid]
 
         if img.get('is_bad', False):
@@ -563,6 +576,10 @@ def convert_cfarm(df, img_root):
     coco_dset.rebase(img_root)
     coco_dset.img_root = img_root
 
+    for gid in coco_dset.imgs.keys():
+        dset = coco_dset
+        pass
+
     if 0:
         import kwplot
         import xdev
@@ -592,6 +609,230 @@ def convert_cfarm(df, img_root):
     return coco_dset
 
 
+class StereoCalibration():
+    """
+    Ignore:
+        >>> cali = StereoCalibration()
+    """
+    def __init__(cali):
+        import cv2
+        cali_root = ub.expandpath('~/data/noaa_habcam/extras/calibration_habcam_2019_leotta')
+        cali._extrinsics_fpath = join(cali_root, 'extrinsics.yml')
+        cali._intrinsics_fpath = join(cali_root, 'intrinsics.yml')
+        fs = cv2.FileStorage(cali._intrinsics_fpath, flags=0)
+        cali.intrinsics = {
+            # intrinsic matrix and distortions for camera 1
+            'M1': fs.getNode("M1").mat(),  # K_left
+            'D1': fs.getNode("D1").mat(),  # distortions_left
+            'M2': fs.getNode("M2").mat(),  # K_right
+            'D2': fs.getNode("D2").mat(),  # distortions_right
+        }
+        fs = cv2.FileStorage(cali._extrinsics_fpath, flags=0)
+        cali.extrinsics = {
+            # Extrinsic Rotation and translation between
+            'R': fs.getNode("R").mat(),
+            'T': fs.getNode("T").mat(),
+
+            # Not actually extrinsics
+
+            # R1 Output 3x3 rectification transform (rotation matrix) for the first camera.
+            # R2 Output 3x3 rectification transform (rotation matrix) for the second camera.
+            'R1': fs.getNode("R1").mat(),
+            'R2': fs.getNode("R2").mat(),
+
+            # P1 Output 3x4 projection matrix in the new (rectified) coordinate systems for the first camera.
+            # P2 Output 3x4 projection matrix in the new (rectified) coordinate systems for the second
+            'P1': fs.getNode("P1").mat(),
+            'P2': fs.getNode("P2").mat(),
+
+            # disparity-to-depth mapping matrix
+            'Q': fs.getNode("Q").mat(),
+        }
+
+    def warp_to_camera1(self):
+        pass
+
+    def rectify(cali, imgL, imgR):
+        """
+        References:
+            http://www.vision.caltech.edu/bouguetj/calib_doc/htmls/parameters.html
+            http://www.vision.caltech.edu/bouguetj/calib_doc/htmls/example5.html
+
+        gids = 18, 22, 25, 27, 60, 65, 77, 81, 83, 97
+        gid = 2182
+
+        img = dset.imgs[gid]
+        right_gpath = join(dset.img_root, img['right_cog_name'])
+        left_gpath = join(dset.img_root, img['file_name'])
+        imgL = kwimage.imread(left_gpath)
+        imgR = kwimage.imread(right_gpath)
+
+
+        import cv2
+        M1, D1, M2, D2 = ub.take(cali.intrinsics, [
+            'M1', 'D1', 'M2', 'D2'])
+        R, T, R1, R2, P1, P2, Q = ub.take(cali.extrinsics, [
+            'R', 'T', 'R1', 'R2', 'P1', 'P2', 'Q'])
+        K1 = M1
+        kc1 = D1
+        K2 = M2
+        kc2 = D2
+        RT = np.hstack([R, T])
+
+        img_dsize = imgL.shape[0:2][::-1]
+        map11, map12 = cv2.initUndistortRectifyMap(M1, D1, R1, P1, img_dsize, cv2.CV_16SC2)
+        map21, map22 = cv2.initUndistortRectifyMap(M2, D2, R2, P2, img_dsize, cv2.CV_16SC2)
+
+        corners = [
+            map11[0, 0],
+            map11[0, -1],
+            map11[-1, 0],
+            map11[-1, -1],
+        ]
+
+        left_rect = cv2.remap(imgL, map11, map12, cv2.INTER_CUBIC)
+        right_rect = cv2.remap(imgR, map21, map22, cv2.INTER_CUBIC)
+
+        from bioharn.disparity import multipass_disparity
+        img_disparity = multipass_disparity(
+            left_rect, right_rect, scale=0.5, as01=True)
+
+        kwplot.imshow(img_disparity, pnum=(2, 3, 3), fnum=1)
+        kwplot.imshow(right_rect, pnum=(2, 3, 2), fnum=1)
+        kwplot.imshow(left_rect, pnum=(2, 3, 1), fnum=1)
+
+        annots = dset.annots(gid=gid)
+        dets = annots.detections
+        self = boxes = dets.data['boxes']
+        new_boxes = boxes.warp(R1, homog_mode='divide')
+        dets.data['boxes'] = new_boxes.to_xywh()
+        dets.draw()
+
+        kwplot.imshow(imgL, pnum=(2, 3, 4), fnum=1)
+        annots = dset.annots(gid=gid)
+        dets = annots.detections
+        dets.draw()
+
+
+        coords = dets.boxes.to_polygons().data[0].data['exterior']
+        matrix = P1
+        pts = coords.data
+
+
+
+        # Undistort points
+        # This puts points in "normalized camera coordinates" making them
+        # independent of the intrinsic parameters. Moving to world coordinates
+        # can now be done using only the RT transform.
+
+        [[fx, _, cx, _], [_, fy, cy, ty], [_, _, _, tz]] = P1
+
+        pts1 = pts
+        pts1_homog = np.hstack([pts1, [[1]] * len(pts1)])
+        rectified_pts1_homog = kwimage.warp_points(R1, pts1_homog)
+        rectified_pts1 = rectified_pts1_homog[:, 0:2]
+
+        dets.data['boxes']
+
+        import kwimage
+        unpts1 = cv2.undistortPoints(pts1[:, None, :], K1, kc1)[:, 0, :]
+        unpts1_homog = np.hstack([unpts1, [[1]] * len(unpts1)])
+        unpts2_homog = kwimage.warp_points(RT, unpts1_homog)
+
+        kwimage.warp_points(P1[0:3, 0:3], unpts1_homog)
+
+        unpts2_cv = cv2.undistortPoints(pts2_cv, K2, kc2)
+
+        dets.warp(P1)
+
+
+
+        # stretch the range of the disparities to [0,255] for display
+        disp_img = img_disparity
+        img3d = cv2.reprojectImageTo3D(disp_img, Q)
+        valid = disp_img > 0
+        pts3d = img3d[valid]
+        depths = pts3d[:, 2]
+        import kwarray
+        print(kwarray.stats_dict(depths))
+        """
+        import cv2
+        M1, D1, M2, D2 = ub.take(cali.intrinsics, [
+            'M1', 'D1', 'M2', 'D2'])
+        R, T, R1, R2, P1, P2, Q = ub.take(cali.extrinsics, [
+            'R', 'T', 'R1', 'R2', 'P1', 'P2', 'Q'])
+
+        img_dsize = imgL.shape[0:2][::-1]
+        map11, map12 = cv2.initUndistortRectifyMap(M1, D1, R1, P1, img_dsize, cv2.CV_16SC2)
+        map21, map22 = cv2.initUndistortRectifyMap(M2, D2, R2, P2, img_dsize, cv2.CV_16SC2)
+        left_rect = cv2.remap(imgL, map11, map12, cv2.INTER_CUBIC)
+        right_rect = cv2.remap(imgR, map21, map22, cv2.INTER_CUBIC)
+
+        from bioharn.disparity import multipass_disparity
+        img_disparity = multipass_disparity(
+            left_rect, right_rect, scale=0.5, as01=True)
+
+
+def _ensure_cfarm_disparity_frame(dset, gid):
+    """
+    import kwplot
+    kwplot.autompl()
+    import xdev
+    aids = dset.index.cid_to_aids[dset._alias_to_cat('flatfish')['id']]
+    gids = list(dset.annots(aids).gids)
+
+    for gid in xdev.InteractiveIter(gids):
+        img = dset.imgs[gid]
+        right_gpath = join(dset.img_root, img['right_cog_name'])
+        left_gpath = join(dset.img_root, img['file_name'])
+        imgL = kwimage.imread(left_gpath)
+        imgR = kwimage.imread(right_gpath)
+        img_disparity = multipass_disparity(
+            imgL, imgR, scale=0.5, as01=True)
+        kwplot.figure(pnum=(1, 3, 1), fnum=1, doclf=True)
+        kwplot.imshow(imgL, pnum=(1, 3, 1), fnum=1)
+        kwplot.imshow(imgR, pnum=(1, 3, 2), fnum=1)
+        kwplot.imshow(img_disparity, pnum=(1, 3, 3), fnum=1)
+        xdev.InteractiveIter.draw()
+
+
+
+        for gid in gids:
+            pass
+    """
+    from bioharn.disparity import multipass_disparity
+    import kwimage
+
+    img = dset.imgs[gid]
+    right_gpath = join(dset.img_root, img['right_cog_name'])
+    left_gpath = join(dset.img_root, img['file_name'])
+
+    left_disp_dpath = ub.ensuredir((dset.img_root, 'images', 'left_disparity'))
+    # right_disp_dpath = ub.ensuredir((dset.img_root, 'images', 'right_disparity'))
+    left_disp_gpath = join(left_disp_dpath, basename(img['file_name']))
+
+    if not exists(left_disp_gpath):
+        # Note: probably should be atomic
+        imgL = kwimage.imread(left_gpath)
+        imgR = kwimage.imread(right_gpath)
+        img_disparity = multipass_disparity(
+            imgL, imgR, scale=0.5, as01=True)
+        img_disparity = img_disparity.astype(np.float32)
+
+        kwimage.imwrite(disp_fpath, img_disparity, backend='gdal',
+                        compress='DEFLATE')
+
+        if 0:
+            import kwplot
+            kwplot.autompl()
+            kwplot.imshow(imgL, pnum=(1, 3, 1), fnum=1)
+            kwplot.imshow(imgR, pnum=(1, 3, 2), fnum=1)
+            kwplot.imshow(img_disparity, pnum=(1, 3, 3), fnum=1)
+            pass
+
+    return disp_fname
+
+
 def _ensure_rgb_cog(dset, gid, cog_root):
     img = dset.imgs[gid]
     fname = basename(img['file_name'])
@@ -614,7 +855,8 @@ def train_vali_split(coco_dset, **kw):
         img_pcnt = int(round(tag_dset.n_images / coco_dset.n_images, 2) * 100)
         # ann_pcnt = int(round(tag_dset.n_annots / coco_dset.n_annots, 2) * 100)
         # suffix = '_{:02d}_{:02d}_{}'.format(img_pcnt, ann_pcnt, tag)
-        suffix = '_{:02d}_{}'.format(img_pcnt, tag)
+        # suffix = '_{:02d}_{}'.format(img_pcnt, tag)
+        suffix = '_{}'.format(tag)
         tag_dset.fpath = ub.augpath(coco_dset.fpath, suffix=suffix,
                                     multidot=True)
         datasets[tag] = tag_dset
