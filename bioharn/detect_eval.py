@@ -382,8 +382,12 @@ class DetectEvaluator(object):
         predictor.config['verbose'] = 1
 
         out_dpath = evaluator.paths['base']
+
+        gids = None
+        # gids = sorted(sampler.dset.imgs.keys())[0:10]
+
         gid_to_pred, gid_to_pred_fpath = detect_predict._cached_predict(
-            predictor, sampler, out_dpath, gids=None,
+            predictor, sampler, out_dpath, gids=gids,
             draw=evaluator.config['draw'],
             enable_cache=evaluator.config['enable_cache']
         )
@@ -396,17 +400,12 @@ class DetectEvaluator(object):
         evaluator.predictor.config['verbose'] = 3
         gid_to_pred = evaluator._run_predictions()
 
-        # This can take awhile to accumulate, perhaps cache intermediate
-        # results to disk, so we can restart efficiently?
-        # gid_to_pred = {}
-        # for i, (gid, pred) in enumerate(pred_gen):
-        #     gid_to_pred[gid] = pred
+        truth_sampler = evaluator.sampler
 
-        sampler = evaluator.sampler
-
-        # Determine if truth and model classes are compatible
+        # Determine if truth and model classes are compatible, attempt to remap
+        # if possible.
         model_classes = evaluator.predictor.coder.classes
-        truth_classes = sampler.classes
+        truth_classes = truth_sampler.classes
         errors = []
         for node1, id1 in truth_classes.node_to_id.items():
             if id1 in model_classes.id_to_node:
@@ -428,14 +427,27 @@ class DetectEvaluator(object):
                 graph2.add_node(node1, id=id1)
         classes = ndsampler.CategoryTree(graph2)
 
+        cid_true_to_pred = {}
+
         if errors:
-            raise Exception('\n'.join(errors))
+            # raise Exception('\n'.join(errors))
+            for node1, true_cid in truth_classes.node_to_id.items():
+                if node1 in model_classes.node_to_id:
+                    pred_cid = model_classes.node_to_id[node1]
+                    cid_true_to_pred[true_cid] = pred_cid
+                else:
+                    if true_cid in model_classes.id_to_node:
+                        raise Exception('cannot remap conflicting ids')
+            classes = model_classes
 
         # Build true dets
         gid_to_truth = {}
         for gid in gid_to_pred.keys():
-            annots = sampler.load_annotations(gid)
+            annots = truth_sampler.load_annotations(gid)
             true_cids = [a['category_id'] for a in annots]
+            # remap truth cids to be consistent with "classes"
+            true_cids = [cid_true_to_pred.get(cid, cid) for cid in true_cids]
+
             true_cidx = np.array([classes.id_to_idx[c] for c in true_cids])
             true_sseg = [a.get('segmentation') for a in annots]
             true_weight = [a.get('weight', 1) for a in annots]
@@ -616,6 +628,7 @@ class DetectEvaluator(object):
 
                     thresh = 0.4
                     pred_dets = pred_dets.compress(pred_dets.data['scores'] > thresh)
+                    # hack
                     truth_dset.imgs[gid]['file_name'] = truth_dset.imgs[gid]['file_name'].replace('joncrall/data', 'joncrall/remote/namek/data')
                     canvas = truth_dset.load_image(gid)
                     canvas = truth_dets.draw_on(canvas, color='green')

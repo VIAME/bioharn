@@ -469,7 +469,8 @@ class DetectPredictor(object):
             det = det.scale(item_scale_xy)
             det = det.translate(item_shift_xy)
             # Fix type issue
-            det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
+            if 'class_idxs' in det.data:
+                det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
             yield det
 
 
@@ -885,9 +886,10 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
         for ann in dets.to_coco():
             ann['image_id'] = gid
-            catname = ann['category_name']
-            cid = single_img_coco.ensure_category(catname)
-            ann['category_id'] = cid
+            if 'category_name' in ann:
+                catname = ann['category_name']
+                cid = single_img_coco.ensure_category(catname)
+                ann['category_id'] = cid
             single_img_coco.add_annotation(**ann)
 
         single_pred_fpath = gid_to_pred_fpath[gid]
