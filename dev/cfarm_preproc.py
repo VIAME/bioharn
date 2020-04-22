@@ -908,3 +908,175 @@ def _split_train_vali_test_gids(coco_dset, test_factor=3, vali_factor=6):
     print('splits = {}'.format(ub.repr2(ub.map_vals(len, split_gids))))
     return split_gids
 
+
+class StereoCalibration():
+    """
+    Ignore:
+        >>> cali = StereoCalibration()
+    """
+    def __init__(cali):
+        import cv2
+        cali_root = ub.expandpath('~/data/noaa_habcam/extras/calibration_habcam_2019_leotta')
+        cali._extrinsics_fpath = join(cali_root, 'extrinsics.yml')
+        cali._intrinsics_fpath = join(cali_root, 'intrinsics.yml')
+        fs = cv2.FileStorage(cali._intrinsics_fpath, flags=0)
+        cali.intrinsics = {
+            # intrinsic matrix and distortions for camera 1
+            'M1': fs.getNode("M1").mat(),  # K_left
+            'D1': fs.getNode("D1").mat(),  # distortions_left
+            'M2': fs.getNode("M2").mat(),  # K_right
+            'D2': fs.getNode("D2").mat(),  # distortions_right
+        }
+        fs = cv2.FileStorage(cali._extrinsics_fpath, flags=0)
+        cali.extrinsics = {
+            # Extrinsic Rotation and translation between
+            'R': fs.getNode("R").mat(),
+            'T': fs.getNode("T").mat(),
+
+            # Not actually extrinsics
+
+            # R1 Output 3x3 rectification transform (rotation matrix) for the first camera.
+            # R2 Output 3x3 rectification transform (rotation matrix) for the second camera.
+            'R1': fs.getNode("R1").mat(),
+            'R2': fs.getNode("R2").mat(),
+
+            # P1 Output 3x4 projection matrix in the new (rectified) coordinate systems for the first camera.
+            # P2 Output 3x4 projection matrix in the new (rectified) coordinate systems for the second
+            'P1': fs.getNode("P1").mat(),
+            'P2': fs.getNode("P2").mat(),
+
+            # disparity-to-depth mapping matrix
+            'Q': fs.getNode("Q").mat(),
+        }
+
+    @classmethod
+    def from_yaml(self, intrinsics_fpath, extrinsics_fpath):
+        """
+        cali_root = ub.expandpath('~/data/noaa_habcam/extras/calibration_habcam_2019_leotta')
+        extrinsics_fpath = join(cali_root, 'extrinsics.yml')
+        intrinsics_fpath = join(cali_root, 'intrinsics.yml')
+        """
+        pass
+
+    def warp_to_camera1(self):
+        pass
+
+    def rectify(cali, imgL, imgR):
+        """
+        References:
+            http://www.vision.caltech.edu/bouguetj/calib_doc/htmls/parameters.html
+            http://www.vision.caltech.edu/bouguetj/calib_doc/htmls/example5.html
+
+        gids = 18, 22, 25, 27, 60, 65, 77, 81, 83, 97
+        gid = 2182
+
+        img = dset.imgs[gid]
+        right_gpath = join(dset.img_root, img['right_cog_name'])
+        left_gpath = join(dset.img_root, img['file_name'])
+        imgL = kwimage.imread(left_gpath)
+        imgR = kwimage.imread(right_gpath)
+
+
+        import cv2
+        M1, D1, M2, D2 = ub.take(cali.intrinsics, [
+            'M1', 'D1', 'M2', 'D2'])
+        R, T, R1, R2, P1, P2, Q = ub.take(cali.extrinsics, [
+            'R', 'T', 'R1', 'R2', 'P1', 'P2', 'Q'])
+        K1 = M1
+        kc1 = D1
+        K2 = M2
+        kc2 = D2
+        RT = np.hstack([R, T])
+
+        img_dsize = imgL.shape[0:2][::-1]
+        map11, map12 = cv2.initUndistortRectifyMap(M1, D1, R1, P1, img_dsize, cv2.CV_16SC2)
+        map21, map22 = cv2.initUndistortRectifyMap(M2, D2, R2, P2, img_dsize, cv2.CV_16SC2)
+
+        corners = [
+            map11[0, 0],
+            map11[0, -1],
+            map11[-1, 0],
+            map11[-1, -1],
+        ]
+
+        left_rect = cv2.remap(imgL, map11, map12, cv2.INTER_CUBIC)
+        right_rect = cv2.remap(imgR, map21, map22, cv2.INTER_CUBIC)
+
+        from bioharn.disparity import multipass_disparity
+        img_disparity = multipass_disparity(
+            left_rect, right_rect, scale=0.5, as01=True)
+
+        kwplot.imshow(img_disparity, pnum=(2, 3, 3), fnum=1)
+        kwplot.imshow(right_rect, pnum=(2, 3, 2), fnum=1)
+        kwplot.imshow(left_rect, pnum=(2, 3, 1), fnum=1)
+
+        annots = dset.annots(gid=gid)
+        dets = annots.detections
+        self = boxes = dets.data['boxes']
+        new_boxes = boxes.warp(R1, homog_mode='divide')
+        dets.data['boxes'] = new_boxes.to_xywh()
+        dets.draw()
+
+        kwplot.imshow(imgL, pnum=(2, 3, 4), fnum=1)
+        annots = dset.annots(gid=gid)
+        dets = annots.detections
+        dets.draw()
+
+
+        coords = dets.boxes.to_polygons().data[0].data['exterior']
+        matrix = P1
+        pts = coords.data
+
+
+
+        # Undistort points
+        # This puts points in "normalized camera coordinates" making them
+        # independent of the intrinsic parameters. Moving to world coordinates
+        # can now be done using only the RT transform.
+
+        [[fx, _, cx, _], [_, fy, cy, ty], [_, _, _, tz]] = P1
+
+        pts1 = pts
+        pts1_homog = np.hstack([pts1, [[1]] * len(pts1)])
+        rectified_pts1_homog = kwimage.warp_points(R1, pts1_homog)
+        rectified_pts1 = rectified_pts1_homog[:, 0:2]
+
+        dets.data['boxes']
+
+        import kwimage
+        unpts1 = cv2.undistortPoints(pts1[:, None, :], K1, kc1)[:, 0, :]
+        unpts1_homog = np.hstack([unpts1, [[1]] * len(unpts1)])
+        unpts2_homog = kwimage.warp_points(RT, unpts1_homog)
+
+        kwimage.warp_points(P1[0:3, 0:3], unpts1_homog)
+
+        unpts2_cv = cv2.undistortPoints(pts2_cv, K2, kc2)
+
+        dets.warp(P1)
+
+
+
+        # stretch the range of the disparities to [0,255] for display
+        disp_img = img_disparity
+        img3d = cv2.reprojectImageTo3D(disp_img, Q)
+        valid = disp_img > 0
+        pts3d = img3d[valid]
+        depths = pts3d[:, 2]
+        import kwarray
+        print(kwarray.stats_dict(depths))
+        """
+        import cv2
+        M1, D1, M2, D2 = ub.take(cali.intrinsics, [
+            'M1', 'D1', 'M2', 'D2'])
+        R, T, R1, R2, P1, P2, Q = ub.take(cali.extrinsics, [
+            'R', 'T', 'R1', 'R2', 'P1', 'P2', 'Q'])
+
+        img_dsize = imgL.shape[0:2][::-1]
+        map11, map12 = cv2.initUndistortRectifyMap(M1, D1, R1, P1, img_dsize, cv2.CV_16SC2)
+        map21, map22 = cv2.initUndistortRectifyMap(M2, D2, R2, P2, img_dsize, cv2.CV_16SC2)
+        left_rect = cv2.remap(imgL, map11, map12, cv2.INTER_CUBIC)
+        right_rect = cv2.remap(imgR, map21, map22, cv2.INTER_CUBIC)
+
+        from bioharn.disparity import multipass_disparity
+        img_disparity = multipass_disparity(
+            left_rect, right_rect, scale=0.5, as01=True)

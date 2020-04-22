@@ -1,3 +1,5 @@
+from os.path import exists
+from os.path import join
 import cv2
 import kwimage
 import ubelt as ub
@@ -119,6 +121,8 @@ def demo_calibrate():
         https://programtalk.com/vs2/python/8176/opencv-python-blueprints/chapter4/scene3D.py/
         https://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html
         https://docs.opencv.org/2.4/modules/imgproc/doc/geometric_transformations.html
+        https://stackoverflow.com/questions/51895602/opencv-are-lens-distortion-coefficients-inverted-for-projectpoints
+        https://opencv.yahoogroups.narkive.com/guu3Roys/reverse-remap
     """
     img_left_fpath = ub.grabdata('https://raw.githubusercontent.com/opencv/opencv/master/samples/data/left01.jpg')
     img_right_fpath = ub.grabdata('https://raw.githubusercontent.com/opencv/opencv/master/samples/data/right01.jpg')
@@ -208,6 +212,35 @@ def demo_calibrate():
         left_unrect_v2 = cv2.remap(left_rect, inv_map11f, inv_map12f, cv2.INTER_CUBIC)
         right_unrect_v2 = cv2.remap(right_rect, inv_map21f, inv_map22f, cv2.INTER_CUBIC)
 
+        if 0:
+            inv_map11f, inv_map12f = cv2.initUndistortRectifyMap(P1[:, 0:3], None, np.linalg.inv(R1), K1, img_dsize, cv2.CV_32FC1)
+            inv_map21f, inv_map22f = cv2.initUndistortRectifyMap(P2[:, 0:3], None, np.linalg.inv(R2), K2, img_dsize, cv2.CV_32FC1)
+            left_unrect_v2 = cv2.remap(left_rect, inv_map11f, inv_map12f, cv2.INTER_CUBIC)
+            right_unrect_v2 = cv2.remap(right_rect, inv_map21f, inv_map22f, cv2.INTER_CUBIC)
+            left_unrect2 = kwimage.overlay_alpha_layers([
+                kwimage.ensure_alpha_channel(left_unrect_v2, 0.65),
+                img_left,
+            ])
+            _, ax7 = kwplot.imshow(left_unrect2, pnum=(1, 1, 1), title='un-rectified V2 (with overlay)')
+
+            import xdev
+            D3 = D1.copy()
+            for f in xdev.InteractiveIter(np.linspace(-1., 1.), 10):
+                print('f = {!r}'.format(f))
+
+                D3[0] = -D1[0] * 0.27
+                # D3[2] = f
+                D3[4] = f
+                inv_map11f, inv_map12f = cv2.initUndistortRectifyMap(P1[:, 0:3], D3, np.linalg.inv(R1), K1, img_dsize, cv2.CV_32FC1)
+                left_unrect_v2 = cv2.remap(left_rect, inv_map11f, inv_map12f, cv2.INTER_CUBIC)
+                right_unrect_v2 = cv2.remap(right_rect, inv_map21f, inv_map22f, cv2.INTER_CUBIC)
+                left_unrect2 = kwimage.overlay_alpha_layers([
+                    kwimage.ensure_alpha_channel(left_unrect_v2, 0.65),
+                    img_left,
+                ])
+                _, ax7 = kwplot.imshow(left_unrect2, pnum=(1, 1, 1), title='un-rectified V2 (with overlay)')
+                xdev.InteractiveIter.draw()
+
         # H1_inv = np.linalg.inv(P1[:, 0:3]) @ np.linalg.inv(R1)  # @ np.linalg.inv(P1[:, 0:3])
         # H2_inv = np.linalg.inv(R2)  # @ np.linalg.inv(P2[:, 0:3])
         # left_unrect = cv2.warpPerspective(left_rect, H1_inv, img_dsize)
@@ -230,7 +263,6 @@ def demo_calibrate():
     kwplot.draw_points(right_points_rect, color='red', radius=7, ax=ax4)
 
     # v1
-
     left_unrect2 = kwimage.overlay_alpha_layers([
         kwimage.ensure_alpha_channel(left_unrect_v1, 0.65),
         img_left,
@@ -265,10 +297,12 @@ def demo_calibrate():
 
         err = left_points_unrect - left_points
         med_err = np.median(err)
-        print('med_err = {!r}'.format(med_err))
+        import kwarray
+        print('error = ' + ub.repr2(kwarray.stats_dict(err, median=True)))
         kwplot.draw_points(left_points_unrect, color='orange', radius=7, ax=ax5)
 
-        kwplot.draw_points(left_points_unrect, color='orange', radius=7, ax=ax7)
+        kwplot.draw_points(left_points, color='red', radius=2, ax=ax7)
+        kwplot.draw_points(left_points_unrect, color='orange', radius=2, ax=ax7)
 
     if 0:
         # This works ok, but fails on out-of-bounds points
@@ -327,6 +361,400 @@ def _notes():
         F, Fmask = cv2.findFundamentalMat(left_corners, right_corners,  # NOQA
                                           cv2.FM_RANSAC, 0.1, 0.99)  # NOQA
         E = K1.T.dot(F).dot(K1)  # NOQA
+
+
+
+from netharn.metrics.confusion_vectors import DictProxy  # NOQA
+
+
+class StereoCamera(DictProxy, ub.NiceRepr):
+    def __init__(camera):
+        camera.proxy = {
+            'K': None,  # intrinstics matrix
+            'D': None,  # intrinstic distortion coefficients
+            'R': None,  # R1 Output 3x3 rectification transform
+            'P': None,  # P1 Output 3x4 projection matrix in the new (rectified) coordinate systems.
+        }
+
+    def _decompose_intrinsics(camera):
+        """
+        convert intrinsic matrix to dict
+
+        Notes:
+            fc: focal length of the camera
+            cc: principle point
+            alpha_c: skew
+            kc: distortion
+        """
+        intrin = {}
+        fc = intrin['fc'] = np.zeros(2)
+        cc = intrin['cc'] = np.zeros(2)
+        [[fc[0], alpha_c_fc0, cc[0]],
+         [    _,       fc[1], cc[1]],
+         [    _,           _,     _]] = camera['K']
+        intrin['alpha_c'] = np.array([alpha_c_fc0 / fc[0]]).item()
+        intrin['kc'] = camera['D'].ravel()
+        return intrin
+
+    def to_vital(camera):
+        intrin = camera._decompose_intrinsics()
+        fc = intrin['fc']
+        pp = intrin['cc']
+        skew = intrin['alpha_c']
+        dist_coeffs = intrin['kc']
+        focal_length = fc[0]
+        aspect_ratio = fc[0] / fc[1]
+
+        from kwiver.vital import types  # NOQA
+        import kwiver  # NOQA
+        import kwiver.vital  # NOQA
+        vital_cam = kwiver.vital.types.CameraIntrinsics(
+            focal_length=focal_length,
+            principal_point=pp,
+            aspect_ratio=aspect_ratio,
+            skew=skew,
+            dist_coeffs=dist_coeffs)
+        return vital_cam
+
+    def __nice__(camera):
+        return ub.repr2(camera.proxy, nl=2)
+
+    def rectify_image(camera, img_unrect):
+        K, D, R, P = ub.take(camera, ['K', 'D', 'R', 'P'])
+        img_dsize = img_unrect.shape[0:2][::-1]
+        map_x, map_y = cv2.initUndistortRectifyMap(
+            K, D, R, P, img_dsize, cv2.CV_16SC2)
+        img_rect = cv2.remap(img_unrect, map_x, map_y, cv2.INTER_CUBIC)
+        return img_rect
+
+    def unrectify_image(camera, img_rect, interpolation='auto'):
+        """
+        Warp image from rectified space to unrectified space
+
+        Ignore:
+            camera = camera1
+            img_rect = img_rect1
+            interpolation = 'nearest'
+
+            intrin = camera._decompose_intrinsics()
+            fc = intrin['fc']
+            pp = intrin['cc']
+            skew = intrin['alpha_c']
+
+            from kwiver.vital import types
+            types.CameraIntrinsics()
+        """
+        if interpolation == 'auto':
+            interpolation = 'linear'
+        interpolation = kwimage.im_cv2._rectify_interpolation(interpolation)
+        # https://stackoverflow.com/questions/21615298/opencv-distort-back
+        K, D, R, P = ub.take(camera, ['K', 'D', 'R', 'P'])
+        img_dsize = img_rect.shape[0:2][::-1]
+        w, h = img_dsize
+        # Create coordinates for each point in the distorted image
+        fw_unrect_xy = np.mgrid[0:w, 0:h].astype(np.float32).T.reshape(-1, 2)
+        # Find where each point maps to in the rectified image
+        fw_rect_xy = camera.rectify_points(fw_unrect_xy).astype(np.float32)
+        inv_map_xf, inv_map_yf = fw_rect_xy.reshape(h, w, 2).transpose(2, 0, 1)
+        # Use this mapping to invert the rectification transform
+        img_unrect = cv2.remap(img_rect, inv_map_xf, inv_map_yf, interpolation)
+        return img_unrect
+
+    def rectify_points(camera, points):
+        K, D, R, P = ub.take(camera, ['K', 'D', 'R', 'P'])
+        point_rect = cv2.undistortPoints(points, K, D, R=R, P=P)[:, 0, :]
+        return point_rect
+
+    def unrectify_points(camera, points_rect):
+        K, D, R, P = ub.take(camera, ['K', 'D', 'R', 'P'])
+        # This seems to work very well
+        rvec = np.zeros(3)
+        tvec = np.zeros(3)
+        rect = cv2.convertPointsToHomogeneous(points_rect)[:, 0, :]
+        rect = kwimage.warp_points(np.linalg.inv(R) @ np.linalg.inv(P[:, 0:3]), rect)
+        points_unrect, _ = cv2.projectPoints(rect, rvec, tvec, cameraMatrix=K, distCoeffs=D)
+        points_unrect = points_unrect.reshape(-1, 2)
+        return points_unrect
+
+
+class StereoCalibration():
+    """
+    Ignore:
+        >>> cali = StereoCalibration()
+    """
+    def __init__(cali):
+        cali.cameras = {}
+        cali.extrinsics = {}
+
+    @classmethod
+    def demo(StereoCalibration):
+        """
+        Example:
+            >>> from bioharn.stereo import *  # NOQA
+            >>> cali = StereoCalibration.demo()
+            >>> camera1 = cali.cameras[1]
+            >>> camera2 = cali.cameras[2]
+            >>> points1 = cali.corners1
+            >>> points2 = cali.corners2
+            >>> img1 = cali.img1
+            >>> img2 = cali.img2
+            >>> #
+            >>> # Map points and images from camera space to rectified space.
+            >>> img_rect1 = camera1.rectify_image(img1)
+            >>> img_rect2 = camera2.rectify_image(img2)
+            >>> points_rect1 = camera1.rectify_points(points1)
+            >>> points_rect2 = camera2.rectify_points(points2)
+            >>> #
+            >>> # Map them back
+            >>> img_unrect1 = camera1.unrectify_image(img_rect1, method=2)
+            >>> img_unrect2 = camera2.unrectify_image(img_rect2, method=2)
+            >>> points_unrect1 = camera1.unrectify_points(points_rect1)
+            >>> points_unrect2 = camera2.unrectify_points(points_rect2)
+            >>> # xdoctest: +REQUIRES(--show)
+            >>> import kwplot
+            >>> kwplot.autompl()
+            >>> kwplot.figure(fnum=1, doclf=True)
+            >>> nrows = 3
+            >>> _, ax1 = kwplot.imshow(img1, pnum=(nrows, 2, 1), title='raw')
+            >>> _, ax2 = kwplot.imshow(img2, pnum=(nrows, 2, 2))
+            >>> kwplot.draw_points(points1, color='red', radius=7, ax=ax1)
+            >>> kwplot.draw_points(points2, color='red', radius=7, ax=ax2)
+            >>> _, ax3 = kwplot.imshow(img_rect1, pnum=(nrows, 2, 3), title='rectified')
+            >>> _, ax4 = kwplot.imshow(img_rect2, pnum=(nrows, 2, 4))
+            >>> kwplot.draw_points(points_rect1, color='red', radius=7, ax=ax3)
+            >>> kwplot.draw_points(points_rect2, color='red', radius=7, ax=ax4)
+            >>> canvas_unrect1 = kwimage.overlay_alpha_layers([
+            >>>     kwimage.ensure_alpha_channel(img_unrect1, 0.65), img1])
+            >>> canvas_unrect2 = kwimage.overlay_alpha_layers([
+            >>>     kwimage.ensure_alpha_channel(img_unrect2, 0.65), img2])
+            >>> _, ax5 = kwplot.imshow(canvas_unrect1, pnum=(nrows, 2, 5), title='un-rectified V2 (with overlay)')
+            >>> _, ax6 = kwplot.imshow(canvas_unrect2, pnum=(nrows, 2, 6))
+            >>> kwplot.draw_points(points_unrect1, color='orange', radius=7, ax=ax5)
+            >>> kwplot.draw_points(points_unrect2, color='orange', radius=7, ax=ax6)
+        """
+        img_left_fpath = ub.grabdata('https://raw.githubusercontent.com/opencv/opencv/master/samples/data/left01.jpg')
+        img_right_fpath = ub.grabdata('https://raw.githubusercontent.com/opencv/opencv/master/samples/data/right01.jpg')
+        img_left = kwimage.imread(img_left_fpath)
+        img_right = kwimage.imread(img_right_fpath)
+        grid_dsize = (6, 9)  # columns x rows
+        square_width = 3  # centimeters?
+
+        left_corners = _detect_grid_image(img_left, grid_dsize)
+        right_corners = _detect_grid_image(img_right, grid_dsize)
+        object_points = _make_object_points(grid_dsize) * square_width
+
+        img_dsize = img_left.shape[0:2][::-1]
+
+        # Intrinstic camera matrix (K) and distortion coefficients (D)
+        (_, K1, D1, _, _), _ = _calibrate_single_camera(left_corners, object_points, img_dsize)
+        (_, K2, D2, _, _), _ = _calibrate_single_camera(right_corners, object_points, img_dsize)
+
+        objectPoints = [object_points[:, None, :]]
+        leftPoints = [left_corners[:, None, :]]
+        rightPoints = [right_corners[:, None, :]]
+        ret = cv2.stereoCalibrate(objectPoints, leftPoints, rightPoints, K1,
+                                  D1, K2, D2, img_dsize,
+                                  flags=cv2.CALIB_FIX_INTRINSIC)
+        # extrinsic rotation (R) and translation (T) from the left to right camera
+        R, T = ret[5:7]
+
+        # Rectification (R1, R2) matrix (R1 and R2 are homographies, todo: mapping between which spaces?),
+        # New camera projection matrix (P1, P2),
+        # Disparity-to-depth mapping matrix (Q).
+        ret2 = cv2.stereoRectify(K1, D1, K2, D2, img_dsize, R, T,
+                                 flags=cv2.CALIB_ZERO_DISPARITY, alpha=0)
+        R1, R2, P1, P2, Q = ret2[:5]
+        cali = StereoCalibration()
+        cali.cameras = {
+            1: StereoCamera(),
+            2: StereoCamera(),
+        }
+        cali.cameras[1]['K'] = K1
+        cali.cameras[1]['D'] = D1
+        cali.cameras[1]['R'] = R1
+        cali.cameras[1]['P'] = P1
+
+        cali.cameras[2]['K'] = K1
+        cali.cameras[2]['D'] = D1
+        cali.cameras[2]['R'] = R1
+        cali.cameras[2]['P'] = P1
+
+        cali.extrinsics = {
+            # Extrinsic Rotation and translation between
+            'R': R,
+            'T': T,
+        }
+        cali.corners1 = left_corners
+        cali.corners2 = right_corners
+        cali.corners_world = object_points
+        cali.img1 = img_left
+        cali.img2 = img_right
+        return cali
+
+    @classmethod
+    def from_cv2_yaml(StereoCalibration, intrinsics_fpath, extrinsics_fpath):
+        """
+
+        Ignore:
+            from bioharn.stereo import *  # NOQA
+            cali_root = ub.expandpath('~/remote/namek/data/noaa_habcam/extras/calibration_habcam_2019_leotta')
+            extrinsics_fpath = join(cali_root, 'extrinsics.yml')
+            intrinsics_fpath = join(cali_root, 'intrinsics.yml')
+            cali = StereoCalibration.from_cv2_yaml(intrinsics_fpath, extrinsics_fpath)
+            camera1 = cali.cameras[1]
+            camera2 = cali.cameras[2]
+
+            root = ub.expandpath('~/remote/namek/data/noaa_habcam')
+            img1 = kwimage.imread(join(root, '2019_CFARM_P2/images/left/201901.20190629.120403239.112677.cog.tif'))
+            img2 = kwimage.imread(join(root, '2019_CFARM_P2/images/right/201901.20190629.120403239.112677.cog.tif'))
+
+            img_rect1 = camera1.rectify_image(img1)
+            img_rect2 = camera2.rectify_image(img2)
+
+            from bioharn.disparity import multipass_disparity
+            disparity_rect1 = multipass_disparity(
+                img_rect1, img_rect2, scale=0.5, as01=True)
+
+            img_rect = disparity_rect1
+
+            disparity_unrect1 = camera1.unrectify_image(disparity_rect1)
+            img_unrect1 = camera1.unrectify_image(img_rect1)
+
+            import kwplot
+            kwplot.autompl()
+
+            kwplot.imshow(left_rect, pnum=(2, 3, 1), fnum=1)
+            kwplot.imshow(right_rect, pnum=(2, 3, 2), fnum=1)
+            kwplot.imshow(left_disparity_rect, pnum=(2, 3, 3), fnum=1, cmap='magma')
+
+            kwplot.imshow(img1, pnum=(2, 3, 4), fnum=1)
+            kwplot.imshow(img_unrect1, pnum=(2, 3, 5), fnum=1, cmap='magma')
+            kwplot.imshow(disparity_unrect1, pnum=(2, 3, 6), fnum=1, cmap='magma')
+        """
+        cali = StereoCalibration()
+        import cv2
+
+        assert exists(intrinsics_fpath)
+        assert exists(extrinsics_fpath)
+        in_fs = cv2.FileStorage(intrinsics_fpath, flags=0)
+        ex_fs = cv2.FileStorage(extrinsics_fpath, flags=0)
+
+        cali.cameras = {
+            1: StereoCamera(),
+            2: StereoCamera(),
+        }
+        cali.cameras[1]['K'] = in_fs.getNode("M1").mat()  # intrinstics matrix
+        cali.cameras[1]['D'] = in_fs.getNode("D1").mat()  # intrinstic distortion coefficients
+        cali.cameras[1]['R'] = ex_fs.getNode("R1").mat()  # R1 Output 3x3 rectification transform
+        cali.cameras[1]['P'] = ex_fs.getNode("P1").mat()  # P1 Output 3x4 projection matrix in the new (rectified) coordinate systems.
+
+        cali.cameras[2]['K'] = in_fs.getNode("M2").mat()  # intrinstics matrix
+        cali.cameras[2]['D'] = in_fs.getNode("D2").mat()  # intrinstic distortion coefficients
+        cali.cameras[2]['R'] = ex_fs.getNode("R2").mat()  # R1 Output 3x3 rectification transform
+        cali.cameras[2]['P'] = ex_fs.getNode("P2").mat()  # P1 Output 3x4 projection matrix in the new (rectified) coordinate systems.
+
+        cali.extrinsics = {
+            # Extrinsic Rotation and translation between
+            'R': ex_fs.getNode("R").mat(),
+            'T': ex_fs.getNode("T").mat(),
+        }
+        return cali
+
+    def _notes(cali):
+        """
+        References:
+            http://www.vision.caltech.edu/bouguetj/calib_doc/htmls/parameters.html
+            http://www.vision.caltech.edu/bouguetj/calib_doc/htmls/example5.html
+
+        gids = 18, 22, 25, 27, 60, 65, 77, 81, 83, 97
+        gid = 2182
+
+        img = dset.imgs[gid]
+        right_gpath = join(dset.img_root, img['right_cog_name'])
+        left_gpath = join(dset.img_root, img['file_name'])
+        imgL = kwimage.imread(left_gpath)
+        imgR = kwimage.imread(right_gpath)
+
+
+        import cv2
+        M1, D1, M2, D2 = ub.take(cali.intrinsics, [
+            'M1', 'D1', 'M2', 'D2'])
+        R, T, R1, R2, P1, P2, Q = ub.take(cali.extrinsics, [
+            'R', 'T', 'R1', 'R2', 'P1', 'P2', 'Q'])
+        K1 = M1
+        kc1 = D1
+        K2 = M2
+        kc2 = D2
+        RT = np.hstack([R, T])
+
+        img_dsize = imgL.shape[0:2][::-1]
+        map11, map12 = cv2.initUndistortRectifyMap(M1, D1, R1, P1, img_dsize, cv2.CV_16SC2)
+        map21, map22 = cv2.initUndistortRectifyMap(M2, D2, R2, P2, img_dsize, cv2.CV_16SC2)
+
+        corners = [
+            map11[0, 0],
+            map11[0, -1],
+            map11[-1, 0],
+            map11[-1, -1],
+        ]
+
+        left_rect = cv2.remap(imgL, map11, map12, cv2.INTER_CUBIC)
+        right_rect = cv2.remap(imgR, map21, map22, cv2.INTER_CUBIC)
+
+        from bioharn.disparity import multipass_disparity
+        img_disparity = multipass_disparity(
+            left_rect, right_rect, scale=0.5, as01=True)
+
+        kwplot.imshow(img_disparity, pnum=(2, 3, 3), fnum=1)
+        kwplot.imshow(right_rect, pnum=(2, 3, 2), fnum=1)
+        kwplot.imshow(left_rect, pnum=(2, 3, 1), fnum=1)
+
+        annots = dset.annots(gid=gid)
+        dets = annots.detections
+        self = boxes = dets.data['boxes']
+        new_boxes = boxes.warp(R1, homog_mode='divide')
+        dets.data['boxes'] = new_boxes.to_xywh()
+        dets.draw()
+
+        kwplot.imshow(imgL, pnum=(2, 3, 4), fnum=1)
+        annots = dset.annots(gid=gid)
+        dets = annots.detections
+        dets.draw()
+
+        coords = dets.boxes.to_polygons().data[0].data['exterior']
+        matrix = P1
+        pts = coords.data
+
+        # Undistort points
+        # This puts points in "normalized camera coordinates" making them
+        # independent of the intrinsic parameters. Moving to world coordinates
+        # can now be done using only the RT transform.
+        [[fx, _, cx, _], [_, fy, cy, ty], [_, _, _, tz]] = P1
+        pts1 = pts
+        pts1_homog = np.hstack([pts1, [[1]] * len(pts1)])
+        rectified_pts1_homog = kwimage.warp_points(R1, pts1_homog)
+        rectified_pts1 = rectified_pts1_homog[:, 0:2]
+
+        dets.data['boxes']
+        import kwimage
+        unpts1 = cv2.undistortPoints(pts1[:, None, :], K1, kc1)[:, 0, :]
+        unpts1_homog = np.hstack([unpts1, [[1]] * len(unpts1)])
+        unpts2_homog = kwimage.warp_points(RT, unpts1_homog)
+        kwimage.warp_points(P1[0:3, 0:3], unpts1_homog)
+        unpts2_cv = cv2.undistortPoints(pts2_cv, K2, kc2)
+        dets.warp(P1)
+
+
+
+        # stretch the range of the disparities to [0,255] for display
+        disp_img = img_disparity
+        img3d = cv2.reprojectImageTo3D(disp_img, Q)
+        valid = disp_img > 0
+        pts3d = img3d[valid]
+        depths = pts3d[:, 2]
+        import kwarray
+        print(kwarray.stats_dict(depths))
+        """
 
 
 if __name__ == '__main__':
