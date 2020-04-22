@@ -509,12 +509,16 @@ class DetectEvaluator(object):
         print('Building confusion vectors')
         cfsn_vecs = dmet.confusion_vectors(ignore_class='ignore')
 
+        if 0:
+            cfsn_vecs._data
+
+        negative_classes = ['background']
         # Get pure detection results
-        binvecs = cfsn_vecs.binarize_peritem()
+        binvecs = cfsn_vecs.binarize_peritem(negative_classes=negative_classes)
         roc_result = binvecs.roc()
 
-        pr_result = binvecs.precision_recall(method='voc2012')
-        # pr_result = binvecs.precision_recall(method='sklearn')
+        # pr_result = binvecs.precision_recall(method='voc2012')
+        pr_result = binvecs.precision_recall(method='sklearn')
         print('roc_result = {!r}'.format(roc_result))
         print('pr_result = {!r}'.format(pr_result))
 
