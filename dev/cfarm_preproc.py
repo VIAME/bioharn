@@ -103,7 +103,6 @@ import kwcoco
 from os.path import normpath, realpath, abspath
 
 
-
 def preproc_cfarm():
     """
     import sys, ubelt
