@@ -1,5 +1,5 @@
 from os.path import exists
-from os.path import join
+from os.path import join  # NOQA
 import cv2
 import kwimage
 import ubelt as ub
@@ -367,7 +367,10 @@ def _notes():
 from netharn.metrics.confusion_vectors import DictProxy  # NOQA
 
 
-class StereoCamera(DictProxy, ub.NiceRepr):
+class StereoCamera(ub.NiceRepr, DictProxy):
+    """
+    Helper for single-camera operations with a known rectification.
+    """
     def __init__(camera):
         camera.proxy = {
             'K': None,  # intrinstics matrix
@@ -397,6 +400,22 @@ class StereoCamera(DictProxy, ub.NiceRepr):
         return intrin
 
     def to_vital(camera):
+        """
+        Convert to a kwiver.vital.types.CameraIntrinsics object
+
+        Ignore:
+            camera = camera1
+            img_rect = img_rect1
+            interpolation = 'nearest'
+
+            intrin = camera._decompose_intrinsics()
+            fc = intrin['fc']
+            pp = intrin['cc']
+            skew = intrin['alpha_c']
+
+            from kwiver.vital import types
+            types.CameraIntrinsics()
+        """
         intrin = camera._decompose_intrinsics()
         fc = intrin['fc']
         pp = intrin['cc']
@@ -419,59 +438,83 @@ class StereoCamera(DictProxy, ub.NiceRepr):
     def __nice__(camera):
         return ub.repr2(camera.proxy, nl=2)
 
-    def rectify_image(camera, img_unrect):
+    @ub.memoize_method
+    def _undistort_rectify_map(camera, img_dsize):
+        """
+        Cached mapping from raw space -> rectified space
+        """
         K, D, R, P = ub.take(camera, ['K', 'D', 'R', 'P'])
-        img_dsize = img_unrect.shape[0:2][::-1]
         map_x, map_y = cv2.initUndistortRectifyMap(
             K, D, R, P, img_dsize, cv2.CV_16SC2)
-        img_rect = cv2.remap(img_unrect, map_x, map_y, cv2.INTER_CUBIC)
-        return img_rect
+        return map_x, map_y
 
-    def unrectify_image(camera, img_rect, interpolation='auto'):
+    @ub.memoize_method
+    def _distort_unrectify_map(camera, img_dsize):
         """
-        Warp image from rectified space to unrectified space
-
-        Ignore:
-            camera = camera1
-            img_rect = img_rect1
-            interpolation = 'nearest'
-
-            intrin = camera._decompose_intrinsics()
-            fc = intrin['fc']
-            pp = intrin['cc']
-            skew = intrin['alpha_c']
-
-            from kwiver.vital import types
-            types.CameraIntrinsics()
+        Cached mapping from rectified space -> raw space
         """
-        if interpolation == 'auto':
-            interpolation = 'linear'
-        interpolation = kwimage.im_cv2._rectify_interpolation(interpolation)
-        # https://stackoverflow.com/questions/21615298/opencv-distort-back
-        K, D, R, P = ub.take(camera, ['K', 'D', 'R', 'P'])
-        img_dsize = img_rect.shape[0:2][::-1]
         w, h = img_dsize
         # Create coordinates for each point in the distorted image
         fw_unrect_xy = np.mgrid[0:w, 0:h].astype(np.float32).T.reshape(-1, 2)
         # Find where each point maps to in the rectified image
         fw_rect_xy = camera.rectify_points(fw_unrect_xy).astype(np.float32)
         inv_map_xf, inv_map_yf = fw_rect_xy.reshape(h, w, 2).transpose(2, 0, 1)
+        return inv_map_xf, inv_map_yf
+
+    @ub.memoize_method
+    def _inv_PR(camera):
+        """
+        I dont actually have an intuition for this transform.
+        I suppose it unprojects from a rectified camera, and then unrectifies
+        back into undistorted normalized coordinates? But Im not sure.
+        """
+        R, P = camera['R'], camera['P']
+        assert np.allclose(P[:, 3], 0)
+        inv_RP = np.linalg.inv(P[:, 0:3] @ R)
+        return inv_RP
+
+    def rectify_image(camera, img_unrect, interpolation='auto'):
+        interpolation = kwimage.im_cv2._coerce_interpolation(
+            interpolation, default='linear')
+        img_dsize = img_unrect.shape[0:2][::-1]
+        map_x, map_y = camera._undistort_rectify_map(img_dsize)
+        img_rect = cv2.remap(img_unrect, map_x, map_y, cv2.INTER_CUBIC)
+        return img_rect
+
+    def unrectify_image(camera, img_rect, interpolation='auto'):
+        """
+        Warp image from rectified space -> raw space
+
+        References:
+            https://stackoverflow.com/questions/21615298/opencv-distort-back
+        """
+        interpolation = kwimage.im_cv2._coerce_interpolation(
+            interpolation, default='linear')
+        img_dsize = img_rect.shape[0:2][::-1]
+        inv_map_xf, inv_map_yf = camera._distort_unrectify_map(img_dsize)
         # Use this mapping to invert the rectification transform
         img_unrect = cv2.remap(img_rect, inv_map_xf, inv_map_yf, interpolation)
         return img_unrect
 
     def rectify_points(camera, points):
+        """
+        Warp points from raw space -> rectified space
+        """
         K, D, R, P = ub.take(camera, ['K', 'D', 'R', 'P'])
         point_rect = cv2.undistortPoints(points, K, D, R=R, P=P)[:, 0, :]
         return point_rect
 
     def unrectify_points(camera, points_rect):
-        K, D, R, P = ub.take(camera, ['K', 'D', 'R', 'P'])
+        """
+        Warp points from rectified space -> raw space
+        """
         # This seems to work very well
+        K, D = camera['K'], camera['D']
         rvec = np.zeros(3)
         tvec = np.zeros(3)
+        inv_RP = camera._inv_PR()
         rect = cv2.convertPointsToHomogeneous(points_rect)[:, 0, :]
-        rect = kwimage.warp_points(np.linalg.inv(R) @ np.linalg.inv(P[:, 0:3]), rect)
+        rect = kwimage.warp_points(inv_RP, rect)
         points_unrect, _ = cv2.projectPoints(rect, rvec, tvec, cameraMatrix=K, distCoeffs=D)
         points_unrect = points_unrect.reshape(-1, 2)
         return points_unrect

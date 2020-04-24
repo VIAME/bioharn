@@ -129,6 +129,7 @@ def preproc_cfarm():
         print('#raw_gpaths = {!r}'.format(len(raw_gpaths)))
 
     if 1:
+        # Debayer raw images
         for key, raw_gpaths in ub.ProgIter(gpaths.items()):
             jobs = util_futures.JobPool('thread', max_workers=8)
             dset_dir = ub.ensuredir((workdir, key))
@@ -147,6 +148,7 @@ def preproc_cfarm():
             do_debayer(right_dpath, right_paths, viame_install)
 
     if 1:
+        # Convert raw images to COG
         src_fpaths = []
         dst_fpaths = []
         for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
@@ -186,6 +188,7 @@ def preproc_cfarm():
             src_fpaths, dst_fpaths, cog_config=cog_config, mode='process',
             max_workers=4)
 
+    # Create the COCO datasets
     csv_fpaths = {
         '2017_CFARM': join(dpath, 'US_NE_2017_CFARM_HABCAM/HabCam 2017 dataset1 annotations.csv'),
         '2018_CFARM': join(dpath, 'US_NE_2018_CFARM_HABCAM/annotations.csv'),
@@ -193,10 +196,12 @@ def preproc_cfarm():
         '2019_CFARM_P2': join(dpath, 'US_NE_2019_CFARM_HABCAM_PART2/HabCam 2019 dataset2 annotations.csv'),
     }
     for key, csv_fpath in csv_fpaths.items():
+        print('key = {!r}'.format(key))
+        print('csv_fpath = {!r}'.format(csv_fpath))
         assert exists(csv_fpath)
         df = pd.read_csv(csv_fpath)
-        print('df.columns = {!r}'.format(df.columns))
         img_root = dset_dir = ub.ensuredir((workdir, key))
+        print('img_root = {!r}'.format(img_root))
         coco_dset = convert_cfarm(df, img_root)
 
     # ---
@@ -475,47 +480,36 @@ def convert_cfarm(df, img_root):
     left_img_root = join('images', 'left')
     right_img_root = join('images', 'right')
 
-    for row in ub.ProgIter(records):
-        # image_name = row['Imagename']
-
-        # ASSUME WE HAVE de-bayered and preprocessed
-        image_name = row['TIFImagename']
-
+    # Two loop, handle images first
+    # ASSUME WE HAVE de-bayered and preprocessed
+    image_names = list(ub.unique([row['TIFImagename'] for row in records]))
+    for image_name in image_names:
         left_cog_name = ub.augpath(image_name, dpath=left_img_root, ext='.cog.tif')
         right_cog_name = ub.augpath(image_name, dpath=right_img_root, ext='.cog.tif')
-
+        left_gpath = join(img_root, left_cog_name)
+        right_gpath = join(img_root, right_cog_name)
         left_gpath = join(img_root, left_cog_name)
         right_gpath = join(img_root, right_cog_name)
         assert exists(right_gpath), f'{right_gpath}'
         assert exists(left_gpath), f'{left_gpath}'
-
         # Handle Image
-        gid = coco_dset.ensure_image(
-                file_name=left_cog_name,
-                right_cog_name=right_cog_name)
-        img = coco_dset.imgs[gid]
+        gid = coco_dset.ensure_image(file_name=left_cog_name)
+        coco_dset.imgs[gid]['right_cog_name'] = right_cog_name
 
-        if img.get('is_bad', False):
-            continue
-        if 'width' not in img:
-            gpath = coco_dset.get_image_fpath(gid)
-            try:
-                if not exists(gpath):
-                    raise Exception
-                shape  = kwimage.load_image_shape(gpath)
-            except Exception:
-                img['is_bad'] = True
-                print('Bad image gpath = {!r}'.format(gpath))
-                continue
-            height, width = shape[0:2]
-            img['height'] = height
-            img['width'] = width
+    coco_dset._ensure_imgsize(workers=4)
+
+    for row in ub.ProgIter(records, desc='convert annotations'):
+        # image_name = row['Imagename']
+        # ASSUME WE HAVE de-bayered and preprocessed
+        image_name = row['TIFImagename']
+        left_cog_name = ub.augpath(image_name, dpath=left_img_root, ext='.cog.tif')
+        img = coco_dset.index.file_name_to_img[left_cog_name]
+        gid = img['id']
 
         # Handle Category
         object_name = row['Name']
         cat_name = catname_map[object_name]
-        if cat_name is None:
-            raise KeyError(cat_name)
+        assert cat_name is not None
         cid = coco_dset.ensure_category(cat_name)
 
         # Handle Annotations
@@ -570,14 +564,23 @@ def convert_cfarm(df, img_root):
     # suffix = 'g{n_imgs:06d}_a{n_anns:08d}_c{n_cats:04d}'.format(**stats)
     coco_dset.fpath = ub.augpath(
         '', dpath=img_root, ext='',
-        base=dset_name + '_v5.mscoco.json'.format())
+        base=dset_name + '_v6.mscoco.json'.format())
 
     coco_dset.rebase(img_root)
     coco_dset.img_root = img_root
 
     for gid in coco_dset.imgs.keys():
         dset = coco_dset
-        pass
+
+    if 1:
+        # Compute dispartiy maps
+        from bioharn.stereo import *  # NOQA
+        cali_root = ub.expandpath('~/remote/namek/data/noaa_habcam/extras/calibration_habcam_2019_leotta')
+        extrinsics_fpath = join(cali_root, 'extrinsics.yml')
+        intrinsics_fpath = join(cali_root, 'intrinsics.yml')
+        cali = StereoCalibration.from_cv2_yaml(intrinsics_fpath, extrinsics_fpath)
+        camera1 = cali.cameras[1]
+        camera2 = cali.cameras[2]
 
     if 0:
         import kwplot
