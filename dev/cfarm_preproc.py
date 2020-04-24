@@ -572,13 +572,17 @@ def convert_cfarm(df, img_root):
 
     if 1:
         # Compute dispartiy maps
-        from bioharn.stereo import *  # NOQA
+        img = coco_dset.imgs[1]
+        img_dsize = (img['width'], img['height'])
+        from bioharn.stereo import StereoCalibration
         cali_root = ub.expandpath('~/remote/namek/data/noaa_habcam/extras/calibration_habcam_2019_leotta')
         extrinsics_fpath = join(cali_root, 'extrinsics.yml')
         intrinsics_fpath = join(cali_root, 'intrinsics.yml')
         cali = StereoCalibration.from_cv2_yaml(intrinsics_fpath, extrinsics_fpath)
         camera1 = cali.cameras[1]
         camera2 = cali.cameras[2]
+        camera1._precache(img_dsize)
+        camera2._precache(img_dsize)
 
         for img in ub.ProgIter(coco_dset.imgs.values(), desc='disparity'):
             left_gpath = join(img_root, left_cog_name)
