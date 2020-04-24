@@ -88,6 +88,7 @@ one these days I should adjust so it runs it on both camera sides independently 
 +-- images
 
 """
+from os.path import relpath
 import numpy as np
 import kwimage
 import kwarray
@@ -584,13 +585,19 @@ def convert_cfarm(df, img_root):
         camera1._precache(img_dsize)
         camera2._precache(img_dsize)
 
-        for img in ub.ProgIter(coco_dset.imgs.values(), desc='disparity'):
-            left_gpath = join(img_root, left_cog_name)
-            right_gpath = join(img_root, right_cog_name)
+        jobs = util_futures.JobPool('thread', max_workers=4)
 
-            img1 = kwimage.imread(left_gpath)
-            img2 = kwimage.imread(right_gpath)
-            pass
+        for gid in ub.ProgIter(list(coco_dset.imgs.keys()), desc='disparity'):
+            job = jobs.submit(_ensure_cfarm_disparity_frame, coco_dset, gid, cali)
+            job.gid = gid
+
+        for job in ub.ProgIter(jobs.as_completed(), desc='disparity', total=len(jobs)):
+            disp_unrect_fpath1 = job.result()
+            disp_unrect_fname1 = relpath(disp_unrect_fpath1, coco_dset.img_root)
+            img['auxillary'].append([{
+                'channels': 'disparity',
+                'file_name': disp_unrect_fname1,
+            }])
 
     if 0:
         import kwplot
