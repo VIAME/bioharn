@@ -621,7 +621,7 @@ def convert_cfarm(df, img_root):
     return coco_dset
 
 
-def _ensure_cfarm_disparity_frame(coco_dset, gid):
+def _ensure_cfarm_disparity_frame(coco_dset, gid, cali):
     """
     import kwplot
     kwplot.autompl()
@@ -629,56 +629,131 @@ def _ensure_cfarm_disparity_frame(coco_dset, gid):
     aids = coco_dset.index.cid_to_aids[coco_dset._alias_to_cat('flatfish')['id']]
     gids = list(coco_dset.annots(aids).gids)
 
+    from bioharn.stereo import StereoCalibration
+    cali_root = ub.expandpath('~/remote/namek/data/noaa_habcam/extras/calibration_habcam_2019_leotta')
+    extrinsics_fpath = join(cali_root, 'extrinsics.yml')
+    intrinsics_fpath = join(cali_root, 'intrinsics.yml')
+    cali = StereoCalibration.from_cv2_yaml(intrinsics_fpath, extrinsics_fpath)
+
     for gid in xdev.InteractiveIter(gids):
         img = coco_dset.imgs[gid]
-        right_gpath = join(coco_dset.img_root, img['right_cog_name'])
-        left_gpath = join(coco_dset.img_root, img['file_name'])
-        img1 = kwimage.imread(left_gpath)
-        img2 = kwimage.imread(right_gpath)
-        img_disparity = multipass_disparity(
-            img1, img2, scale=0.5, as01=True)
-        kwplot.figure(pnum=(1, 3, 1), fnum=1, doclf=True)
-        kwplot.imshow(img1, pnum=(1, 3, 1), fnum=1)
-        kwplot.imshow(img2, pnum=(1, 3, 2), fnum=1)
-        kwplot.imshow(img_disparity, pnum=(1, 3, 3), fnum=1)
+        gpath2 = join(coco_dset.img_root, img['right_cog_name'])
+        gpath1 = join(coco_dset.img_root, img['file_name'])
+
+        info = _compute_disparity(gpath1, gpath2, cali)
+
+        _disp1_rect = kwimage.make_heatmask(info['disp1_rect'], 'magma')[..., 0:3]
+        _disp1_unrect = kwimage.make_heatmask(info['disp1_unrect'], 'magma')[..., 0:3]
+        canvas_rect = kwimage.overlay_alpha_layers([
+            kwimage.ensure_alpha_channel(_disp1_rect, 0.6), info['img1_rect']])
+        canvas_unrect = kwimage.overlay_alpha_layers([
+            kwimage.ensure_alpha_channel(_disp1_unrect, 0.6), info['img1']])
+
+        _, ax1 = kwplot.imshow(info['img1_rect'], pnum=(2, 3, 1), fnum=1, title='left rectified')
+        _, ax2 = kwplot.imshow(info['disp1_rect'], pnum=(2, 3, 2), fnum=1, title='left rectified disparity')
+        _, ax3 = kwplot.imshow(info['img2_rect'], pnum=(2, 3, 3), fnum=1, title='right rectified')
+        _, ax4 = kwplot.imshow(canvas_rect, pnum=(2, 3, 4), fnum=1, title='left rectified')
+        _, ax5 = kwplot.imshow(canvas_unrect, pnum=(2, 3, 5), fnum=1, title='left unrectified')
+        _, ax6 = kwplot.imshow(info['img2'], pnum=(2, 3, 6), fnum=1, title='right unrectified')
+
+        if coco_dset is not None:
+            annots = coco_dset.annots(gid=gid)
+            unrect_dets1 = annots.detections
+            rect_dets1 = unrect_dets1.warp(camera1.rectify_points)
+            rect_dets1.draw(ax=ax1)
+            rect_dets1.boxes.draw(ax=ax2)
+            unrect_dets1.boxes.draw(ax=ax5)
         xdev.InteractiveIter.draw()
 
-
-
-        for gid in gids:
-            pass
     """
-    from bioharn.disparity import multipass_disparity
     import kwimage
-
     img = coco_dset.imgs[gid]
-    right_gpath = join(coco_dset.img_root, img['right_cog_name'])
-    left_gpath = join(coco_dset.img_root, img['file_name'])
+    gpath1 = join(coco_dset.img_root, img['file_name'])
+    gpath2 = join(coco_dset.img_root, img['right_cog_name'])
 
-    left_disp_dpath = ub.ensuredir((coco_dset.img_root, 'images', 'left_disparity'))
-    # right_disp_dpath = ub.ensuredir((coco_dset.img_root, 'images', 'right_disparity'))
-    left_disp_gpath = join(left_disp_dpath, basename(img['file_name']))
+    disp_unrect_dpath1 = ub.ensuredir((
+        coco_dset.img_root, 'images', 'left_disparity_unrect'))
+    disp_unrect_fpath1 = join(disp_unrect_dpath1, basename(img['file_name']))
 
-    if not exists(left_disp_gpath):
+    if not exists(disp_unrect_fpath1):
+        info = _compute_disparity(gpath1, gpath2, cali)
         # Note: probably should be atomic
-        img1 = kwimage.imread(left_gpath)
-        img2 = kwimage.imread(right_gpath)
-        img_disparity = multipass_disparity(
-            img1, img2, scale=0.5, as01=True)
-        img_disparity = img_disparity.astype(np.float32)
+        kwimage.imwrite(disp_unrect_fpath1, info['disp1_unrect'],
+                        backend='gdal', compress='DEFLATE')
+    return disp_unrect_fpath1
 
-        kwimage.imwrite(disp_fpath, img_disparity, backend='gdal',
-                        compress='DEFLATE')
 
-        if 0:
-            import kwplot
-            kwplot.autompl()
-            kwplot.imshow(img1, pnum=(1, 3, 1), fnum=1)
-            kwplot.imshow(img2, pnum=(1, 3, 2), fnum=1)
-            kwplot.imshow(img_disparity, pnum=(1, 3, 3), fnum=1)
-            pass
+def _compute_disparity(gpath1, gpath2, cali, coco_dset=None, gid=None):
+    import kwimage
+    from bioharn.disparity import multipass_disparity
+    img1 = kwimage.imread(gpath1)
+    img2 = kwimage.imread(gpath2)
 
-    return disp_fname
+    camera1 = cali.cameras[1]
+    camera2 = cali.cameras[2]
+
+    img1_rect = camera1.rectify_image(img1)
+    img2_rect = camera2.rectify_image(img2)
+    disp1_rect = multipass_disparity(
+        img1_rect, img2_rect, scale=0.5, as01=True)
+    disp1_rect = disp1_rect.astype(np.float32)
+
+    disp1_unrect = camera1.unrectify_image(
+        disp1_rect, interpolation='linear')
+
+    info = {
+        'img1': img1,
+        'img2': img2,
+        'img1_rect': img1_rect,
+        'img2_rect': img2_rect,
+        'disp1_rect': disp1_rect,
+        'disp1_unrect': disp1_unrect,
+    }
+
+    if 0:
+        import kwplot
+        kwplot.autompl()
+        _disp1_rect = kwimage.make_heatmask(info['disp1_rect'], 'magma')[..., 0:3]
+        _disp1_unrect = kwimage.make_heatmask(info['disp1_unrect'], 'magma')[..., 0:3]
+        canvas_rect = kwimage.overlay_alpha_layers([
+            kwimage.ensure_alpha_channel(_disp1_rect, 0.6), info['img1_rect']])
+        canvas_unrect = kwimage.overlay_alpha_layers([
+            kwimage.ensure_alpha_channel(_disp1_unrect, 0.6), info['img1']])
+
+        _, ax1 = kwplot.imshow(info['img1_rect'], pnum=(2, 3, 1), fnum=1, title='left rectified')
+        _, ax2 = kwplot.imshow(info['disp1_rect'], pnum=(2, 3, 2), fnum=1, title='left rectified disparity')
+        _, ax3 = kwplot.imshow(info['img2_rect'], pnum=(2, 3, 3), fnum=1, title='right rectified')
+        _, ax4 = kwplot.imshow(canvas_rect, pnum=(2, 3, 4), fnum=1, title='left rectified')
+        _, ax5 = kwplot.imshow(canvas_unrect, pnum=(2, 3, 5), fnum=1, title='left unrectified')
+        _, ax6 = kwplot.imshow(info['img2'], pnum=(2, 3, 6), fnum=1, title='right unrectified')
+
+        if coco_dset is not None:
+            annots = coco_dset.annots(gid=gid)
+            unrect_dets1 = annots.detections
+            rect_dets1 = unrect_dets1.warp(camera1.rectify_points)
+            rect_dets1.draw(ax=ax1)
+            rect_dets1.boxes.draw(ax=ax2)
+            unrect_dets1.boxes.draw(ax=ax5)
+
+            if 0:
+                import cv2
+                # Is there a way to aprox map cam1 to cam2?
+                pts1 = unrect_dets1.boxes.corners()
+                K1, D1 = ub.take(camera1, ['K', 'D'])
+                K2, D2 = ub.take(camera2, ['K', 'D'])
+                # Remove dependence on camera1 intrinsics / distortion
+                pts1_norm = cv2.undistortPoints(pts1, K1, D1)[:, 0, :]
+                R, T = ub.take(cali.extrinsics, ['R', 'T'])
+                pts1_xyz = kwimage.add_homog(pts1_norm)
+                pts1_xyz[:, 2] = 0
+                # info['disp1_rect']
+                # pts2_xyz = kwimage.warp_points(R, pts1_xyz) + T.T
+                rvec = cv2.Rodrigues(R)[0]
+                tvec = T.ravel()
+                pts2, _ = cv2.projectPoints(pts1_xyz, rvec, tvec, cameraMatrix=K2, distCoeffs=D2)
+                pts2 = pts2.reshape(-1, 2)
+
+    return info
 
 
 def _ensure_rgb_cog(dset, gid, cog_root):

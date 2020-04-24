@@ -423,7 +423,7 @@ class StereoCamera(ub.NiceRepr, DictProxy):
         back into undistorted normalized coordinates? But Im not sure.
         """
         R, P = camera['R'], camera['P']
-        assert np.allclose(P[1:, 3], 0)
+        assert np.allclose(P[1:, 3], 0)  # not sure what the last column is
         inv_RP = np.linalg.inv(P[:, 0:3] @ R)
         return inv_RP
 
