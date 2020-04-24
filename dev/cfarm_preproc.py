@@ -568,9 +568,6 @@ def convert_cfarm(df, img_root):
     coco_dset.rebase(img_root)
     coco_dset.img_root = img_root
 
-    for gid in coco_dset.imgs.keys():
-        dset = coco_dset
-
     if 1:
         # Compute dispartiy maps
         img = coco_dset.imgs[1]
@@ -594,18 +591,24 @@ def convert_cfarm(df, img_root):
         for job in ub.ProgIter(jobs.as_completed(), desc='disparity', total=len(jobs)):
             disp_unrect_fpath1 = job.result()
             disp_unrect_fname1 = relpath(disp_unrect_fpath1, coco_dset.img_root)
-            img['auxillary'].append([{
+            img = coco_dset.imgs[job.gid]
+            img['auxillary'] = [{
                 'channels': 'disparity',
                 'file_name': disp_unrect_fname1,
-            }])
+            }]
 
     if 0:
         import kwplot
         import xdev
         kwplot.autompl()
-        gids = coco_dset.find_representative_images()
+        gids = sorted(coco_dset.find_representative_images())
+        gid = gids[0]
         for gid in xdev.InteractiveIter(list(gids)):
+            disp_fpath = coco_dset.get_auxillary_fpath(gid, 'disparity')
             coco_dset.show_image(gid)
+            disp_img = kwimage.imread(disp_fpath)
+            disp_heat = kwimage.make_heatmask(disp_img)
+            kwplot.imshow(disp_heat)
             xdev.InteractiveIter.draw()
 
     datasets = train_vali_split(coco_dset, vali_factor=5)
