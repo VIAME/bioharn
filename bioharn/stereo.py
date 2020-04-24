@@ -117,12 +117,6 @@ def _make_object_points(grid_size=(6, 5)):
 
 def demo_calibrate():
     """
-    References:
-        https://programtalk.com/vs2/python/8176/opencv-python-blueprints/chapter4/scene3D.py/
-        https://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html
-        https://docs.opencv.org/2.4/modules/imgproc/doc/geometric_transformations.html
-        https://stackoverflow.com/questions/51895602/opencv-are-lens-distortion-coefficients-inverted-for-projectpoints
-        https://opencv.yahoogroups.narkive.com/guu3Roys/reverse-remap
     """
     img_left_fpath = ub.grabdata('https://raw.githubusercontent.com/opencv/opencv/master/samples/data/left01.jpg')
     img_right_fpath = ub.grabdata('https://raw.githubusercontent.com/opencv/opencv/master/samples/data/right01.jpg')
@@ -184,10 +178,6 @@ def demo_calibrate():
 
     if 1:
         def invert_remap(map11f, map12f):
-            """
-            References:
-                https://stackoverflow.com/questions/41703210/inverting-a-real-valued-index-grid
-            """
             h, w = map11f.shape[0:2]
             inv_map12f, inv_map11f = np.mgrid[0:h, 0:w].astype(np.float32)
             dx = inv_map11f - map11f
@@ -316,53 +306,6 @@ def demo_calibrate():
         print('med_err = {!r}'.format(med_err))
 
 
-def _notes():
-    """
-    pip install plottool_ibeis
-    pip install vtool_ibeis
-
-    # img_left = kwimage.grab_test_image('tsukuba_l')
-    # img_right = kwimage.grab_test_image('tsukuba_r')
-    import pyhesaff
-    kpts1, desc1 = pyhesaff.detect_feats_in_image(img_left)
-    kpts2, desc2 = pyhesaff.detect_feats_in_image(img_right)
-
-    from vtool_ibeis import matching
-    annot1 = {'kpts': kpts1, 'vecs': desc1, 'rchip': img_left}
-    annot2 = {'kpts': kpts2, 'vecs': desc2, 'rchip': img_right}
-    match = matching.PairwiseMatch(annot1, annot2)
-    match.assign()
-
-    idx1, idx2 = match.fm.T
-    xy1_m = kpts1[idx1, 0:2]
-    xy2_m = kpts2[idx2, 0:2]
-
-    # TODO: need to better understand R1, and P1 and what
-    # initUndistortRectifyMap does wrt to K and D.
-    # cv2.initUndistortRectifyMap(K1, D1, np.linalg.inv(R1), np.linalg.pinv(P1)[0:3], img_dsize, cv2.CV_32FC1)
-    # cv2.initUndistortRectifyMap(np.eye(3), None, np.linalg.inv(R1), np.eye(3), img_dsize, cv2.CV_32FC1)
-
-    # Invert rectification?
-    # https://groups.google.com/forum/#!topic/pupil-discuss/8eSuYYNEaIQ
-    # https://stackoverflow.com/questions/35060164/reverse-undistortrectifymap
-    # https://answers.opencv.org/question/129425/difference-between-undistortpoints-and-projectpoints-in-opencv/
-
-    # K1_inv = np.linalg.inv(K1)
-    # left_points_unrect = cv2.undistortPoints(left_points_rect, K1, D1, R=R1, P=P1)[:, 0, :]
-    # left_points_unrect = cv2.undistortPoints(left_points_rect, P1[:, 0:3], D1, R=R1, P=K1)[:, 0, :]
-    # left_points_unrect = cv2.undistortPoints(left_points_rect, P1[:, 0:3], D1, R=None, P=K1)[:, 0, :]
-    # M = np.linalg.inv(P1[:, 0:3]) @ R1 @ K1
-    # M = K1 @ R1 @ np.linalg.inv(P1[:, 0:3])
-    # left_points_unrect = kwimage.warp_points(M, left_points_rect)
-    # kwplot.draw_points(left_points_unrect, color='red', radius=7, ax=ax1)
-    """
-    if 0:
-        E, Emask = cv2.findEssentialMat(left_corners, right_corners, K1)  # NOQA
-        F, Fmask = cv2.findFundamentalMat(left_corners, right_corners,  # NOQA
-                                          cv2.FM_RANSAC, 0.1, 0.99)  # NOQA
-        E = K1.T.dot(F).dot(K1)  # NOQA
-
-
 
 from netharn.metrics.confusion_vectors import DictProxy  # NOQA
 
@@ -370,6 +313,17 @@ from netharn.metrics.confusion_vectors import DictProxy  # NOQA
 class StereoCamera(ub.NiceRepr, DictProxy):
     """
     Helper for single-camera operations with a known rectification.
+
+    References:
+        http://www.vision.caltech.edu/bouguetj/calib_doc/htmls/example5.html
+        http://www.vision.caltech.edu/bouguetj/calib_doc/htmls/parameters.html
+        https://docs.opencv.org/2.4/modules/calib3d/doc/camera_calibration_and_3d_reconstruction.html
+        https://docs.opencv.org/2.4/modules/imgproc/doc/geometric_transformations.html
+        https://opencv.yahoogroups.narkive.com/guu3Roys/reverse-remap
+        https://programtalk.com/vs2/python/8176/opencv-python-blueprints/chapter4/scene3D.py/
+        https://stackoverflow.com/questions/21615298/opencv-distort-back
+        https://stackoverflow.com/questions/41703210/inverting-a-real-valued-index-grid
+        https://stackoverflow.com/questions/51895602/opencv-are-lens-distortion-coefficients-inverted-for-projectpoints
     """
     def __init__(camera):
         camera.proxy = {
@@ -424,15 +378,10 @@ class StereoCamera(ub.NiceRepr, DictProxy):
         focal_length = fc[0]
         aspect_ratio = fc[0] / fc[1]
 
-        from kwiver.vital import types  # NOQA
-        import kwiver  # NOQA
-        import kwiver.vital  # NOQA
-        vital_cam = kwiver.vital.types.CameraIntrinsics(
-            focal_length=focal_length,
-            principal_point=pp,
-            aspect_ratio=aspect_ratio,
-            skew=skew,
-            dist_coeffs=dist_coeffs)
+        from kwiver.vital.types import CameraIntrinsics
+        vital_cam = CameraIntrinsics(
+            focal_length=focal_length, principal_point=pp,
+            aspect_ratio=aspect_ratio, skew=skew, dist_coeffs=dist_coeffs)
         return vital_cam
 
     def __nice__(camera):
@@ -484,9 +433,6 @@ class StereoCamera(ub.NiceRepr, DictProxy):
     def unrectify_image(camera, img_rect, interpolation='auto'):
         """
         Warp image from rectified space -> raw space
-
-        References:
-            https://stackoverflow.com/questions/21615298/opencv-distort-back
         """
         interpolation = kwimage.im_cv2._coerce_interpolation(
             interpolation, default='linear')
@@ -637,7 +583,6 @@ class StereoCalibration():
     @classmethod
     def from_cv2_yaml(StereoCalibration, intrinsics_fpath, extrinsics_fpath):
         """
-
         Ignore:
             from bioharn.stereo import *  # NOQA
             cali_root = ub.expandpath('~/remote/namek/data/noaa_habcam/extras/calibration_habcam_2019_leotta')
@@ -666,22 +611,21 @@ class StereoCalibration():
             import kwplot
             kwplot.autompl()
 
-            kwplot.imshow(left_rect, pnum=(2, 3, 1), fnum=1)
-            kwplot.imshow(right_rect, pnum=(2, 3, 2), fnum=1)
-            kwplot.imshow(left_disparity_rect, pnum=(2, 3, 3), fnum=1, cmap='magma')
+            kwplot.imshow(img_rect1, pnum=(2, 3, 1), fnum=1)
+            kwplot.imshow(img_rect2, pnum=(2, 3, 2), fnum=1)
+            kwplot.imshow(disparity_rect1, pnum=(2, 3, 3), fnum=1, cmap='magma')
 
             kwplot.imshow(img1, pnum=(2, 3, 4), fnum=1)
             kwplot.imshow(img_unrect1, pnum=(2, 3, 5), fnum=1, cmap='magma')
             kwplot.imshow(disparity_unrect1, pnum=(2, 3, 6), fnum=1, cmap='magma')
         """
-        cali = StereoCalibration()
         import cv2
-
         assert exists(intrinsics_fpath)
         assert exists(extrinsics_fpath)
         in_fs = cv2.FileStorage(intrinsics_fpath, flags=0)
         ex_fs = cv2.FileStorage(extrinsics_fpath, flags=0)
 
+        cali = StereoCalibration()
         cali.cameras = {
             1: StereoCamera(),
             2: StereoCamera(),
@@ -703,101 +647,140 @@ class StereoCalibration():
         }
         return cali
 
-    def _notes(cali):
-        """
-        References:
-            http://www.vision.caltech.edu/bouguetj/calib_doc/htmls/parameters.html
-            http://www.vision.caltech.edu/bouguetj/calib_doc/htmls/example5.html
 
-        gids = 18, 22, 25, 27, 60, 65, 77, 81, 83, 97
-        gid = 2182
+def _notes2(cali):
+    """
+    gids = 18, 22, 25, 27, 60, 65, 77, 81, 83, 97
+    gid = 2182
 
-        img = dset.imgs[gid]
-        right_gpath = join(dset.img_root, img['right_cog_name'])
-        left_gpath = join(dset.img_root, img['file_name'])
-        imgL = kwimage.imread(left_gpath)
-        imgR = kwimage.imread(right_gpath)
+    img = dset.imgs[gid]
+    right_gpath = join(dset.img_root, img['right_cog_name'])
+    left_gpath = join(dset.img_root, img['file_name'])
+    imgL = kwimage.imread(left_gpath)
+    imgR = kwimage.imread(right_gpath)
 
 
-        import cv2
-        M1, D1, M2, D2 = ub.take(cali.intrinsics, [
-            'M1', 'D1', 'M2', 'D2'])
-        R, T, R1, R2, P1, P2, Q = ub.take(cali.extrinsics, [
-            'R', 'T', 'R1', 'R2', 'P1', 'P2', 'Q'])
-        K1 = M1
-        kc1 = D1
-        K2 = M2
-        kc2 = D2
-        RT = np.hstack([R, T])
+    import cv2
+    M1, D1, M2, D2 = ub.take(cali.intrinsics, [
+        'M1', 'D1', 'M2', 'D2'])
+    R, T, R1, R2, P1, P2, Q = ub.take(cali.extrinsics, [
+        'R', 'T', 'R1', 'R2', 'P1', 'P2', 'Q'])
+    K1 = M1
+    kc1 = D1
+    K2 = M2
+    kc2 = D2
+    RT = np.hstack([R, T])
 
-        img_dsize = imgL.shape[0:2][::-1]
-        map11, map12 = cv2.initUndistortRectifyMap(M1, D1, R1, P1, img_dsize, cv2.CV_16SC2)
-        map21, map22 = cv2.initUndistortRectifyMap(M2, D2, R2, P2, img_dsize, cv2.CV_16SC2)
+    img_dsize = imgL.shape[0:2][::-1]
+    map11, map12 = cv2.initUndistortRectifyMap(M1, D1, R1, P1, img_dsize, cv2.CV_16SC2)
+    map21, map22 = cv2.initUndistortRectifyMap(M2, D2, R2, P2, img_dsize, cv2.CV_16SC2)
 
-        corners = [
-            map11[0, 0],
-            map11[0, -1],
-            map11[-1, 0],
-            map11[-1, -1],
-        ]
+    corners = [
+        map11[0, 0],
+        map11[0, -1],
+        map11[-1, 0],
+        map11[-1, -1],
+    ]
 
-        left_rect = cv2.remap(imgL, map11, map12, cv2.INTER_CUBIC)
-        right_rect = cv2.remap(imgR, map21, map22, cv2.INTER_CUBIC)
+    left_rect = cv2.remap(imgL, map11, map12, cv2.INTER_CUBIC)
+    right_rect = cv2.remap(imgR, map21, map22, cv2.INTER_CUBIC)
 
-        from bioharn.disparity import multipass_disparity
-        img_disparity = multipass_disparity(
-            left_rect, right_rect, scale=0.5, as01=True)
+    from bioharn.disparity import multipass_disparity
+    img_disparity = multipass_disparity(
+        left_rect, right_rect, scale=0.5, as01=True)
 
-        kwplot.imshow(img_disparity, pnum=(2, 3, 3), fnum=1)
-        kwplot.imshow(right_rect, pnum=(2, 3, 2), fnum=1)
-        kwplot.imshow(left_rect, pnum=(2, 3, 1), fnum=1)
+    kwplot.imshow(img_disparity, pnum=(2, 3, 3), fnum=1)
+    kwplot.imshow(right_rect, pnum=(2, 3, 2), fnum=1)
+    kwplot.imshow(left_rect, pnum=(2, 3, 1), fnum=1)
 
-        annots = dset.annots(gid=gid)
-        dets = annots.detections
-        self = boxes = dets.data['boxes']
-        new_boxes = boxes.warp(R1, homog_mode='divide')
-        dets.data['boxes'] = new_boxes.to_xywh()
-        dets.draw()
+    annots = dset.annots(gid=gid)
+    dets = annots.detections
+    self = boxes = dets.data['boxes']
+    new_boxes = boxes.warp(R1, homog_mode='divide')
+    dets.data['boxes'] = new_boxes.to_xywh()
+    dets.draw()
 
-        kwplot.imshow(imgL, pnum=(2, 3, 4), fnum=1)
-        annots = dset.annots(gid=gid)
-        dets = annots.detections
-        dets.draw()
+    kwplot.imshow(imgL, pnum=(2, 3, 4), fnum=1)
+    annots = dset.annots(gid=gid)
+    dets = annots.detections
+    dets.draw()
 
-        coords = dets.boxes.to_polygons().data[0].data['exterior']
-        matrix = P1
-        pts = coords.data
+    coords = dets.boxes.to_polygons().data[0].data['exterior']
+    matrix = P1
+    pts = coords.data
 
-        # Undistort points
-        # This puts points in "normalized camera coordinates" making them
-        # independent of the intrinsic parameters. Moving to world coordinates
-        # can now be done using only the RT transform.
-        [[fx, _, cx, _], [_, fy, cy, ty], [_, _, _, tz]] = P1
-        pts1 = pts
-        pts1_homog = np.hstack([pts1, [[1]] * len(pts1)])
-        rectified_pts1_homog = kwimage.warp_points(R1, pts1_homog)
-        rectified_pts1 = rectified_pts1_homog[:, 0:2]
+    # Undistort points
+    # This puts points in "normalized camera coordinates" making them
+    # independent of the intrinsic parameters. Moving to world coordinates
+    # can now be done using only the RT transform.
+    [[fx, _, cx, _], [_, fy, cy, ty], [_, _, _, tz]] = P1
+    pts1 = pts
+    pts1_homog = np.hstack([pts1, [[1]] * len(pts1)])
+    rectified_pts1_homog = kwimage.warp_points(R1, pts1_homog)
+    rectified_pts1 = rectified_pts1_homog[:, 0:2]
 
-        dets.data['boxes']
-        import kwimage
-        unpts1 = cv2.undistortPoints(pts1[:, None, :], K1, kc1)[:, 0, :]
-        unpts1_homog = np.hstack([unpts1, [[1]] * len(unpts1)])
-        unpts2_homog = kwimage.warp_points(RT, unpts1_homog)
-        kwimage.warp_points(P1[0:3, 0:3], unpts1_homog)
-        unpts2_cv = cv2.undistortPoints(pts2_cv, K2, kc2)
-        dets.warp(P1)
+    dets.data['boxes']
+    import kwimage
+    unpts1 = cv2.undistortPoints(pts1[:, None, :], K1, kc1)[:, 0, :]
+    unpts1_homog = np.hstack([unpts1, [[1]] * len(unpts1)])
+    unpts2_homog = kwimage.warp_points(RT, unpts1_homog)
+    kwimage.warp_points(P1[0:3, 0:3], unpts1_homog)
+    unpts2_cv = cv2.undistortPoints(pts2_cv, K2, kc2)
+    dets.warp(P1)
 
 
+    # stretch the range of the disparities to [0,255] for display
+    disp_img = img_disparity
+    img3d = cv2.reprojectImageTo3D(disp_img, Q)
+    valid = disp_img > 0
+    pts3d = img3d[valid]
+    depths = pts3d[:, 2]
+    import kwarray
+    print(kwarray.stats_dict(depths))
 
-        # stretch the range of the disparities to [0,255] for display
-        disp_img = img_disparity
-        img3d = cv2.reprojectImageTo3D(disp_img, Q)
-        valid = disp_img > 0
-        pts3d = img3d[valid]
-        depths = pts3d[:, 2]
-        import kwarray
-        print(kwarray.stats_dict(depths))
-        """
+    pip install plottool_ibeis
+    pip install vtool_ibeis
+
+    # img_left = kwimage.grab_test_image('tsukuba_l')
+    # img_right = kwimage.grab_test_image('tsukuba_r')
+    import pyhesaff
+    kpts1, desc1 = pyhesaff.detect_feats_in_image(img_left)
+    kpts2, desc2 = pyhesaff.detect_feats_in_image(img_right)
+
+    from vtool_ibeis import matching
+    annot1 = {'kpts': kpts1, 'vecs': desc1, 'rchip': img_left}
+    annot2 = {'kpts': kpts2, 'vecs': desc2, 'rchip': img_right}
+    match = matching.PairwiseMatch(annot1, annot2)
+    match.assign()
+
+    idx1, idx2 = match.fm.T
+    xy1_m = kpts1[idx1, 0:2]
+    xy2_m = kpts2[idx2, 0:2]
+
+    # TODO: need to better understand R1, and P1 and what
+    # initUndistortRectifyMap does wrt to K and D.
+    # cv2.initUndistortRectifyMap(K1, D1, np.linalg.inv(R1), np.linalg.pinv(P1)[0:3], img_dsize, cv2.CV_32FC1)
+    # cv2.initUndistortRectifyMap(np.eye(3), None, np.linalg.inv(R1), np.eye(3), img_dsize, cv2.CV_32FC1)
+
+    # Invert rectification?
+    # https://groups.google.com/forum/#!topic/pupil-discuss/8eSuYYNEaIQ
+    # https://stackoverflow.com/questions/35060164/reverse-undistortrectifymap
+    # https://answers.opencv.org/question/129425/difference-between-undistortpoints-and-projectpoints-in-opencv/
+
+    # K1_inv = np.linalg.inv(K1)
+    # left_points_unrect = cv2.undistortPoints(left_points_rect, K1, D1, R=R1, P=P1)[:, 0, :]
+    # left_points_unrect = cv2.undistortPoints(left_points_rect, P1[:, 0:3], D1, R=R1, P=K1)[:, 0, :]
+    # left_points_unrect = cv2.undistortPoints(left_points_rect, P1[:, 0:3], D1, R=None, P=K1)[:, 0, :]
+    # M = np.linalg.inv(P1[:, 0:3]) @ R1 @ K1
+    # M = K1 @ R1 @ np.linalg.inv(P1[:, 0:3])
+    # left_points_unrect = kwimage.warp_points(M, left_points_rect)
+    # kwplot.draw_points(left_points_unrect, color='red', radius=7, ax=ax1)
+    """
+    if 0:
+        E, Emask = cv2.findEssentialMat(left_corners, right_corners, K1)  # NOQA
+        F, Fmask = cv2.findFundamentalMat(left_corners, right_corners,  # NOQA
+                                          cv2.FM_RANSAC, 0.1, 0.99)  # NOQA
+        E = K1.T.dot(F).dot(K1)  # NOQA
 
 
 if __name__ == '__main__':
