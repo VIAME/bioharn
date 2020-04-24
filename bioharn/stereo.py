@@ -387,6 +387,11 @@ class StereoCamera(ub.NiceRepr, DictProxy):
     def __nice__(camera):
         return ub.repr2(camera.proxy, nl=2)
 
+    def _precache(camera, img_dsize):
+        camera._undistort_rectify_map(img_dsize)
+        camera._distort_unrectify_map(img_dsize)
+        camera._inv_PR()
+
     @ub.memoize_method
     def _undistort_rectify_map(camera, img_dsize):
         """
