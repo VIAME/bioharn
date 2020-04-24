@@ -506,8 +506,8 @@ class StereoCalibration():
             >>> points_rect2 = camera2.rectify_points(points2)
             >>> #
             >>> # Map them back
-            >>> img_unrect1 = camera1.unrectify_image(img_rect1, method=2)
-            >>> img_unrect2 = camera2.unrectify_image(img_rect2, method=2)
+            >>> img_unrect1 = camera1.unrectify_image(img_rect1)
+            >>> img_unrect2 = camera2.unrectify_image(img_rect2)
             >>> points_unrect1 = camera1.unrectify_points(points_rect1)
             >>> points_unrect2 = camera2.unrectify_points(points_rect2)
             >>> # xdoctest: +REQUIRES(--show)
