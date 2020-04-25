@@ -457,7 +457,7 @@ class DetectPredictor(object):
             item_scale_xy = scale_xy[idx].numpy()
             item_shift_xy = shift_xy_[idx].numpy()
             det = det.numpy()
-            det = det.compress(det.score > predictor.config['conf_thresh'])
+            det = det.compress(det.scores > predictor.config['conf_thresh'])
 
             if True and len(det) and np.all(det.boxes.width <= 1):
                 # HACK FOR YOLO
