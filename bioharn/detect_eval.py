@@ -187,8 +187,9 @@ def evaluate_models(cmdline=True, **kw):
         varied_basis = {}
 
         force_include_keys = {
-            'window_overlap',  'batch_size',  'augment', 'init',  'bstep',
-            'input_dims', 'lr', 'use_disparity',  'multiscale',
+            'window_overlap',
+            'batch_size', 'augment', 'init',  'bstep',
+            'input_dims', 'lr', 'channels',  'multiscale',
             'normalize_inputs', 'window_dims',
         }
         for k, vs in list(key_basis.items()):
@@ -330,6 +331,8 @@ class DetectEvaluator(object):
             'input_dims',
             'window_dims',
             'window_overlap',
+            'conf_thresh',
+            'nms_thresh',
         ])
         evaluator.pred_cfg = nh.util.make_short_idstr(pred_params)
         evaluator.predcfg_tag = evaluator.pred_cfg
@@ -841,7 +844,7 @@ if __name__ == '__main__':
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json \
             --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/deploy_MM_CascadeRCNN_moskmhld_015_SVBZIV.zip \
-            --sampler_backend=cog --batch_size=16
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.2 --nms_thresh=0.5
 
     """
 
