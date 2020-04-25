@@ -41,9 +41,9 @@ class DetectEvaluateConfig(scfg.Config):
         # Note: these dont work exactly correct due to mmdetection model
         # differences
         'nms_thresh': 0.4,
-        'conf_thresh': 0.001,
+        'conf_thresh': 0.1,
 
-        'xpu': scfg.Value('argv', help='a CUDA device or a CPU'),
+        'xpu': scfg.Value('auto', help='a CUDA device or a CPU'),
 
         'channels': scfg.Value(
             'native',
@@ -844,7 +844,7 @@ if __name__ == '__main__':
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json \
             --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/deploy_MM_CascadeRCNN_moskmhld_015_SVBZIV.zip \
-            --sampler_backend=cog --batch_size=16 --conf_thresh=0.2 --nms_thresh=0.5
+            --sampler_backend=cog --batch_size=64 --conf_thresh=0.2 --nms_thresh=0.5
 
     """
 
