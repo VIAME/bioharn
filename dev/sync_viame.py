@@ -20,6 +20,9 @@ rsync -avrRP $HOME/data/private/US_NE_2017_CFARM_HABCAM/./_dev viame:data/privat
 rsync -avrP $HOME/data/private/US_NE_2019_CFARM_HABCAM/raws/./_dev viame:data/private/US_NE_2019_CFARM_HABCAM/raws
 
 
+rsync -avrLP $HOME/data/./noaa_habcam viame:data
+
+
 kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_test.mscoco.json
 kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_vali.mscoco.json
 kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_train.mscoco.json

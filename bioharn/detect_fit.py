@@ -1343,6 +1343,31 @@ if __name__ == '__main__':
         --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
         --init=noop
 
+    python -m bioharn.detect_fit \
+        --nice=bioharn-det-mc-cascade-rgbd-v36 \
+        --train_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v6_train.mscoco.json \
+        --vali_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v6_vali.mscoco.json \
+        --schedule=step-10-20 \
+        --augment=complex \
+        --workdir=/home/joncrall/work/bioharn \
+        --channels="rgb|disparity" \
+        --optim=sgd \
+        --lr=1e-3 \
+        --input_dims=window \
+        --window_dims=512,512 \
+        --window_overlap=0.0 \
+        --multiscale=False \
+        --normalize_inputs=True \
+        --workers=4 \
+        --xpu=auto \
+        --batch_size=3 \
+        --balance=tfidf \
+        --sampler_backend=cog \
+        --bstep=8 \
+        --arch=cascade \
+        --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+        --init=noop
+
         --init=/home/joncrall/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v30-bigger-balanced/deploy.zip \
 
     """

@@ -189,7 +189,7 @@ def preproc_cfarm():
             src_fpaths, dst_fpaths, cog_config=cog_config, mode='process',
             max_workers=4)
 
-    # Create the COCO datasets
+    # Create the COCO datasets (and compute disparities)
     csv_fpaths = {
         '2017_CFARM': join(dpath, 'US_NE_2017_CFARM_HABCAM/HabCam 2017 dataset1 annotations.csv'),
         '2018_CFARM': join(dpath, 'US_NE_2018_CFARM_HABCAM/annotations.csv'),
@@ -206,20 +206,22 @@ def preproc_cfarm():
         coco_dset = convert_cfarm(df, img_root)
 
     # ---
+    # Combine into a big dataset
 
     split_fpaths = ub.ddict(list)
     for key, raw_dpath in ub.ProgIter(raw_dpaths.items()):
         dset_dir = ub.ensuredir((workdir, key))
-        all_fpath = list(glob.glob(join(dset_dir, '*_v5.mscoco.json')))[0]
-        train_fpath = list(glob.glob(join(dset_dir, '*_v5*train*.mscoco.json')))[0]
-        vali_fpath = list(glob.glob(join(dset_dir, '*_v5*vali*.mscoco.json')))[0]
-        test_fpath = list(glob.glob(join(dset_dir, '*_v5*test*.mscoco.json')))[0]
+        all_fpath = list(glob.glob(join(dset_dir, '*_v6.mscoco.json')))[0]
+        train_fpath = list(glob.glob(join(dset_dir, '*_v6*train*.mscoco.json')))[0]
+        vali_fpath = list(glob.glob(join(dset_dir, '*_v6*vali*.mscoco.json')))[0]
+        test_fpath = list(glob.glob(join(dset_dir, '*_v6*test*.mscoco.json')))[0]
         split_fpaths['all'].append(all_fpath)
         split_fpaths['train'].append(train_fpath)
         split_fpaths['vali'].append(vali_fpath)
         split_fpaths['test'].append(test_fpath)
 
     # Include habcam
+    split_fpaths.pop('all', None)
     split_fpaths['train'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json'))
     split_fpaths['vali'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json'))
     split_fpaths['test'].append(ub.expandpath('~/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_test.mscoco.json'))
@@ -242,22 +244,33 @@ def preproc_cfarm():
                 gpath = normpath(gpath)
                 assert exists(gpath)
                 img['file_name'] = abspath(gpath)
-            dset.dataset.pop('img_root')
-            assert not dset.missing_images()
+                for aux in img['auxillary']:
+                    gpath = dset.get_auxillary_fpath(gid, aux['channels'])
+                    aux['file_name'] = abspath(gpath)
+
+            dset.dataset.pop('img_root', None)
+            assert not dset.missing_images(check_aux=True)
             dsets.append(dset)
         splits[tag] = dsets
 
     combo_dsets = {}
     for tag, dsets in splits.items():
         print('merging')
-        print(ub.peek(dsets[0].imgs.values()))
+        print(ub.repr2(ub.peek(dsets[0].imgs.values())))
         combo_dset = kwcoco.CocoDataset.union(*dsets, tag=tag, img_root='/')
-        print(ub.peek(combo_dset.imgs.values()))
 
+        # standardize image prefixes
         combo_dset.img_root = out_dpath
-        missing = combo_dset.missing_images()
+        real_base = realpath(out_dpath)
+        for img in combo_dset.imgs.values():
+            img['file_name'] = relpath(realpath(img['file_name']), real_base)
+            for aux in img['auxillary']:
+                aux['file_name'] = relpath(realpath(aux['file_name']), real_base)
+
+        print(ub.repr2(ub.peek(combo_dset.imgs.values())))
+        missing = combo_dset.missing_images(check_aux=True)
         assert not missing
-        combo_dset.fpath = join(out_dpath, 'habcam_cfarm_v5_{}.mscoco.json'.format(tag))
+        combo_dset.fpath = join(out_dpath, 'habcam_cfarm_v6_{}.mscoco.json'.format(tag))
         print('{!r}'.format(combo_dset.fpath))
         # combo_dset.rebase(out_dpath)
         combo_dsets[tag] = combo_dset

@@ -831,6 +831,15 @@ if __name__ == '__main__':
             --dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
             --deployed=/home/joncrall/work/sealions/fit/runs/detect-sealion-cascade-v11/jwrqcohp/deploy_MM_CascadeRCNN_jwrqcohp_036_MHUOFO.zip
 
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
+            --deployed=/home/joncrall/work/sealions/fit/runs/detect-sealion-cascade-v11/jwrqcohp/deploy_MM_CascadeRCNN_jwrqcohp_036_MHUOFO.zip
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
+            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/deploy_MM_CascadeRCNN_moskmhld_015_SVBZIV.zip
+
     """
 
     evaluate_models()
