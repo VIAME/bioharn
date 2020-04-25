@@ -32,6 +32,8 @@ class DetectEvaluateConfig(scfg.Config):
 
         'window_overlap': scfg.Value(0.0, help='overlap of the sliding window'),
 
+        'sampler_backend': scfg.Value(None, help='ndsampler backend'),
+
         'workers': scfg.Value(4, help='num CPUs for data loading'),
 
         'verbose': 1,
@@ -265,7 +267,7 @@ class DetectEvaluator(object):
             print('loaded dataset')
             workdir = ub.expandpath(evaluator.config['workdir'])
             sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
-                                            backend=None)
+                                            backend=evaluator.config['sampler_backend'])
             evaluator.sampler = sampler
             # evaluator.sampler.frames.prepare(workers=min(2, evaluator.config['workers']))
             print('prepare frames')
@@ -837,8 +839,9 @@ if __name__ == '__main__':
             --deployed=/home/joncrall/work/sealions/fit/runs/detect-sealion-cascade-v11/jwrqcohp/deploy_MM_CascadeRCNN_jwrqcohp_036_MHUOFO.zip
 
         python ~/code/bioharn/bioharn/detect_eval.py \
-            --dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
-            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/deploy_MM_CascadeRCNN_moskmhld_015_SVBZIV.zip
+            --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json \
+            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/deploy_MM_CascadeRCNN_moskmhld_015_SVBZIV.zip \
+            --sampler_backend=cog
 
     """
 
