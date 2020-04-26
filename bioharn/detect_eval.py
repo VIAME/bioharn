@@ -844,7 +844,7 @@ if __name__ == '__main__':
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json \
             --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/deploy_MM_CascadeRCNN_moskmhld_015_SVBZIV.zip \
-            --sampler_backend=cog --batch_size=64 --conf_thresh=0.2 --nms_thresh=0.5
+            --sampler_backend=cog --batch_size=1024 --conf_thresh=0.2 --nms_thresh=0.5
 
     """
 
