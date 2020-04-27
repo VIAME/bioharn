@@ -1376,13 +1376,13 @@ if __name__ == '__main__':
 
         python -m bioharn.detect_fit \
             --nice=bioharn-det-mc-cascade-rgb-fine-coi-v40 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_train.mscoco.json.mscoco.json \
+            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_train.mscoco.json \
             --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_vali.mscoco.json \
             --schedule=step-10-20 \
             --augment=complex \
             --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/deploy_MM_CascadeRCNN_moskmhld_015_SVBZIV.zip \
             --workdir=/home/joncrall/work/bioharn \
-            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper"
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
             --arch=cascade \
             --channels="rgb" \
             --optim=sgd \
@@ -1392,7 +1392,7 @@ if __name__ == '__main__':
             --window_overlap=0.0 \
             --multiscale=False \
             --normalize_inputs=True \
-            --workers=4 \
+            --workers=0 \
             --xpu=0 \
             --batch_size=3 \
             --balance=tfidf \

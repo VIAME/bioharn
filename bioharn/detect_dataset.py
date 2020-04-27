@@ -201,6 +201,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
         inp_size = np.array(input_dims[::-1])
 
         gid, slices, aids = self.chosen_regions[index]
+
+        if self.augmenter is not None:
+            # TODO: jitter the slices a bit
+            pass
+
         tr = {'gid': gid, 'slices': slices}
         _debug('tr = {!r}'.format(tr))
 
@@ -449,9 +454,17 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 raise AssertionError('for now balance must be tfidf')
 
             # label_freq = ub.map_vals(len, self.sampler.dset.index.cid_to_aids)
-            import xdev
-            xdev.embed()
             anns = self.sampler.dset.anns
+            cats = self.sampler.dset.cats
+
+            label_to_weight = None
+            if self.classes_of_interest:
+                # Only give sampling weight to categories we care about
+                label_to_weight = {cid: 0 for cid in cats.keys()}
+                for cname in self.classes_of_interest:
+                    cid = self.sampler.classes.node_to_id[cname]
+                    label_to_weight[cid] = 1
+
             index_to_labels = [
                 [anns[aid]['category_id'] for aid in aids]
                 for gid, slices, aids in self.chosen_regions
@@ -459,7 +472,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
             batch_sampler = nh.data.batch_samplers.GroupedBalancedBatchSampler(
                 index_to_labels, batch_size=batch_size, num_batches='auto',
-                shuffle=shuffle, rng=None
+                shuffle=shuffle, label_to_weight=label_to_weight, rng=None
             )
             print('balanced batch_sampler = {!r}'.format(batch_sampler))
         elif multiscale:
