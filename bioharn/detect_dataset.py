@@ -9,6 +9,7 @@ from bioharn.channel_spec import ChannelSpec
 from bioharn.data_containers import ItemContainer
 from bioharn.data_containers import container_collate
 from functools import partial
+import numbers
 
 # _debug = print
 _debug = ub.identity
@@ -48,7 +49,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
     def __init__(self, sampler, augment='simple', window_dims=[512, 512],
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
                  factor=32, use_segmentation=True, gravity=0.0,
-                 channels='rgb'):
+                 classes_of_interest=None, channels='rgb'):
         super(DetectFitDataset, self).__init__()
 
         self.sampler = sampler
@@ -63,6 +64,10 @@ class DetectFitDataset(torch.utils.data.Dataset):
         self.input_dims = np.array(input_dims, dtype=np.int)
         self.window_dims = window_dims
         self.window_overlap = window_overlap
+
+        if classes_of_interest is None:
+            classes_of_interest = []
+        self.classes_of_interest = {c.lower() for c in classes_of_interest}
 
         # Can we do this lazilly?
         self._prebuild_pool()
@@ -187,7 +192,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         if isinstance(spec, dict):
             index = spec['index']
             input_dims = spec['input_dims']
-        elif isinstance(spec, (np.int64, np.int32, np.integer, int)):
+        elif isinstance(spec, numbers.Integral):
             index = int(spec)
             input_dims = self.input_dims
         else:
@@ -262,9 +267,12 @@ class DetectFitDataset(torch.utils.data.Dataset):
             if catname.lower() in {'unknown', 'ignore'}:
                 weights[idx] = 0
 
-        # TODO: remove anything marked as "negative"
+            if self.classes_of_interest:
+                if catname.lower() not in self.classes_of_interest:
+                    weights[idx] = 0
 
-        HACK_SSEG = True
+        # TODO: remove anything marked as "negative"
+        HACK_SSEG = False
         if HACK_SSEG:
             if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
                 ssegs = []
@@ -441,6 +449,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 raise AssertionError('for now balance must be tfidf')
 
             # label_freq = ub.map_vals(len, self.sampler.dset.index.cid_to_aids)
+            import xdev
+            xdev.embed()
             anns = self.sampler.dset.anns
             index_to_labels = [
                 [anns[aid]['category_id'] for aid in aids]

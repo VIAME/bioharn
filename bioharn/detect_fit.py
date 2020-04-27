@@ -93,6 +93,8 @@ class DetectFitConfig(scfg.Config):
         'draw_interval': scfg.Value(1, help='Minutes to wait between drawing'),
         'draw_per_batch': scfg.Value(8, help='Number of items to draw within each batch'),
 
+        'classes_of_interest': scfg.Value([], help='if specified only these classes are given weight'),
+
         'collapse_classes': scfg.Value(False, help='force one-class detector'),
         'ensure_background_class': scfg.Value(True, help='ensure a background category exists'),
         'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
@@ -701,6 +703,7 @@ def setup_harn(cmdline=True, **kw):
     torch_datasets = {
         tag: DetectFitDataset(
             sampler,
+            classes_of_interest=config['classes_of_interest'],
             use_segmentation='mask' in config['arch'].lower(),
             input_dims=config['input_dims'],
             window_dims=config['window_dims'],
@@ -1369,6 +1372,31 @@ if __name__ == '__main__':
         --init=noop
 
         --init=/home/joncrall/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v30-bigger-balanced/deploy.zip \
+
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgb-fine-coi-v40 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_train.mscoco.json.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_vali.mscoco.json \
+            --schedule=step-10-20 \
+            --augment=complex \
+            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/deploy_MM_CascadeRCNN_moskmhld_015_SVBZIV.zip \
+            --workdir=/home/joncrall/work/bioharn \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper"
+            --arch=cascade \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --workers=4 \
+            --xpu=0 \
+            --batch_size=3 \
+            --balance=tfidf \
+            --bstep=8
 
     """
     if 0:

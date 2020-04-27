@@ -393,6 +393,7 @@ catname_map = {
     'probable dead sea scallop width': 'dead sea scallop',
     'probable dead sea scallop': 'dead sea scallop',
     'probable dead sea scallop': 'dead sea scallop',
+
     'sea scallop clapper inexact': 'dead sea scallop',
     'sea scallop clapper width': 'dead sea scallop',
     'sea scallop clapper': 'dead sea scallop',
@@ -854,3 +855,45 @@ def _split_train_vali_test_gids(coco_dset, test_factor=3, vali_factor=6):
     }
     print('splits = {}'.format(ub.repr2(ub.map_vals(len, split_gids))))
     return split_gids
+
+
+def rework_cats_may_priority():
+    """
+    Rework such that certain classes are given priority and other are given a
+    weight of zero.
+
+    rsync may_priority_habcam* viame:data/noaa_habcam/combos/
+    """
+    import kwcoco
+    root = ub.expandpath('~/data/noaa_habcam/combos')
+    dsets = [
+        kwcoco.CocoDataset(join(root, 'habcam_cfarm_v6_train.mscoco.json')),
+        kwcoco.CocoDataset(join(root, 'habcam_cfarm_v6_vali.mscoco.json')),
+        kwcoco.CocoDataset(join(root, 'habcam_cfarm_v6_test.mscoco.json')),
+    ]
+
+    clapper = {
+        'sea scallop clapper inexact': 'clapper sea scallop',
+        'sea scallop clapper width': 'clapper sea scallop',
+        'sea scallop clapper': 'clapper sea scallop',
+        'probable clapper (width)': 'clapper sea scallop',
+    }
+
+    for dset in dsets:
+        clapper_cid = dset.ensure_category('clapper')
+        dset.rename_categories({'fish': 'roundfish'})
+        for ann in ub.ProgIter(dset.anns.values(), total=len(dset.anns)):
+            meta = ann['meta']
+            if 'object_name' in meta:
+                raw_cat = meta['object_name']
+            elif 'Name' in meta:
+                raw_cat = meta['Name']
+            else:
+                assert 0
+            if raw_cat in clapper:
+                ann['category_id'] = clapper_cid
+        dset._build_index()
+        dset.fpath = ub.augpath(dset.fpath, prefix='may_priority_')
+
+    for dset in dsets:
+        dset.dump(dset.fpath, newlines=True)
