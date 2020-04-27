@@ -693,8 +693,9 @@ class DetectEvaluator(object):
                     truth_dets = gid_to_truth[gid]
                     pred_dets = gid_to_pred[gid]
 
-                    thresh = 0.4
-                    pred_dets = pred_dets.compress(pred_dets.data['scores'] > thresh)
+                    thresh = 0.1
+                    if 'scores' in pred_dets.data:
+                        pred_dets = pred_dets.compress(pred_dets.data['scores'] > thresh)
                     # hack
                     truth_dset.imgs[gid]['file_name'] = truth_dset.imgs[gid]['file_name'].replace('joncrall/data', 'joncrall/remote/namek/data')
                     canvas = truth_dset.load_image(gid)
