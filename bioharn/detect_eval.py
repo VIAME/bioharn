@@ -435,6 +435,16 @@ class DetectEvaluator(object):
         return gid_to_pred
 
     def evaluate(evaluator):
+        """
+        Ignore:
+            config = dict(
+                dataset=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json'),
+                deployed=ub.expandpath('$HOME/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000012.pt'),
+                sampler_backend='cog', batch_size=256,
+                conf_thresh=0.2, nms_thresh=0.5
+            )
+            evaluator = DetectEvaluator(config)
+        """
         if evaluator.predictor is None or evaluator.sampler is None:
             evaluator._init()
         # TODO
@@ -510,9 +520,18 @@ class DetectEvaluator(object):
             dmet.add_predictions(pred_dets, gid=gid)
             dmet.add_truth(true_dets, gid=gid)
 
+        # Ignore any categories with too few tests instances
+        ignore_classes = {'ignore'}
+
+        ignore_class_freq_thresh = 200
+        true_catfreq = truth_sampler.dset.category_annotation_frequency()
+        rare_canames = {cname for cname, freq in true_catfreq.items()
+                        if freq < ignore_class_freq_thresh}
+        ignore_classes.update(rare_canames)
+
         # Detection only scoring
         print('Building confusion vectors')
-        cfsn_vecs = dmet.confusion_vectors(ignore_class='ignore')
+        cfsn_vecs = dmet.confusion_vectors(ignore_classes=ignore_classes)
 
         if 0:
             cfsn_vecs._data
@@ -528,7 +547,7 @@ class DetectEvaluator(object):
         print('pr_result = {!r}'.format(pr_result))
 
         # Get per-class detection results
-        ovr_binvecs = cfsn_vecs.binarize_ovr()
+        ovr_binvecs = cfsn_vecs.binarize_ovr(ignore_classes=ignore_classes)
         ovr_roc_result = ovr_binvecs.roc()['perclass']
         ovr_pr_result = ovr_binvecs.precision_recall()['perclass']
 
@@ -567,6 +586,8 @@ class DetectEvaluator(object):
             'roc_result': roc_result,
             'pr_result': pr_result,
 
+            'ignore_classes': sorted(ignore_classes),
+
             'ovr_roc_result': ovr_roc_result,
             'ovr_pr_result': ovr_pr_result,
 
@@ -575,7 +596,7 @@ class DetectEvaluator(object):
         }
 
         if 0:
-            voc_info = dmet.score_voc(ignore_class='ignore')
+            voc_info = dmet.score_voc(ignore_classes='ignore')
             print('voc_info = {!r}'.format(voc_info))
             metrics['voc_info'] = voc_info
 
