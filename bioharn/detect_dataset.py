@@ -72,6 +72,10 @@ class DetectFitDataset(torch.utils.data.Dataset):
         # Can we do this lazilly?
         self._prebuild_pool()
 
+        window_jitter = 0.5 if augment == 'complex' else 0
+        window_jitter = 0.1 if augment == 'medium' else 0
+        self.window_jitter = window_jitter
+
         # assert np.all(self.input_dims % self.factor == 0)
         # FIXME: multiscale training is currently not enabled
         if not scales:
@@ -85,6 +89,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         else:
             self.augmenter = DetectionAugmentor(mode=augment, gravity=gravity,
                                                 rng=self.rng)
+
+        self.disable_augmenter = False  # flag for forcing augmentor off
 
         # Used to resize images to the appropriate inp_size without changing
         # the aspect ratio.
@@ -200,11 +206,22 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         inp_size = np.array(input_dims[::-1])
 
-        gid, slices, aids = self.chosen_regions[index]
+        gid, slices, _ = self.chosen_regions[index]
 
-        if self.augmenter is not None:
-            # TODO: jitter the slices a bit
-            pass
+        if self.augmenter is not None and self.window_jitter and not self.disable_augmenter:
+            # jitter the sliding window location a little bit.
+            jitter = self.window_jitter
+            y1 = slices[0].start
+            y2 = slices[0].stop
+            x1 = slices[1].start
+            x2 = slices[1].stop
+            box = kwimage.Boxes([[x1, y1, x2, y2]], 'tlbr')
+            rng = self.rng
+            offset = (int(box.width[0, 0] * jitter * (0.5 - rng.rand())),
+                      int(box.height[0, 0] * jitter * (.5 - rng.rand())))
+            box = box.translate(offset)
+            x1, y1, x2, y2 = map(int, box.data[0])
+            slices = tuple([slice(y1, y2), slice(x1, x2)])
 
         tr = {'gid': gid, 'slices': slices}
         _debug('tr = {!r}'.format(tr))
@@ -298,7 +315,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         _debug('dets = {!r}'.format(dets))
         orig_size = np.array(imdata.shape[0:2][::-1])
 
-        if self.augmenter:
+        if self.augmenter and not self.disable_augmenter:
             _debug('augment')
             imdata, dets, disp_im = self.augmenter.augment_data(
                 imdata, dets, disp_im)
@@ -440,6 +457,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>>     if len(shapes) > 1:
             >>>         break
         """
+        # dataset = self
         import torch.utils.data.sampler as torch_sampler
         assert len(self) > 0, 'must have some data'
         if shuffle:
@@ -462,13 +480,12 @@ class DetectFitDataset(torch.utils.data.Dataset):
             label_to_weight = None
             if self.classes_of_interest:
                 # Only give sampling weight to categories we care about
-                label_to_weight = {cid: 0 for cid in cats.keys()}
+                label_to_weight = {cat['name']: 0 for cat in cats.values()}
                 for cname in self.classes_of_interest:
-                    cid = self.sampler.classes.node_to_id[cname]
-                    label_to_weight[cid] = 1
+                    label_to_weight[cname] = 1
 
             index_to_labels = [
-                [anns[aid]['category_id'] for aid in aids]
+                np.array([cats[anns[aid]['category_id']]['name'] for aid in aids], dtype=np.str)
                 for gid, slices, aids in self.chosen_regions
             ]
 

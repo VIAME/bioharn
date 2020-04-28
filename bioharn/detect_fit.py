@@ -737,9 +737,10 @@ def setup_harn(cmdline=True, **kw):
     channels = ChannelSpec.coerce(config['channels'])
 
     if config['normalize_inputs']:
-        # Get stats on the dataset (todo: turn off augmentation for this)
+        # Get stats on the dataset (todo: nice way to disable augmentation temporarilly for this)
         _dset = torch_datasets['train']
         stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(1000, len(_dset))]
+
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
 
         cacher = ub.Cacher('dset_mean', cfgstr=_dset.input_id + 'v3')
@@ -750,6 +751,8 @@ def setup_harn(cmdline=True, **kw):
             # collate_fn = container_collate
             from functools import partial
             collate_fn = partial(container_collate, num_devices=1)
+
+            _dset.disable_augmenter = True
 
             loader = torch.utils.data.DataLoader(
                 stats_subset,
@@ -782,6 +785,8 @@ def setup_harn(cmdline=True, **kw):
 
             input_stats = ub.peek(perchan_input_stats.values())
             cacher.save(input_stats)
+
+            _dset.disable_augmenter = False  # hack
     else:
         input_stats = None
     print('input_stats = {!r}'.format(input_stats))
