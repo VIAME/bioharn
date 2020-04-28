@@ -309,7 +309,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             boxes=boxes,
             segmentations=ssegs,
             class_idxs=np.array([classes.id_to_idx[cid] for cid in cids]),
-            weights=np.array(weights),
+            weights=np.array(weights, dtype=np.float32),
             classes=classes,
         )
         _debug('dets = {!r}'.format(dets))
@@ -338,8 +338,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         frame_box = kwimage.Boxes([[0, 0, w, h]], 'xywh')
         isect = dets.boxes.isect_area(frame_box)
         visibility = (isect / dets.boxes.area)[:, 0]
-        ignore_flags = (visibility < ignore_thresh).astype(np.float)
-        dets.data['weights'] *= (1 - ignore_flags)
+        ignore_flags = (visibility < ignore_thresh).astype(np.float32)
+        dets.data['weights'] *= (1.0 - ignore_flags)
 
         dets = dets.compress(visibility > 0)
 
