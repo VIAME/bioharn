@@ -925,7 +925,7 @@ def setup_harn(cmdline=True, **kw):
             'patience': config['patience'],
             'max_epoch': config['max_epoch'],
             'min_lr': config['min_lr'],
-            'smoothing': .6,
+            'smoothing': 0,
         }),
 
         'other': {
@@ -1397,7 +1397,32 @@ if __name__ == '__main__':
             --window_overlap=0.0 \
             --multiscale=False \
             --normalize_inputs=True \
-            --workers=0 \
+            --workers=4 \
+            --xpu=0 \
+            --batch_size=6 \
+            --balance=tfidf \
+            --bstep=8
+
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgbd-fine-coi-v41 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_train.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_vali.mscoco.json \
+            --schedule=step-10-20 \
+            --augment=complex \
+            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000015.pt \
+            --workdir=/home/joncrall/work/bioharn \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --arch=cascade \
+            --channels="rgb|disparity" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --workers=4 \
             --xpu=0 \
             --batch_size=3 \
             --balance=tfidf \

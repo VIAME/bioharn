@@ -148,19 +148,33 @@ class DetectPredictor(object):
         return native
 
     def _ensure_model(predictor):
+        # Just make sure the model is in memory (it might not be on the XPU yet)
         if predictor.model is None:
             xpu = nh.XPU.coerce(predictor.config['xpu'])
             deployed = nh.export.DeployedModel.coerce(predictor.config['deployed'])
             model = deployed.load_model()
-            if xpu != nh.XPU.from_data(model):
-                predictor.info('Mount {} on {}'.format(deployed, xpu))
-                model = xpu.mount(model)
             model.train(False)
-            predictor.model = model
             predictor.xpu = xpu
+            predictor.model = model
             # The model must have a coder
             predictor.raw_model = predictor.xpu.raw(predictor.model)
             predictor.coder = predictor.raw_model.coder
+
+    def _ensure_mounted_model(predictor):
+        predictor._ensure_model()
+        model = predictor.model
+        _ensured_mount = getattr(model, '_ensured_mount', False)
+        if not _ensured_mount:
+            xpu = predictor.xpu
+            if xpu != nh.XPU.from_data(model):
+                predictor.info('Mount model on {}'.format(xpu))
+                model = xpu.mount(model)
+                predictor.model = model
+                # The model must have a coder
+                predictor.raw_model = predictor.xpu.raw(predictor.model)
+                predictor.coder = predictor.raw_model.coder
+            # hack to prevent multiple XPU data checks
+            predictor.model._ensured_mount = True
 
     def _rectify_image(predictor, path_or_image):
         if isinstance(path_or_image, six.string_types):
@@ -188,12 +202,12 @@ class DetectPredictor(object):
             sampler.
 
         TODO:
-            - [ ] Handle auxillary inputs
+            - [X] Handle auxillary inputs
         """
         predictor.info('Begin detection prediction')
 
         # Ensure model is in prediction mode and disable gradients for speed
-        predictor._ensure_model()
+        predictor._ensure_mounted_model()
 
         full_rgb = predictor._rectify_image(path_or_image)
         predictor.info('Detect objects in image (shape={})'.format(full_rgb.shape))
@@ -262,6 +276,8 @@ class DetectPredictor(object):
             predict_sampler. It only requires that you pass your data in as an
             image.
         """
+        predictor._ensure_mounted_model()
+
         native = predictor._infer_native(predictor.config)
         input_dims = native['input_dims']
         window_dims = native['window_dims']

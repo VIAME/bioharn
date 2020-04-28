@@ -551,29 +551,6 @@ class DetectEvaluator(object):
         ovr_roc_result = ovr_binvecs.roc()['perclass']
         ovr_pr_result = ovr_binvecs.precision_recall()['perclass']
 
-        # print(dmet.score_voc())
-        # print(dmet.score_coco(verbose=1))
-        # dmet.score_netharn()
-
-        # CascadeRCNN 512
-        # 'voc_mAP':  0.8379016325674102,
-        # 'coco_mAP': 0.8357345630911905
-        # netharn_AP: 0.8218177807000042,
-
-        # CascadeRCNN 1024
-        # coco_mAP: 0.8661484309698254
-        # voc_mAP: 0.8713472908407934
-        # netharn_AP: 0.8175519079596175
-
-        # CascadeRCNN 1024 - epoch 37
-        # coco_mAP: 0.8665642753052862,
-        # voc_mAP: 0.8712469728145056,
-        # netharn_AP: 0.8172452008810529,
-
-        # RetinaNet
-        # voc_mAP: 0.8418748847551925,
-        # coco_mAP: 0.8370107889677438
-
         # TODO: cache detections to a file on disk.
         # Give the DetectionMetrics code an entry point that just takes two
         # coco files and scores them.
@@ -871,6 +848,11 @@ if __name__ == '__main__':
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json \
             --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000012.pt \
+            --sampler_backend=cog --batch_size=256 --conf_thresh=0.2 --nms_thresh=0.5
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json \
+            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000015.pt \
             --sampler_backend=cog --batch_size=256 --conf_thresh=0.2 --nms_thresh=0.5
 
     """
