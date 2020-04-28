@@ -470,8 +470,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 raise AssertionError('for now you must shuffle when you balance')
             if balance != 'tfidf':
                 raise AssertionError('for now balance must be tfidf')
-            import xdev
-            xdev.embed()
 
             # label_freq = ub.map_vals(len, self.sampler.dset.index.cid_to_aids)
             anns = self.sampler.dset.anns
