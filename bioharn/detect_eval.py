@@ -447,7 +447,7 @@ class DetectEvaluator(object):
         """
         if evaluator.predictor is None or evaluator.sampler is None:
             evaluator._init()
-        # TODO
+
         evaluator.predictor.config['verbose'] = 3
         gid_to_pred = evaluator._run_predictions()
 
@@ -539,17 +539,20 @@ class DetectEvaluator(object):
         negative_classes = ['background']
         # Get pure detection results
         binvecs = cfsn_vecs.binarize_peritem(negative_classes=negative_classes)
-        roc_result = binvecs.roc()
 
-        # pr_result = binvecs.precision_recall(method='voc2012')
-        pr_result = binvecs.precision_recall(method='sklearn')
+        roc_result = binvecs.roc()
+        pr_result = binvecs.precision_recall()
+        thresh_result = binvecs.threshold_curves()
+
         print('roc_result = {!r}'.format(roc_result))
         print('pr_result = {!r}'.format(pr_result))
+        print('thresh_result = {!r}'.format(thresh_result))
 
         # Get per-class detection results
         ovr_binvecs = cfsn_vecs.binarize_ovr(ignore_classes=ignore_classes)
         ovr_roc_result = ovr_binvecs.roc()['perclass']
         ovr_pr_result = ovr_binvecs.precision_recall()['perclass']
+        ovr_thresh_result = ovr_binvecs.threshold_curves()['perclass']
 
         # TODO: cache detections to a file on disk.
         # Give the DetectionMetrics code an entry point that just takes two
@@ -601,13 +604,19 @@ class DetectEvaluator(object):
                                     evaluator.dset_tag,))
             fig.set_size_inches((11, 6))
             pr_result.draw()
-
-            # TODO: MCC / G-score / F-score vs threshold
-
             kwplot.figure(fnum=1, pnum=(1, 2, 2))
             roc_result.draw()
+            fig_fpath = join(evaluator.paths['metrics'], 'loc_pr_roc.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
 
-            fig_fpath = join(evaluator.paths['metrics'], 'pr_roc.png')
+            fig = kwplot.figure(fnum=1, pnum=(1, 1, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            thresh_result.draw()
+            fig_fpath = join(evaluator.paths['metrics'], 'loc_thresh.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             fig.savefig(fig_fpath)
 
@@ -618,7 +627,6 @@ class DetectEvaluator(object):
             fig.set_size_inches((11, 6))
             ovr_roc_result.draw(fnum=2)
 
-            # TODO: MCC / G-score / F-score vs threshold
             fig_fpath = join(evaluator.paths['metrics'], 'perclass_roc.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             fig.savefig(fig_fpath)
@@ -630,6 +638,46 @@ class DetectEvaluator(object):
             fig.set_size_inches((11, 6))
             ovr_pr_result.draw(fnum=2)
             fig_fpath = join(evaluator.paths['metrics'], 'perclass_pr.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
+
+            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            ovr_thresh_result.draw(fnum=2, key='mcc')
+            fig_fpath = join(evaluator.paths['metrics'], 'perclass_mcc.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
+
+            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            ovr_thresh_result.draw(fnum=2, key='g1')
+            fig_fpath = join(evaluator.paths['metrics'], 'perclass_g1.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
+
+            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            ovr_thresh_result.draw(fnum=2, key='f1')
+            fig_fpath = join(evaluator.paths['metrics'], 'perclass_f1.png')
+            print('write fig_fpath = {!r}'.format(fig_fpath))
+            fig.savefig(fig_fpath)
+
+            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                figtitle='{} {}\n{}'.format(
+                                    evaluator.model_tag, evaluator.predcfg_tag,
+                                    evaluator.dset_tag,))
+            fig.set_size_inches((11, 6))
+            ovr_thresh_result.draw(fnum=2, key='acc')
+            fig_fpath = join(evaluator.paths['metrics'], 'perclass_acc.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             fig.savefig(fig_fpath)
 
