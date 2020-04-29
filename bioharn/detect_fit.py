@@ -61,6 +61,8 @@ class DetectFitConfig(scfg.Config):
 
         'optim': scfg.Value('sgd', help='torch optimizer, sgd, adam, adamw, etc...'),
         'batch_size': scfg.Value(4, help='number of images that run through the network at a time'),
+        'num_batches': scfg.Value('auto', help='number of batches per epoch'),
+
         'bstep': scfg.Value(8, help='num batches before stepping'),
         'lr': scfg.Value(1e-3, help='learning rate'),  # 1e-4,
         'decay': scfg.Value(1e-4, help='weight decay'),
@@ -723,6 +725,7 @@ def setup_harn(cmdline=True, **kw):
     loaders_ = {
         tag: dset.make_loader(
             batch_size=config['batch_size'],
+            num_batches=config['num_batches'] if tag == 'train' else 'auto',
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
             balance=(tag == 'train' and config['balance']),

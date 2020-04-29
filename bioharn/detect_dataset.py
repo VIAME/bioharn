@@ -436,7 +436,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
     def make_loader(self, batch_size=16, num_workers=0, shuffle=False,
                     pin_memory=False, drop_last=False, multiscale=False,
-                    balance=False, xpu=None):
+                    balance=False, num_batches='auto', xpu=None):
         """
         CommandLine:
             xdoctest -m /home/joncrall/code/bioharn/bioharn/detect_dataset.py DetectFitDataset.make_loader
@@ -475,6 +475,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
             anns = self.sampler.dset.anns
             cats = self.sampler.dset.cats
 
+            assert not multiscale, 'multiscale and balance not yet compatible'
+
             label_to_weight = None
             if self.classes_of_interest:
                 # Only give sampling weight to categories we care about
@@ -488,7 +490,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             ]
 
             batch_sampler = nh.data.batch_samplers.GroupedBalancedBatchSampler(
-                index_to_labels, batch_size=batch_size, num_batches='auto',
+                index_to_labels, batch_size=batch_size, num_batches=num_batches,
                 shuffle=shuffle, label_to_weight=label_to_weight, rng=None
             )
             print('balanced batch_sampler = {!r}'.format(batch_sampler))

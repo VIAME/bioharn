@@ -57,6 +57,8 @@ class DetectEvaluateConfig(scfg.Config):
 
         'draw': scfg.Value(10, help='number of images with predictions to draw'),
         'enable_cache': scfg.Value(True, help='writes predictions to disk'),
+
+        'classes_of_interest': scfg.Value([], help='if specified only these classes are given weight'),
     }
 
 
@@ -439,7 +441,7 @@ class DetectEvaluator(object):
         Ignore:
             config = dict(
                 dataset=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json'),
-                deployed=ub.expandpath('$HOME/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000012.pt'),
+                deployed=ub.expandpath('$HOME/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000015.pt'),
                 sampler_backend='cog', batch_size=256,
                 conf_thresh=0.2, nms_thresh=0.5
             )
@@ -523,6 +525,14 @@ class DetectEvaluator(object):
         # Ignore any categories with too few tests instances
         ignore_classes = {'ignore'}
 
+        if 0:
+            classes_of_interest = [
+                'flatfish', 'live sea scallop', 'dead sea scallop']
+
+        if evaluator.config['classes_of_interest']:
+            classes_of_interest = evaluator.config['classes_of_interest']
+            ignore_classes.update(set(classes) - set(classes_of_interest))
+
         ignore_class_freq_thresh = 200
         true_catfreq = truth_sampler.dset.category_annotation_frequency()
         rare_canames = {cname for cname, freq in true_catfreq.items()
@@ -533,11 +543,9 @@ class DetectEvaluator(object):
         print('Building confusion vectors')
         cfsn_vecs = dmet.confusion_vectors(ignore_classes=ignore_classes)
 
-        if 0:
-            cfsn_vecs._data
-
         negative_classes = ['background']
-        # Get pure detection results
+
+        # Get pure per-item detection results
         binvecs = cfsn_vecs.binarize_peritem(negative_classes=negative_classes)
 
         roc_result = binvecs.roc()
@@ -553,6 +561,13 @@ class DetectEvaluator(object):
         ovr_roc_result = ovr_binvecs.roc()['perclass']
         ovr_pr_result = ovr_binvecs.precision_recall()['perclass']
         ovr_thresh_result = ovr_binvecs.threshold_curves()['perclass']
+
+        if 0:
+            cname = 'flatfish'
+            cx = cfsn_vecs.classes.index(cname)
+            is_true = (cfsn_vecs.data['true'] == cx)
+            num_localized = (cfsn_vecs.data['pred'][is_true] != -1).sum()
+            num_missed = is_true.sum() - num_localized
 
         # TODO: cache detections to a file on disk.
         # Give the DetectionMetrics code an entry point that just takes two
@@ -641,45 +656,17 @@ class DetectEvaluator(object):
             print('write fig_fpath = {!r}'.format(fig_fpath))
             fig.savefig(fig_fpath)
 
-            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
-            fig.set_size_inches((11, 6))
-            ovr_thresh_result.draw(fnum=2, key='mcc')
-            fig_fpath = join(evaluator.paths['metrics'], 'perclass_mcc.png')
-            print('write fig_fpath = {!r}'.format(fig_fpath))
-            fig.savefig(fig_fpath)
-
-            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
-            fig.set_size_inches((11, 6))
-            ovr_thresh_result.draw(fnum=2, key='g1')
-            fig_fpath = join(evaluator.paths['metrics'], 'perclass_g1.png')
-            print('write fig_fpath = {!r}'.format(fig_fpath))
-            fig.savefig(fig_fpath)
-
-            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
-            fig.set_size_inches((11, 6))
-            ovr_thresh_result.draw(fnum=2, key='f1')
-            fig_fpath = join(evaluator.paths['metrics'], 'perclass_f1.png')
-            print('write fig_fpath = {!r}'.format(fig_fpath))
-            fig.savefig(fig_fpath)
-
-            fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
-            fig.set_size_inches((11, 6))
-            ovr_thresh_result.draw(fnum=2, key='acc')
-            fig_fpath = join(evaluator.paths['metrics'], 'perclass_acc.png')
-            print('write fig_fpath = {!r}'.format(fig_fpath))
-            fig.savefig(fig_fpath)
+            keys = ['mcc', 'g1', 'f1', 'acc', 'ppv', 'tpr', 'mk', 'bm']
+            for key in keys:
+                fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                    figtitle='{} {}\n{}'.format(
+                                        evaluator.model_tag, evaluator.predcfg_tag,
+                                        evaluator.dset_tag,))
+                fig.set_size_inches((11, 6))
+                ovr_thresh_result.draw(fnum=2, key=key)
+                fig_fpath = join(evaluator.paths['metrics'], 'perclass_{}.png'.format(key))
+                print('write fig_fpath = {!r}'.format(fig_fpath))
+                fig.savefig(fig_fpath)
 
             # NOTE: The threshold on these confusion matrices is VERY low.
             fig = kwplot.figure(fnum=3, doclf=True)
@@ -711,7 +698,23 @@ class DetectEvaluator(object):
             if True:
                 print('Choosing representative truth images')
                 truth_dset = evaluator.sampler.dset
-                selected_gids = find_representative_images(truth_dset)
+
+                # Choose representative images from each source dataset
+                try:
+                    gid_to_source = {
+                        gid: img.get('source', None)
+                        for gid, img in truth_dset.imgs.items()
+                    }
+                    source_to_gids = ub.group_items(gid_to_source.keys(), gid_to_source.values())
+
+                    selected_gids = set()
+                    for source, _gids in source_to_gids.items():
+                        selected = find_representative_images(truth_dset, _gids)
+                        selected_gids.update(selected)
+
+                except Exception:
+                    selected_gids = find_representative_images(truth_dset)
+
                 dpath = ub.ensuredir((evaluator.paths['viz'], 'selected'))
 
                 for gid in ub.ProgIter(selected_gids, desc='draw selected imgs'):
@@ -733,18 +736,24 @@ class DetectEvaluator(object):
         return metrics_fpath
 
 
-def find_representative_images(truth_dset):
+def find_representative_images(truth_dset, gids=None):
     # Select representative images to draw such that each category
     # appears at least once.
+
+    if gids is None:
+        gids = sorted(truth_dset.imgs.keys())
+
+    gid_to_aids = ub.dict_subset(truth_dset.gid_to_aids, gids)
+
     gid_to_cidfreq = ub.map_vals(
         lambda aids: ub.dict_hist([truth_dset.anns[aid]['category_id'] for aid in aids]),
-        truth_dset.gid_to_aids)
+        gid_to_aids)
 
-    gid_to_nannots = ub.map_vals(len, truth_dset.gid_to_aids)
+    gid_to_nannots = ub.map_vals(len, gid_to_aids)
 
     gid_to_cids = {
-        gid: list(cidfreq.keys())
-        for gid, cidfreq in gid_to_cidfreq.items()
+        gid: list(gid_to_cidfreq[gid].keys())
+        for gid in gids
     }
     # Solve setcover with different weight schemes to get a better
     # representative sample.
@@ -902,6 +911,16 @@ if __name__ == '__main__':
             --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json \
             --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000015.pt \
             --sampler_backend=cog --batch_size=256 --conf_thresh=0.2 --nms_thresh=0.5
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json \
+            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000018.pt \
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.2 --nms_thresh=0.5 --xpu=1
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json \
+            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000005.pt \
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.2 --nms_thresh=0.5 --xpu=1
 
     """
 
