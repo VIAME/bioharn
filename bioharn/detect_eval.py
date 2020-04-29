@@ -441,7 +441,7 @@ class DetectEvaluator(object):
         Ignore:
             config = dict(
                 dataset=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json'),
-                deployed=ub.expandpath('$HOME/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000015.pt'),
+                deployed=ub.expandpath('$HOME/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000018.pt'),
                 sampler_backend='cog', batch_size=256,
                 conf_thresh=0.2, nms_thresh=0.5
             )
@@ -538,6 +538,12 @@ class DetectEvaluator(object):
         rare_canames = {cname for cname, freq in true_catfreq.items()
                         if freq < ignore_class_freq_thresh}
         ignore_classes.update(rare_canames)
+
+        # TODO: when making the ovr localization curves, it might be a good
+        # idea to include a second version where any COI prediction assigned
+        # to a non-COI truth is given a weight of zero, so we can focus on
+        # our TPR and FPR with respect to the COI itself and the background.
+        # This metric is useful when we assume we have a subsequent classifier.
 
         # Detection only scoring
         print('Building confusion vectors')
