@@ -199,7 +199,7 @@ class DetectPredictor(object):
         predictor.info('Detect objects in image (shape={})'.format(full_rgb.shape))
 
         full_rgb, pad_offset_rc, window_dims = predictor._prepare_image(full_rgb)
-        pad_offset_xy = torch.FloatTensor(np.ascontiguousarray(pad_offset_rc[::-1]))
+        pad_offset_xy = torch.FloatTensor(np.ascontiguousarray(pad_offset_rc[::-1], dtype=np.float32))
 
         slider_dataset = predictor._make_dataset(full_rgb, window_dims)
 
