@@ -583,7 +583,8 @@ class CocoEvaluator(object):
             true_classes, pred_classes)
 
         # Move truth to the same class indices as predictions
-        for git, det in ub.ProgIter(gids, desc='Rectify truth'):
+        for gid in ub.ProgIter(gids, desc='Rectify truth'):
+            det = gid_to_true[gid]
             new_classes = classes
             old_classes = det.meta['classes']
             old_cidxs = det.data['class_idxs']
