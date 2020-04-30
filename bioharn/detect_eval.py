@@ -1058,7 +1058,7 @@ if __name__ == '__main__':
             --sampler_backend=cog --batch_size=16 --conf_thresh=0.2 --nms_thresh=0.5 --xpu=1
 
         python ~/code/bioharn/bioharn/detect_eval.py \
-            --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json \
+            --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_test.mscoco.json \
             --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000005.pt \
             --sampler_backend=cog --batch_size=16 --conf_thresh=0.2 --nms_thresh=0.5 --xpu=1
 
