@@ -3,6 +3,7 @@ from os.path import join
 from os.path import dirname
 import os
 import six
+import kwarray
 import ndsampler
 import kwimage
 import netharn as nh
@@ -583,7 +584,7 @@ class CocoEvaluator(object):
             true_classes, pred_classes)
 
         # Move truth to the same class indices as predictions
-        for gid in ub.ProgIter(gids, desc='Rectify truth'):
+        for gid in ub.ProgIter(gids, desc='Rectify truth class idxs'):
             det = gid_to_true[gid]
             new_classes = classes
             old_classes = det.meta['classes']
@@ -604,6 +605,11 @@ class CocoEvaluator(object):
         gid_to_true = coco_eval.gid_to_true
         gid_to_pred = coco_eval.gid_to_pred
 
+        # n_true_annots = sum(map(len, gid_to_true.values()))
+        # fp_cutoff = n_true_annots
+        # fp_cutoff = 10000
+        fp_cutoff = None
+
         from netharn.metrics import DetectionMetrics
         dmet = DetectionMetrics(classes=classes)
         for gid in ub.ProgIter(list(gid_to_pred.keys())):
@@ -623,12 +629,6 @@ class CocoEvaluator(object):
         if classes_of_interest:
             ignore_classes.update(set(classes) - set(classes_of_interest))
 
-        # TODO: when making the ovr localization curves, it might be a good
-        # idea to include a second version where any COI prediction assigned
-        # to a non-COI truth is given a weight of zero, so we can focus on
-        # our TPR and FPR with respect to the COI itself and the background.
-        # This metric is useful when we assume we have a subsequent classifier.
-
         # Detection only scoring
         print('Building confusion vectors')
         cfsn_vecs = dmet.confusion_vectors(ignore_classes=ignore_classes)
@@ -638,7 +638,7 @@ class CocoEvaluator(object):
         # Get pure per-item detection results
         binvecs = cfsn_vecs.binarize_peritem(negative_classes=negative_classes)
 
-        roc_result = binvecs.roc()
+        roc_result = binvecs.roc(fp_cutoff=fp_cutoff)
         pr_result = binvecs.precision_recall()
         thresh_result = binvecs.threshold_curves()
 
@@ -648,9 +648,44 @@ class CocoEvaluator(object):
 
         # Get per-class detection results
         ovr_binvecs = cfsn_vecs.binarize_ovr(ignore_classes=ignore_classes)
-        ovr_roc_result = ovr_binvecs.roc()['perclass']
+        ovr_roc_result = ovr_binvecs.roc(fp_cutoff=fp_cutoff)['perclass']
         ovr_pr_result = ovr_binvecs.precision_recall()['perclass']
         ovr_thresh_result = ovr_binvecs.threshold_curves()['perclass']
+
+        print('ovr_roc_result = {!r}'.format(ovr_roc_result))
+        print('ovr_pr_result = {!r}'.format(ovr_pr_result))
+        # print('ovr_thresh_result = {!r}'.format(ovr_thresh_result))
+
+        # TODO: when making the ovr localization curves, it might be a good
+        # idea to include a second version where any COI prediction assigned
+        # to a non-COI truth is given a weight of zero, so we can focus on
+        # our TPR and FPR with respect to the COI itself and the background.
+        # This metric is useful when we assume we have a subsequent classifier.
+        if classes_of_interest:
+            ovr_binvecs2 = cfsn_vecs.binarize_ovr(ignore_classes=ignore_classes)
+            for key, vecs in ovr_binvecs2.cx_to_binvecs.items():
+                cx = cfsn_vecs.classes.index(key)
+                vecs.data['weight'] = vecs.data['weight'].copy()
+
+                assert not np.may_share_memory(ovr_binvecs[key].data['weight'], vecs.data['weight'])
+
+                # Find locations where the predictions or truth was COI
+                pred_coi = cfsn_vecs.data['pred'] == cx
+                # Find truth locations that are either background or this COI
+                true_coi_or_bg = kwarray.isect_flags(
+                        cfsn_vecs.data['true'], {cx, -1})
+
+                # Find locations where we predicted this COI, but truth was a
+                # valid classes, but not this non-COI
+                ignore_flags = (pred_coi & (~true_coi_or_bg))
+                vecs.data['weight'][ignore_flags] = 0
+
+            ovr_roc_result2 = ovr_binvecs2.roc(fp_cutoff=fp_cutoff)['perclass']
+            ovr_pr_result2 = ovr_binvecs2.precision_recall()['perclass']
+            # ovr_thresh_result2 = ovr_binvecs2.threshold_curves()['perclass']
+            print('ovr_roc_result2 = {!r}'.format(ovr_roc_result2))
+            print('ovr_pr_result2 = {!r}'.format(ovr_pr_result2))
+            # print('ovr_thresh_result2 = {!r}'.format(ovr_thresh_result2))
 
         # if 0:
         #     cname = 'flatfish'
@@ -660,6 +695,8 @@ class CocoEvaluator(object):
         #     num_missed = is_true.sum() - num_localized
 
         if coco_eval.config['draw']:
+            # TODO: separate into standalone method that is able to run on
+            # serialized / cached metrics on disk.
             print('drawing evaluation metrics')
             import kwplot
             kwplot.autompl()
@@ -698,6 +735,23 @@ class CocoEvaluator(object):
             fig_fpath = join(metrics_dpath, 'perclass_pr.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             fig.savefig(fig_fpath)
+
+            if classes_of_interest:
+                fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                    figtitle=expt_title)
+                fig.set_size_inches((11, 6))
+                ovr_pr_result2.draw(fnum=2, prefix='coi-vs-bg-only')
+                fig_fpath = join(metrics_dpath, 'perclass_pr_coi_vs_bg.png')
+                print('write fig_fpath = {!r}'.format(fig_fpath))
+                fig.savefig(fig_fpath)
+
+                fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
+                                    figtitle=expt_title)
+                fig.set_size_inches((11, 6))
+                ovr_roc_result2.draw(fnum=2, prefix='coi-vs-bg-only')
+                fig_fpath = join(metrics_dpath, 'perclass_roc_coi_vs_bg.png')
+                print('write fig_fpath = {!r}'.format(fig_fpath))
+                fig.savefig(fig_fpath)
 
             keys = ['mcc', 'g1', 'f1', 'acc', 'ppv', 'tpr', 'mk', 'bm']
             for key in keys:
