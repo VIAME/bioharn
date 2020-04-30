@@ -441,7 +441,7 @@ class DetectEvaluator(object):
         Ignore:
             config = dict(
                 dataset=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json'),
-                deployed=ub.expandpath('$HOME/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000018.pt'),
+                deployed=ub.expandpath('$HOME/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/_epoch_00000018.pt'),
                 sampler_backend='cog', batch_size=256,
                 conf_thresh=0.2, nms_thresh=0.5
             )
@@ -455,89 +455,172 @@ class DetectEvaluator(object):
 
         truth_sampler = evaluator.sampler
 
-        # Determine if truth and model classes are compatible, attempt to remap
-        # if possible.
-        model_classes = evaluator.predictor.coder.classes
-        truth_classes = truth_sampler.classes
-        errors = []
-        for node1, id1 in truth_classes.node_to_id.items():
-            if id1 in model_classes.id_to_node:
-                node2 = model_classes.id_to_node[id1]
-                if node1 != node2:
-                    errors.append(
-                        'id={} exists in model and truth but have '
-                        'different names, {}, {}'.format(id1, node1, node2))
-            if node1 in model_classes.node_to_id:
-                id2 = model_classes.node_to_id[node1]
-                if id1 != id2:
-                    errors.append(
-                        'node={} exists in model and truth but have '
-                        'different ids, {}, {}'.format(node1, id1, id2))
+        # TODO: decouple this (predictor + evaluator) with CocoEvaluator (evaluator)
 
-        graph2 = model_classes.graph.copy()
-        for node1, id1 in truth_classes.node_to_id.items():
-            if node1 not in model_classes.node_to_id:
-                graph2.add_node(node1, id=id1)
-        classes = ndsampler.CategoryTree(graph2)
-
-        cid_true_to_pred = {}
-
-        if errors:
-            # raise Exception('\n'.join(errors))
-            for node1, true_cid in truth_classes.node_to_id.items():
-                if node1 in model_classes.node_to_id:
-                    pred_cid = model_classes.node_to_id[node1]
-                    cid_true_to_pred[true_cid] = pred_cid
-                else:
-                    if true_cid in model_classes.id_to_node:
-                        raise Exception('cannot remap conflicting ids')
-            classes = model_classes
-
-        # Build true dets
-        gid_to_truth = {}
-        for gid in ub.ProgIter(gid_to_pred.keys(), desc='build truth'):
-            annots = truth_sampler.load_annotations(gid)
-            true_cids = [a['category_id'] for a in annots]
-            # remap truth cids to be consistent with "classes"
-            true_cids = [cid_true_to_pred.get(cid, cid) for cid in true_cids]
-
-            true_cidx = np.array([classes.id_to_idx[c] for c in true_cids])
-            true_sseg = [a.get('segmentation') for a in annots]
-            true_weight = [a.get('weight', 1) for a in annots]
-
-            true_dets = kwimage.Detections(
-                boxes=kwimage.Boxes([a['bbox'] for a in annots], 'xywh'),
-                segmentations=true_sseg,
-                class_idxs=true_cidx,
-                classes=classes,
-                weights=np.array(true_weight),
-            ).numpy()
-            gid_to_truth[gid] = true_dets
-
-        from netharn.metrics import DetectionMetrics
-        dmet = DetectionMetrics(classes=classes)
-        for gid in ub.ProgIter(list(gid_to_pred.keys())):
-            pred_dets = gid_to_pred[gid]
-            true_dets = gid_to_truth[gid]
-            dmet.add_predictions(pred_dets, gid=gid)
-            dmet.add_truth(true_dets, gid=gid)
-
-        # Ignore any categories with too few tests instances
-        ignore_classes = {'ignore'}
+        classes_of_interest = evaluator.config['classes_of_interest']
 
         if 0:
             classes_of_interest = [
                 'flatfish', 'live sea scallop', 'dead sea scallop']
 
-        if evaluator.config['classes_of_interest']:
-            classes_of_interest = evaluator.config['classes_of_interest']
-            ignore_classes.update(set(classes) - set(classes_of_interest))
-
         ignore_class_freq_thresh = 200
+        ignore_classes = {'ignore'}
+        truth_sampler = evaluator.sampler
         true_catfreq = truth_sampler.dset.category_annotation_frequency()
         rare_canames = {cname for cname, freq in true_catfreq.items()
                         if freq < ignore_class_freq_thresh}
         ignore_classes.update(rare_canames)
+
+        expt_title = '{} {}\n{}'.format(
+            evaluator.model_tag, evaluator.predcfg_tag, evaluator.dset_tag,)
+
+        metrics_dpath = evaluator.paths['metrics']
+
+        # TODO: clean-up decoupling
+        coco_eval = CocoEvaluator(truth_sampler, gid_to_pred, evaluator.config)
+        coco_eval._init()
+
+        results = coco_eval.evaluate(
+            classes_of_interest, ignore_classes, expt_title, metrics_dpath)
+
+        # TODO: cache detections to a file on disk.
+        # Give the DetectionMetrics code an entry point that just takes two
+        # coco files and scores them.
+        import json
+        metrics = {
+            'dset_tag': evaluator.dset_tag,
+            'model_tag': evaluator.model_tag,
+            'predcfg_tag': evaluator.predcfg_tag,
+
+            'ignore_classes': sorted(ignore_classes),
+
+            'eval_config': evaluator.config.asdict(),
+            'train_info': evaluator.train_info,
+        }
+
+        metrics.update(results)
+
+        # Not sure why using only one doesnt work.
+        metrics = nh.hyperparams._ensure_json_serializable(
+            metrics, normalize_containers=True, verbose=0)
+        metrics = nh.hyperparams._ensure_json_serializable(
+            metrics, normalize_containers=False, verbose=0)
+        metrics = nh.hyperparams._ensure_json_serializable(
+            metrics, normalize_containers=True, verbose=0)
+
+        metrics_fpath = join(metrics_dpath, 'metrics.json')
+        print('dumping metrics_fpath = {!r}'.format(metrics_fpath))
+        with open(metrics_fpath, 'w') as file:
+            json.dump(metrics, file, indent='    ')
+
+        if True:
+            print('Choosing representative truth images')
+            truth_dset = evaluator.sampler.dset
+
+            # Choose representative images from each source dataset
+            try:
+                gid_to_source = {
+                    gid: img.get('source', None)
+                    for gid, img in truth_dset.imgs.items()
+                }
+                source_to_gids = ub.group_items(gid_to_source.keys(), gid_to_source.values())
+
+                selected_gids = set()
+                for source, _gids in source_to_gids.items():
+                    selected = find_representative_images(truth_dset, _gids)
+                    selected_gids.update(selected)
+
+            except Exception:
+                selected_gids = find_representative_images(truth_dset)
+
+            dpath = ub.ensuredir((evaluator.paths['viz'], 'selected'))
+
+            gid_to_true = coco_eval.gid_to_true
+            for gid in ub.ProgIter(selected_gids, desc='draw selected imgs'):
+                truth_dets = gid_to_true[gid]
+                pred_dets = gid_to_pred[gid]
+
+                thresh = 0.1
+                if 'scores' in pred_dets.data:
+                    pred_dets = pred_dets.compress(pred_dets.data['scores'] > thresh)
+                # hack
+                truth_dset.imgs[gid]['file_name'] = truth_dset.imgs[gid]['file_name'].replace('joncrall/data', 'joncrall/remote/namek/data')
+                canvas = truth_dset.load_image(gid)
+                canvas = truth_dets.draw_on(canvas, color='green')
+                canvas = pred_dets.draw_on(canvas, color='blue')
+
+                fig_fpath = join(dpath, 'eval-gid={}.jpg'.format(gid))
+                kwimage.imwrite(fig_fpath, canvas)
+
+        return metrics_fpath
+
+
+class CocoEvaluator(object):
+    """
+    Abstracts the evaluation process to execute on two coco datasets.
+
+    This can be run as a standalone script where the user specifies the paths
+    to the true and predited dataset explicitly, or this can be used by a
+    higher level script that produces the predictions and then sends them to
+    this evaluator.
+    """
+
+    def __init__(coco_eval, true_dataset, pred_dataset, config):
+        coco_eval._true_dataset = true_dataset
+        coco_eval._pred_dataset = pred_dataset
+        coco_eval.config = config
+
+    def _init(coco_eval):
+        gid_to_true = CocoEvaluator._coerce_dets(coco_eval._true_dataset)
+        gid_to_pred = CocoEvaluator._coerce_dets(coco_eval._pred_dataset)
+
+        gids = sorted(gid_to_pred.keys())
+
+        true_classes = ub.peek(gid_to_true.values()).classes
+        pred_classes = ub.peek(gid_to_pred.values()).classes
+
+        classes, cid_true_to_pred = CocoEvaluator._rectify_classes(
+            true_classes, pred_classes)
+
+        # Move truth to the same class indices as predictions
+        for git, det in ub.ProgIter(gids, desc='Rectify truth'):
+            new_classes = classes
+            old_classes = det.meta['classes']
+            old_cidxs = det.data['class_idxs']
+            old_cids = [old_classes.idx_to_id[cx] for cx in old_cidxs]
+            new_cids = [cid_true_to_pred.get(cid, cid) for cid in old_cids]
+            new_cidxs = np.array([new_classes.id_to_idx[c] for c in new_cids])
+            det.meta['classes'] = new_classes
+            det.data['class_idxs'] = new_cidxs
+
+        coco_eval.classes = classes
+        coco_eval.gid_to_true = gid_to_true
+        coco_eval.gid_to_pred = gid_to_pred
+
+    def evaluate(coco_eval, classes_of_interest=[], ignore_classes=None,
+                 expt_title='', metrics_dpath='.'):
+        classes = coco_eval.classes
+        gid_to_true = coco_eval.gid_to_true
+        gid_to_pred = coco_eval.gid_to_pred
+
+        from netharn.metrics import DetectionMetrics
+        dmet = DetectionMetrics(classes=classes)
+        for gid in ub.ProgIter(list(gid_to_pred.keys())):
+            pred_dets = gid_to_pred[gid]
+            true_dets = gid_to_true[gid]
+            dmet.add_predictions(pred_dets, gid=gid)
+            dmet.add_truth(true_dets, gid=gid)
+
+        if 0:
+            voc_info = dmet.score_voc(ignore_classes='ignore')
+            print('voc_info = {!r}'.format(voc_info))
+
+        # Ignore any categories with too few tests instances
+        if ignore_classes is None:
+            ignore_classes = {'ignore'}
+
+        if classes_of_interest:
+            ignore_classes.update(set(classes) - set(classes_of_interest))
 
         # TODO: when making the ovr localization curves, it might be a good
         # idea to include a second version where any COI prediction assigned
@@ -568,109 +651,60 @@ class DetectEvaluator(object):
         ovr_pr_result = ovr_binvecs.precision_recall()['perclass']
         ovr_thresh_result = ovr_binvecs.threshold_curves()['perclass']
 
-        if 0:
-            cname = 'flatfish'
-            cx = cfsn_vecs.classes.index(cname)
-            is_true = (cfsn_vecs.data['true'] == cx)
-            num_localized = (cfsn_vecs.data['pred'][is_true] != -1).sum()
-            num_missed = is_true.sum() - num_localized
+        # if 0:
+        #     cname = 'flatfish'
+        #     cx = cfsn_vecs.classes.index(cname)
+        #     is_true = (cfsn_vecs.data['true'] == cx)
+        #     num_localized = (cfsn_vecs.data['pred'][is_true] != -1).sum()
+        #     num_missed = is_true.sum() - num_localized
 
-        # TODO: cache detections to a file on disk.
-        # Give the DetectionMetrics code an entry point that just takes two
-        # coco files and scores them.
-
-        import json
-        metrics = {
-            'dset_tag': evaluator.dset_tag,
-            'model_tag': evaluator.model_tag,
-            'predcfg_tag': evaluator.predcfg_tag,
-            'roc_result': roc_result,
-            'pr_result': pr_result,
-
-            'ignore_classes': sorted(ignore_classes),
-
-            'ovr_roc_result': ovr_roc_result,
-            'ovr_pr_result': ovr_pr_result,
-
-            'eval_config': evaluator.config.asdict(),
-            'train_info': evaluator.train_info,
-        }
-
-        if 0:
-            voc_info = dmet.score_voc(ignore_classes='ignore')
-            print('voc_info = {!r}'.format(voc_info))
-            metrics['voc_info'] = voc_info
-
-        # Not sure why using only one doesnt work.
-        metrics = nh.hyperparams._ensure_json_serializable(
-            metrics, normalize_containers=True, verbose=0)
-        metrics = nh.hyperparams._ensure_json_serializable(
-            metrics, normalize_containers=False, verbose=0)
-        metrics = nh.hyperparams._ensure_json_serializable(
-            metrics, normalize_containers=True, verbose=0)
-
-        metrics_fpath = join(evaluator.paths['metrics'], 'metrics.json')
-        print('dumping metrics_fpath = {!r}'.format(metrics_fpath))
-        with open(metrics_fpath, 'w') as file:
-            json.dump(metrics, file, indent='    ')
-
-        if evaluator.config['draw']:
+        if coco_eval.config['draw']:
             print('drawing evaluation metrics')
             import kwplot
             kwplot.autompl()
 
             fig = kwplot.figure(fnum=1, pnum=(1, 2, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
+                                figtitle=expt_title)
             fig.set_size_inches((11, 6))
             pr_result.draw()
             kwplot.figure(fnum=1, pnum=(1, 2, 2))
             roc_result.draw()
-            fig_fpath = join(evaluator.paths['metrics'], 'loc_pr_roc.png')
+            fig_fpath = join(metrics_dpath, 'loc_pr_roc.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             fig.savefig(fig_fpath)
 
             fig = kwplot.figure(fnum=1, pnum=(1, 1, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
+                                figtitle=expt_title)
             fig.set_size_inches((11, 6))
             thresh_result.draw()
-            fig_fpath = join(evaluator.paths['metrics'], 'loc_thresh.png')
+            fig_fpath = join(metrics_dpath, 'loc_thresh.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             fig.savefig(fig_fpath)
 
             fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
+                                figtitle=expt_title)
             fig.set_size_inches((11, 6))
             ovr_roc_result.draw(fnum=2)
 
-            fig_fpath = join(evaluator.paths['metrics'], 'perclass_roc.png')
+            fig_fpath = join(metrics_dpath, 'perclass_roc.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             fig.savefig(fig_fpath)
 
             fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
-                                figtitle='{} {}\n{}'.format(
-                                    evaluator.model_tag, evaluator.predcfg_tag,
-                                    evaluator.dset_tag,))
+                                figtitle=expt_title)
             fig.set_size_inches((11, 6))
             ovr_pr_result.draw(fnum=2)
-            fig_fpath = join(evaluator.paths['metrics'], 'perclass_pr.png')
+            fig_fpath = join(metrics_dpath, 'perclass_pr.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             fig.savefig(fig_fpath)
 
             keys = ['mcc', 'g1', 'f1', 'acc', 'ppv', 'tpr', 'mk', 'bm']
             for key in keys:
                 fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
-                                    figtitle='{} {}\n{}'.format(
-                                        evaluator.model_tag, evaluator.predcfg_tag,
-                                        evaluator.dset_tag,))
+                                    figtitle=expt_title)
                 fig.set_size_inches((11, 6))
                 ovr_thresh_result.draw(fnum=2, key=key)
-                fig_fpath = join(evaluator.paths['metrics'], 'perclass_{}.png'.format(key))
+                fig_fpath = join(metrics_dpath, 'perclass_{}.png'.format(key))
                 print('write fig_fpath = {!r}'.format(fig_fpath))
                 fig.savefig(fig_fpath)
 
@@ -679,7 +713,7 @@ class DetectEvaluator(object):
             confusion = cfsn_vecs.confusion_matrix()
             import kwplot
             ax = kwplot.plot_matrix(confusion, fnum=3, showvals=0, logscale=True)
-            fig_fpath = join(evaluator.paths['metrics'], 'confusion.png')
+            fig_fpath = join(metrics_dpath, 'confusion.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             ax.figure.savefig(fig_fpath)
 
@@ -688,7 +722,7 @@ class DetectEvaluator(object):
             row_norm_cfsn = row_norm_cfsn.fillna(0)
             ax = kwplot.plot_matrix(row_norm_cfsn, fnum=3, showvals=0, logscale=0)
             ax.set_title('Row (truth) normalized confusions')
-            fig_fpath = join(evaluator.paths['metrics'], 'row_confusion.png')
+            fig_fpath = join(metrics_dpath, 'row_confusion.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             ax.figure.savefig(fig_fpath)
 
@@ -697,55 +731,118 @@ class DetectEvaluator(object):
             col_norm_cfsn = col_norm_cfsn.fillna(0)
             ax = kwplot.plot_matrix(col_norm_cfsn, fnum=3, showvals=0, logscale=0)
             ax.set_title('Column (pred) normalized confusions')
-            fig_fpath = join(evaluator.paths['metrics'], 'col_confusion.png')
+            fig_fpath = join(metrics_dpath, 'col_confusion.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
             ax.figure.savefig(fig_fpath)
 
-            if True:
-                print('Choosing representative truth images')
-                truth_dset = evaluator.sampler.dset
+        results = {
+            'roc_result': roc_result,
+            'pr_result': pr_result,
 
-                # Choose representative images from each source dataset
-                try:
-                    gid_to_source = {
-                        gid: img.get('source', None)
-                        for gid, img in truth_dset.imgs.items()
-                    }
-                    source_to_gids = ub.group_items(gid_to_source.keys(), gid_to_source.values())
+            'ovr_roc_result': ovr_roc_result,
+            'ovr_pr_result': ovr_pr_result,
+        }
+        return results
 
-                    selected_gids = set()
-                    for source, _gids in source_to_gids.items():
-                        selected = find_representative_images(truth_dset, _gids)
-                        selected_gids.update(selected)
+    @classmethod
+    def _rectify_classes(coco_eval, true_classes, pred_classes):
+        # Determine if truth and model classes are compatible, attempt to remap
+        # if possible.
+        errors = []
+        for node1, id1 in true_classes.node_to_id.items():
+            if id1 in pred_classes.id_to_node:
+                node2 = pred_classes.id_to_node[id1]
+                if node1 != node2:
+                    errors.append(
+                        'id={} exists in pred and true but have '
+                        'different names, {}, {}'.format(id1, node1, node2))
+            if node1 in pred_classes.node_to_id:
+                id2 = pred_classes.node_to_id[node1]
+                if id1 != id2:
+                    errors.append(
+                        'node={} exists in pred and true but have '
+                        'different ids, {}, {}'.format(node1, id1, id2))
 
-                except Exception:
-                    selected_gids = find_representative_images(truth_dset)
+        graph2 = pred_classes.graph.copy()
+        for node1, id1 in true_classes.node_to_id.items():
+            if node1 not in pred_classes.node_to_id:
+                graph2.add_node(node1, id=id1)
+        classes = ndsampler.CategoryTree(graph2)
 
-                dpath = ub.ensuredir((evaluator.paths['viz'], 'selected'))
+        cid_true_to_pred = {}
 
-                for gid in ub.ProgIter(selected_gids, desc='draw selected imgs'):
-                    truth_dets = gid_to_truth[gid]
-                    pred_dets = gid_to_pred[gid]
+        if errors:
+            # raise Exception('\n'.join(errors))
+            for node1, true_cid in true_classes.node_to_id.items():
+                if node1 in pred_classes.node_to_id:
+                    pred_cid = pred_classes.node_to_id[node1]
+                    cid_true_to_pred[true_cid] = pred_cid
+                else:
+                    if true_cid in pred_classes.id_to_node:
+                        raise Exception('cannot remap conflicting ids')
+            classes = pred_classes
+        return classes, cid_true_to_pred
 
-                    thresh = 0.1
-                    if 'scores' in pred_dets.data:
-                        pred_dets = pred_dets.compress(pred_dets.data['scores'] > thresh)
-                    # hack
-                    truth_dset.imgs[gid]['file_name'] = truth_dset.imgs[gid]['file_name'].replace('joncrall/data', 'joncrall/remote/namek/data')
-                    canvas = truth_dset.load_image(gid)
-                    canvas = truth_dets.draw_on(canvas, color='green')
-                    canvas = pred_dets.draw_on(canvas, color='blue')
+    @classmethod
+    def _coerce_dets(cls, dataset):
+        """
+        Coerce the input to a mapping from image-id to kwimage.Detection
 
-                    fig_fpath = join(dpath, 'eval-gid={}.jpg'.format(gid))
-                    kwimage.imwrite(fig_fpath, canvas)
+        Returns:
+            Dict[int, Detections]: gid_to_det: mapping from gid to dets
 
-        return metrics_fpath
+        Ignore:
+            true_dataset = dataset = truth_sampler
+            pred_dataset = dataset = gid_to_pred
+        """
+        # coerce the input into dictionary of detection objects.
+        if 1:
+            # hack
+            isinstance = kwimage.structs._generic._isinstance2
+
+        if isinstance(dataset, dict):
+            if len(dataset):
+                first = ub.peek(dataset.values())
+                if isinstance(first, kwimage.Detections):
+                    # We got what we wanted
+                    gid_to_det = dataset
+                else:
+                    raise NotImplementedError
+            else:
+                gid_to_det = {}
+        elif isinstance(dataset, ndsampler.CocoSampler):
+            # Input is an ndsampler object
+            sampler = dataset
+            gid_to_det = {}
+            gids = sorted(sampler.dset.imgs.keys())
+            classes = sampler.classes
+            for gid in ub.ProgIter(gids, desc='convert sampler to dets'):
+                annots = sampler.load_annotations(gid)
+                cids = [a['category_id'] for a in annots]
+                # remap truth cids to be consistent with "classes"
+                # cids = [cid_true_to_pred.get(cid, cid) for cid in cids]
+
+                cxs = np.array([classes.id_to_idx[c] for c in cids])
+                ssegs = [a.get('segmentation') for a in annots]
+                weights = [a.get('weight', 1) for a in annots]
+
+                dets = kwimage.Detections(
+                    boxes=kwimage.Boxes([a['bbox'] for a in annots], 'xywh'),
+                    segmentations=ssegs,
+                    class_idxs=cxs,
+                    classes=classes,
+                    weights=np.array(weights),
+                ).numpy()
+                gid_to_det[gid] = dets
+        else:
+            raise NotImplementedError
+
+        return gid_to_det
 
 
 def find_representative_images(truth_dset, gids=None):
     # Select representative images to draw such that each category
     # appears at least once.
-
     if gids is None:
         gids = sorted(truth_dset.imgs.keys())
 
@@ -793,24 +890,6 @@ def find_representative_images(truth_dset, gids=None):
 
     selected_gids = sorted(selected.keys())
     return selected_gids
-
-
-class CocoEvaluator(object):
-    """
-    Abstracts the evaluation process to execute on two coco datasets.
-
-    This can be run as a standalone script where the user specifies the paths
-    to the true and predited dataset explicitly, or this can be used by a
-    higher level script that produces the predictions and then sends them to
-    this evaluator.
-    """
-
-    def __init__(self, true_dataset, pred_dataset):
-
-        def _coerce_dataset():
-            # coerce the input into an ndsampler dataset or a dictionary of
-            # detection objects.
-            pass
 
 
 if __name__ == '__main__':

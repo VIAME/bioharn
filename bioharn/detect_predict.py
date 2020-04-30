@@ -968,6 +968,9 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
 
 def _load_dets_worker(single_pred_fpath):
+    """
+    single_pred_fpath = ub.expandpath('$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/eval/habcam_cfarm_v6_test.mscoc/bioharn-det-mc-cascade-rgbd-v36__epoch_00000018/c=0.2,i=window,n=0.5,window_d=512,512,window_o=0.0/pred/dets_gid_00004070_v2.mscoco.json')
+    """
     import ndsampler
     single_img_coco = ndsampler.CocoDataset(single_pred_fpath, autobuild=False)
     dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
