@@ -631,7 +631,8 @@ class CocoEvaluator(object):
 
         # Detection only scoring
         print('Building confusion vectors')
-        cfsn_vecs = dmet.confusion_vectors(ignore_classes=ignore_classes)
+        cfsn_vecs = dmet.confusion_vectors(ignore_classes=ignore_classes,
+                                           workers=0)
 
         negative_classes = ['background']
 
@@ -764,31 +765,35 @@ class CocoEvaluator(object):
                 fig.savefig(fig_fpath)
 
             # NOTE: The threshold on these confusion matrices is VERY low.
-            fig = kwplot.figure(fnum=3, doclf=True)
-            confusion = cfsn_vecs.confusion_matrix()
-            import kwplot
-            ax = kwplot.plot_matrix(confusion, fnum=3, showvals=0, logscale=True)
-            fig_fpath = join(metrics_dpath, 'confusion.png')
-            print('write fig_fpath = {!r}'.format(fig_fpath))
-            ax.figure.savefig(fig_fpath)
+            # FIXME: robustly skip in cases where predictions have no class information
+            try:
+                fig = kwplot.figure(fnum=3, doclf=True)
+                confusion = cfsn_vecs.confusion_matrix()
+                import kwplot
+                ax = kwplot.plot_matrix(confusion, fnum=3, showvals=0, logscale=True)
+                fig_fpath = join(metrics_dpath, 'confusion.png')
+                print('write fig_fpath = {!r}'.format(fig_fpath))
+                ax.figure.savefig(fig_fpath)
 
-            fig = kwplot.figure(fnum=3, doclf=True)
-            row_norm_cfsn = confusion / confusion.values.sum(axis=1, keepdims=True)
-            row_norm_cfsn = row_norm_cfsn.fillna(0)
-            ax = kwplot.plot_matrix(row_norm_cfsn, fnum=3, showvals=0, logscale=0)
-            ax.set_title('Row (truth) normalized confusions')
-            fig_fpath = join(metrics_dpath, 'row_confusion.png')
-            print('write fig_fpath = {!r}'.format(fig_fpath))
-            ax.figure.savefig(fig_fpath)
+                fig = kwplot.figure(fnum=3, doclf=True)
+                row_norm_cfsn = confusion / confusion.values.sum(axis=1, keepdims=True)
+                row_norm_cfsn = row_norm_cfsn.fillna(0)
+                ax = kwplot.plot_matrix(row_norm_cfsn, fnum=3, showvals=0, logscale=0)
+                ax.set_title('Row (truth) normalized confusions')
+                fig_fpath = join(metrics_dpath, 'row_confusion.png')
+                print('write fig_fpath = {!r}'.format(fig_fpath))
+                ax.figure.savefig(fig_fpath)
 
-            fig = kwplot.figure(fnum=3, doclf=True)
-            col_norm_cfsn = confusion / confusion.values.sum(axis=0, keepdims=True)
-            col_norm_cfsn = col_norm_cfsn.fillna(0)
-            ax = kwplot.plot_matrix(col_norm_cfsn, fnum=3, showvals=0, logscale=0)
-            ax.set_title('Column (pred) normalized confusions')
-            fig_fpath = join(metrics_dpath, 'col_confusion.png')
-            print('write fig_fpath = {!r}'.format(fig_fpath))
-            ax.figure.savefig(fig_fpath)
+                fig = kwplot.figure(fnum=3, doclf=True)
+                col_norm_cfsn = confusion / confusion.values.sum(axis=0, keepdims=True)
+                col_norm_cfsn = col_norm_cfsn.fillna(0)
+                ax = kwplot.plot_matrix(col_norm_cfsn, fnum=3, showvals=0, logscale=0)
+                ax.set_title('Column (pred) normalized confusions')
+                fig_fpath = join(metrics_dpath, 'col_confusion.png')
+                print('write fig_fpath = {!r}'.format(fig_fpath))
+                ax.figure.savefig(fig_fpath)
+            except Exception:
+                pass
 
         results = {
             'roc_result': roc_result,
@@ -1059,8 +1064,23 @@ if __name__ == '__main__':
 
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_test.mscoco.json \
-            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000005.pt \
-            --sampler_backend=cog --batch_size=16 --conf_thresh=0.2 --nms_thresh=0.5 --xpu=1
+            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000017.pt \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=1
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_test.mscoco.json \
+            "--deployed=[\
+                $HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000007.pt,\
+                $HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000017.pt,\
+                $HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000017.pt,\
+                $HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000017.pt]" \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
+
+
+        /home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/
+        /home/joncrall/work/bioharn/fit/nice
 
     """
 
