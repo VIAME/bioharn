@@ -104,6 +104,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             self.sampler._depends(),
             self.window_dims,
             self.input_dims,
+            str(self.channels),
         ]
         input_id = ub.hash_data(depends, hasher='sha512', base='abc')[0:32]
         return input_id
