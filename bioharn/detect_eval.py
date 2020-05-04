@@ -1,3 +1,10 @@
+"""
+TODO:
+    - [ ] create CLI flag to reduce dataset size for debugging
+         * Note: if we determine an optimal budget for test data size, then we
+         have the option to use reintroduce rest back into the training set.
+"""
+
 from os.path import exists
 from os.path import join
 from os.path import dirname
@@ -58,6 +65,8 @@ class DetectEvaluateConfig(scfg.Config):
 
         'draw': scfg.Value(10, help='number of images with predictions to draw'),
         'enable_cache': scfg.Value(True, help='writes predictions to disk'),
+
+        'demo': scfg.Value(False, help='debug helper'),
 
         'classes_of_interest': scfg.Value([], help='if specified only these classes are given weight'),
     }
@@ -238,6 +247,13 @@ class DetectEvaluator(object):
             the configuration of the evaluator, which is a superset of
             :class:`bioharn.detect_predict.DetectPredictConfig`.
 
+    Example:
+        >>> from bioharn.detect_eval import *  # NOQA
+        >>> # See DetectEvaluateConfig for config docs
+        >>> config = DetectEvaluator.demo_config()
+        >>> evaluator = DetectEvaluator(config)
+        >>> evaluator.evaluate()
+
     Ignore:
         from bioharn.detect_eval import *  # NOQA
         config = {}
@@ -260,6 +276,58 @@ class DetectEvaluator(object):
         evaluator.predictor = None
         evaluator.sampler = None
 
+    @classmethod
+    def demo_config(cls):
+        """
+        Train a small demo model
+
+        Example:
+            >>> from bioharn.detect_eval import *  # NOQA
+            >>> config = DetectEvaluator.demo_config()
+            >>> print('config = {}'.format(ub.repr2(config, nl=1)))
+        """
+        from bioharn import detect_fit
+        import ndsampler
+        aux = False
+
+        train_dset = ndsampler.CocoDataset.demo('shapes8', aux=aux)
+        dpath = ub.ensure_app_cache_dir('bioharn/demodata')
+        test_dset = ndsampler.CocoDataset.demo('shapes4', aux=aux)
+        workdir = ub.ensuredir((dpath, 'work'))
+
+        train_dset.fpath = join(dpath, 'shapes_train.mscoco')
+        train_dset.dump(train_dset.fpath)
+
+        test_dset.fpath = join(dpath, 'shapes_test.mscoco')
+        test_dset.dump(test_dset.fpath)
+        channels = 'rgb|disparity' if aux else 'rgb'
+
+        deploy_fpath = detect_fit.fit(
+            # arch='cascade',
+            arch='yolo2',
+            train_dataset=train_dset.fpath,
+            channels=channels,
+            workers=0,
+            workdir=workdir,
+            batch_size=2,
+            window_dims=(256, 256),
+            max_epoch=2,
+            timeout=60,
+            # timeout=1,
+        )
+
+        train_dpath = dirname(deploy_fpath)
+        out_dpath = ub.ensuredir(train_dpath, 'out_eval')
+
+        config = {
+            'deployed': deploy_fpath,
+
+            'dataset': test_dset.fpath,
+            'workdir': workdir,
+            'out_dpath': out_dpath,
+        }
+        return config
+
     def _init(evaluator):
         evaluator._ensure_sampler()
         evaluator._init_predictor()
@@ -268,6 +336,9 @@ class DetectEvaluator(object):
         if evaluator.sampler is None:
             print('loading dataset')
             coco_dset = _coerce_dataset(evaluator.config['dataset'])
+
+            if evaluator.config['demo']:
+                pass
             print('loaded dataset')
             workdir = ub.expandpath(evaluator.config['workdir'])
             sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
@@ -1064,9 +1135,20 @@ if __name__ == '__main__':
 
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_test.mscoco.json \
-            --deployed=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000017.pt \
+            "--deployed=[\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000017.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000000.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000016.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000020.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000023.pt]" \
             "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
-            --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=1
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_test.mscoco.json \
+            "--deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000023.pt" \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=1,0
 
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_test.mscoco.json \

@@ -468,6 +468,9 @@ class DetectPredictor(object):
             outputs = predictor.model.forward(mm_inputs, return_loss=False)
 
         # Postprocess GPU outputs
+        if 'Container' in str(type(outputs)):
+            # HACK
+            outputs = outputs.data
         batch_dets = predictor.coder.decode_batch(outputs)
         for idx, det in enumerate(batch_dets):
             item_scale_xy = scale_xy[idx].numpy()
