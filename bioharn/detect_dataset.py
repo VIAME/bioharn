@@ -111,7 +111,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
     def _prebuild_pool(self):
         print('Prebuild pool')
         positives, negatives = preselect_regions(
-            self.sampler, self.window_overlap, self.window_dims)
+            self.sampler, self.window_overlap, self.window_dims,
+            self.classes_of_interest)
 
         positives = kwarray.shuffle(positives, rng=971493943902)
         negatives = kwarray.shuffle(negatives, rng=119714940901)
@@ -493,6 +494,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 index_to_labels, batch_size=batch_size, num_batches=num_batches,
                 shuffle=shuffle, label_to_weight=label_to_weight, rng=None
             )
+            import xdev
+            xdev.embed()
             print('balanced batch_sampler = {!r}'.format(batch_sampler))
         elif multiscale:
             batch_sampler = MultiScaleBatchSampler2(
@@ -709,19 +712,27 @@ class MultiScaleBatchSampler2(torch_sampler.BatchSampler):
             yield batch
 
 
-def preselect_regions(sampler, window_overlap, window_dims):
+def preselect_regions(sampler, window_overlap, window_dims,
+                      classes_of_interest=None):
     """
     TODO: this might be generalized and added to ndsampler
 
     window_overlap = 0.5
     window_dims = (512, 512)
+
+    Ignore:
+        sampler = self.sampler
+        window_overlap = self.window_overlap
+        window_dims = self.window_dims
+        classes_of_interest = self.classes_of_interest
     """
     import netharn as nh
 
     keepbound = True
 
     gid_to_slider = {}
-    for img in sampler.dset.imgs.values():
+    dset = sampler.dset
+    for img in dset.imgs.values():
         if img.get('source', '') == 'habcam_2015_stereo':
             # Hack: todo, cannoncial way to get this effect
             full_dims = [img['height'], img['width'] // 2]
@@ -735,7 +746,7 @@ def preselect_regions(sampler, window_overlap, window_dims):
         gid_to_slider[img['id']] = slider
 
     from ndsampler import isect_indexer
-    _isect_index = isect_indexer.FrameIntersectionIndex.from_coco(sampler.dset)
+    _isect_index = isect_indexer.FrameIntersectionIndex.from_coco(dset)
 
     positives = []
     negatives = []
@@ -749,8 +760,17 @@ def preselect_regions(sampler, window_overlap, window_dims):
 
         for region, box in zip(regions, boxes):
             aids = _isect_index.overlapping_aids(gid, box)
+
+            if classes_of_interest:
+                interest_flags = np.array([
+                    dset.cats[dset.anns[aid]['category_id']]['name'].lower() in classes_of_interest
+                    for aid in aids])
+                pos_aids = list(ub.compress(aids, interest_flags))
+            else:
+                pos_aids = aids
+
             # aids = sampler.regions.overlapping_aids(gid, box, visible_thresh=0.001)
-            if len(aids):
+            if len(pos_aids):
                 positives.append((gid, region, aids))
             else:
                 negatives.append((gid, region, aids))
