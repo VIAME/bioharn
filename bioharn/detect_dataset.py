@@ -494,9 +494,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 index_to_labels, batch_size=batch_size, num_batches=num_batches,
                 shuffle=shuffle, label_to_weight=label_to_weight, rng=None
             )
-            import xdev
-            xdev.embed()
             print('balanced batch_sampler = {!r}'.format(batch_sampler))
+            batch_sampler._balance_report()
         elif multiscale:
             batch_sampler = MultiScaleBatchSampler2(
                 sampler, batch_size=batch_size, drop_last=drop_last,
