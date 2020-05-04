@@ -897,3 +897,31 @@ def rework_cats_may_priority():
 
     for dset in dsets:
         dset.dump(dset.fpath, newlines=True)
+
+
+def fix_cats_offset():
+    """
+    Rework such that certain classes are given priority and other are given a
+    weight of zero.
+
+    cd ~/data/noaa_habcam/combos
+    rsync may_priority_habcam* viame:data/noaa_habcam/combos/
+    """
+    import kwcoco
+    root = ub.expandpath('~/data/noaa_habcam/combos')
+    dsets = [
+        kwcoco.CocoDataset(join(root, 'may_priority_habcam_cfarm_v6_train.mscoco.json')),
+        kwcoco.CocoDataset(join(root, 'may_priority_habcam_cfarm_v6_vali.mscoco.json')),
+        kwcoco.CocoDataset(join(root, 'may_priority_habcam_cfarm_v6_test.mscoco.json')),
+    ]
+
+    for dset in dsets:
+        for img in dset.imgs.values():
+            if img['source'] in {'2017_CFARM', '2018_CFARM'}:
+                for aid in dset.gid_to_aids[img['id']]:
+                    ann = dset.anns[aid]
+                    ann['bbox'][0] += 39  # right shift of 39 pixels
+        dset.fpath = dset.fpath.replace('v6', 'v7')
+
+    for dset in dsets:
+        dset.dump(dset.fpath, newlines=True)

@@ -948,8 +948,8 @@ def setup_harn(cmdline=True, **kw):
     print('make harn')
     harn = DetectHarn(hyper=hyper)
     harn.preferences.update({
-        'num_keep': 2,
-        'keep_freq': 30,
+        'num_keep': 10,
+        'keep_freq': 5,
         'export_modules': ['bioharn'],  # TODO
         'prog_backend': 'progiter',  # alternative: 'tqdm'
         'keyboard_debug': False,
@@ -958,7 +958,7 @@ def setup_harn(cmdline=True, **kw):
         'timeout': config['timeout'],
     })
     harn.intervals.update({
-        'log_iter_train': 50,
+        'log_iter_train': 1000,
         'test': 0,
     })
     harn.script_config = config
@@ -1428,6 +1428,58 @@ if __name__ == '__main__':
             --workers=4 \
             --xpu=0 \
             --batch_size=3 \
+            --balance=tfidf \
+            --bstep=8
+
+        ### --- RUN ON FIXED SHIFTED 39 pixel BBOXES
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgb-fine-coi-v43 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
+            --schedule=step-50-100 \
+            --augment=complex \
+            --pretrained=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000017.pt \
+            --workdir=/home/joncrall/work/bioharn \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --arch=cascade \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --workers=4 \
+            --xpu=auto \
+            --batch_size=4 \
+            --num_batches=600 \
+            --balance=tfidf \
+            --bstep=8
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgbd-fine-coi-v42 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
+            --schedule=step-50-100 \
+            --augment=complex \
+            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000016.pt \
+            --workdir=/home/joncrall/work/bioharn \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --arch=cascade \
+            --channels="rgb|disparity" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --workers=4 \
+            --xpu=auto \
+            --batch_size=4 \
+            --num_batches=600 \
             --balance=tfidf \
             --bstep=8
 
