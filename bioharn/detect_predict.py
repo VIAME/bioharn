@@ -471,7 +471,9 @@ class DetectPredictor(object):
         if 'Container' in str(type(outputs)):
             # HACK
             outputs = outputs.data
-        batch_dets = predictor.coder.decode_batch(outputs)
+        import xdev
+        with xdev.embed_on_exception_context:
+            batch_dets = predictor.coder.decode_batch(outputs)
         for idx, det in enumerate(batch_dets):
             item_scale_xy = scale_xy[idx].numpy()
             item_shift_xy = shift_xy_[idx].numpy()
