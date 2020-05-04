@@ -738,6 +738,7 @@ def setup_harn(cmdline=True, **kw):
 
     from bioharn.channel_spec import ChannelSpec
     channels = ChannelSpec.coerce(config['channels'])
+    print('channels = {!r}'.format(channels))
 
     if config['normalize_inputs']:
         # Get stats on the dataset (todo: nice way to disable augmentation temporarilly for this)
@@ -1492,6 +1493,7 @@ if __name__ == '__main__':
             --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
             --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
             --schedule=step-10-40 \
+            --max_epoch=50 \
             --augment=complex \
             --pretrained=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000017.pt \
             --workdir=/home/joncrall/work/bioharn \
@@ -1518,6 +1520,7 @@ if __name__ == '__main__':
             --vali_dataset=$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
             --schedule=step-10-40 \
             --max_epoch=50 \
+            --patience=20 \
             --augment=complex \
             --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000016.pt \
             --workdir=/home/joncrall/work/bioharn \
@@ -1534,10 +1537,42 @@ if __name__ == '__main__':
             --workers=4 \
             --xpu=auto \
             --batch_size=4 \
-            --num_batches=600 \
+            --num_batches=100 \
             --balance=tfidf \
             --sampler_backend=None \
             --bstep=8
+
+        # --- vali fine tune
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune \
+            --train_dataset=$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_trainval.mscoco.json \
+            --schedule=step-1-2 \
+            --max_epoch=5 \
+            --patience=20 \
+            --augment=simple \
+            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44/gvizryca/torch_snapshots/_epoch_00000016.pt \
+            --workdir=/home/joncrall/work/bioharn \
+            "--classes_of_interest=[flatfish,]" \
+            --arch=cascade \
+            --channels="rgb|disparity" \
+            --optim=sgd \
+            --lr=3e-4 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --workers=4 \
+            --xpu=auto \
+            --batch_size=4 \
+            --num_batches=100 \
+            --balance=tfidf \
+            --sampler_backend=None \
+            --bstep=8
+
+
+            kwcoco union --src $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json --dst $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_trainval.mscoco.json
 
     """
     if 0:

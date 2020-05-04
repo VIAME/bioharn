@@ -1159,6 +1159,20 @@ if __name__ == '__main__':
             --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
 
 
+        # flatfish only models
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json \
+            "--deployed=[\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44/gvizryca/torch_snapshots/_epoch_00000016.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune/mwctkynp/torch_snapshots/_epoch_00000001.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune/mwctkynp/torch_snapshots/_epoch_00000002.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune/mwctkynp/torch_snapshots/_epoch_00000003.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune/mwctkynp/torch_snapshots/_epoch_00000004.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune/mwctkynp/torch_snapshots/_epoch_00000005.pt]" \
+            "--classes_of_interest=[flatfish,]" \
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
+
+
         /home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/
         /home/joncrall/work/bioharn/fit/nice
 
