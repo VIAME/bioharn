@@ -1148,8 +1148,12 @@ if __name__ == '__main__':
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json \
             "--deployed=[\
-                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000014.pt,\
-                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000007.pt]" \
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000015.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000020.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000021.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000022.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000026.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000027.pt]" \
             "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
             --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
 
@@ -1158,23 +1162,37 @@ if __name__ == '__main__':
             "--deployed=[\
                 $HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000007.pt,\
                 $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-fine-coi-v43/bvbvdplp/torch_snapshots/_epoch_00000000.pt,\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-fine-coi-v43/bvbvdplp/torch_snapshots/_epoch_00000002.pt,\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-fine-coi-v43/bvbvdplp/torch_snapshots/_epoch_00000006.pt,\
                 $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-fine-coi-v43/bvbvdplp/torch_snapshots/_epoch_00000007.pt,\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-fine-coi-v43/bvbvdplp/torch_snapshots/_epoch_00000011.pt,\
                 $HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000017.pt]" \
             "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
             --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
 
 
-        # flatfish only models
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json \
             "--deployed=[\
-                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44/gvizryca/torch_snapshots/_epoch_00000016.pt,\
-                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune/mwctkynp/torch_snapshots/_epoch_00000001.pt,\
-                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune/mwctkynp/torch_snapshots/_epoch_00000002.pt,\
-                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune/mwctkynp/torch_snapshots/_epoch_00000003.pt,\
-                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune/mwctkynp/torch_snapshots/_epoch_00000004.pt,\
-                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune/mwctkynp/torch_snapshots/_epoch_00000005.pt]" \
-            "--classes_of_interest=[flatfish,]" \
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-coi-v42_valitune/syavjxrl/torch_snapshots/_epoch_00000000.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-coi-v42_valitune/syavjxrl/torch_snapshots/_epoch_00000001.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-coi-v42_valitune/syavjxrl/torch_snapshots/_epoch_00000002.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-coi-v42_valitune/syavjxrl/torch_snapshots/_epoch_00000003.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-coi-v42_valitune/syavjxrl/torch_snapshots/_epoch_00000004.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-coi-v42_valitune/syavjxrl/torch_snapshots/_epoch_00000005.pt,]" \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json \
+            "--deployed=[\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-coi-v43_valitune/nfnqoxuu/torch_snapshots/_epoch_00000000.pt,\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-coi-v43_valitune/nfnqoxuu/torch_snapshots/_epoch_00000001.pt,\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-coi-v43_valitune/nfnqoxuu/torch_snapshots/_epoch_00000002.pt,\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-coi-v43_valitune/nfnqoxuu/torch_snapshots/_epoch_00000003.pt,\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-coi-v43_valitune/nfnqoxuu/torch_snapshots/_epoch_00000004.pt,\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-coi-v43_valitune/nfnqoxuu/torch_snapshots/_epoch_00000005.pt,]" \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
             --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
 
 

@@ -1488,76 +1488,22 @@ if __name__ == '__main__':
 
         #######
 
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-flatfish-only-v45 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
-            --schedule=step-10-40 \
-            --max_epoch=50 \
-            --augment=complex \
-            --pretrained=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000017.pt \
-            --workdir=/home/joncrall/work/bioharn \
-            "--classes_of_interest=[flatfish,]" \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=auto \
-            --batch_size=4 \
-            --num_batches=600 \
-            --balance=tfidf \
-            --bstep=8
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgbd-flatfish-only-v44 \
-            --train_dataset=$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
-            --vali_dataset=$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
-            --schedule=step-10-40 \
-            --max_epoch=50 \
-            --patience=20 \
-            --augment=complex \
-            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000016.pt \
-            --workdir=/home/joncrall/work/bioharn \
-            "--classes_of_interest=[flatfish,]" \
-            --arch=cascade \
-            --channels="rgb|disparity" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=auto \
-            --batch_size=4 \
-            --num_batches=100 \
-            --balance=tfidf \
-            --sampler_backend=None \
-            --bstep=8
-
         # --- vali fine tune
 
         python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgbd-flatfish-only-v44_valitune \
-            --train_dataset=$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_trainval.mscoco.json \
+            --nice=bioharn-det-mc-cascade-rgbd-coi-v42_valitune \
+            --train_dataset=$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
             --schedule=step-1-2 \
             --max_epoch=5 \
             --patience=20 \
             --augment=simple \
-            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-flatfish-only-v44/gvizryca/torch_snapshots/_epoch_00000016.pt \
-            --workdir=/home/joncrall/work/bioharn \
-            "--classes_of_interest=[flatfish,]" \
+            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000027.pt \
+            --workdir=$HOME/work/bioharn \
+            "--classes_of_interest=[live sea scallop,swimming sea scallop,flatfish,clapper]" \
             --arch=cascade \
             --channels="rgb|disparity" \
             --optim=sgd \
-            --lr=3e-4 \
+            --lr=5e-4 \
             --input_dims=window \
             --window_dims=512,512 \
             --window_overlap=0.0 \
@@ -1571,8 +1517,45 @@ if __name__ == '__main__':
             --sampler_backend=None \
             --bstep=8
 
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgb-coi-v43_valitune \
+            --train_dataset=$HOME/remote/viame/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
+            --schedule=step-1-2 \
+            --max_epoch=5 \
+            --patience=20 \
+            --augment=simple \
+            --pretrained=$HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-fine-coi-v43/bvbvdplp/torch_snapshots/_epoch_00000006.pt \
+            --workdir=$HOME/work/bioharn \
+            "--classes_of_interest=[live sea scallop,swimming sea scallop,flatfish,clapper]" \
+            --arch=cascade \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=5e-4 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --workers=4 \
+            --xpu=auto \
+            --batch_size=4 \
+            --num_batches=100 \
+            --balance=tfidf \
+            --sampler_backend=None \
+            --bstep=8
 
             kwcoco union --src $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json --dst $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_trainval.mscoco.json
+
+
+
+# Maybe hard code these for validation tuning?
+
+input_stats = {'std': array([[[0.38 ]], [[0.384]], [[0.388]], [[0.213]]]),
+               'mean': array([[[0.185]], [[0.169]], [[0.161]], [[0.267]]])}
+
+
+input_stats = {'std': array([[[0.38 ]], [[0.384]], [[0.388]]]),
+               'mean': array([[[0.185]], [[0.169]], [[0.161]]])}
 
     """
     if 0:
