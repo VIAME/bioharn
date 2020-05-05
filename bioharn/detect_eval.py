@@ -825,7 +825,8 @@ class CocoEvaluator(object):
                 print('write fig_fpath = {!r}'.format(fig_fpath))
                 fig.savefig(fig_fpath)
 
-            keys = ['mcc', 'g1', 'f1', 'acc', 'ppv', 'tpr', 'mk', 'bm']
+            # keys = ['mcc', 'g1', 'f1', 'acc', 'ppv', 'tpr', 'mk', 'bm']
+            keys = ['mcc', 'f1', 'ppv', 'tpr']
             for key in keys:
                 fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
                                     figtitle=expt_title)
@@ -1146,14 +1147,18 @@ if __name__ == '__main__':
 
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json \
-            "--deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000023.pt" \
+            "--deployed=[\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000014.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000007.pt]" \
             "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
-            --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=1,0
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
 
         python ~/code/bioharn/bioharn/detect_eval.py \
             --dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json \
             "--deployed=[\
                 $HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000007.pt,\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-fine-coi-v43/bvbvdplp/torch_snapshots/_epoch_00000000.pt,\
+                $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-fine-coi-v43/bvbvdplp/torch_snapshots/_epoch_00000007.pt,\
                 $HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000017.pt]" \
             "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
             --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
