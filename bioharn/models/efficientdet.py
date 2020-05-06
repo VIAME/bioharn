@@ -6,6 +6,9 @@ closer.add_static('EfficientDet', 'models/efficientdet.py')
 closer.expand(['models'])
 print(closer.current_sourcecode())
 """
+import kwimage
+import ndsampler
+import netharn as nh
 
 
 # from models.module import Anchors
@@ -454,6 +457,8 @@ class FocalLoss(nn.Module):
         anchor_ctr_x = anchor[:, 0] + 0.5 * anchor_widths
         anchor_ctr_y = anchor[:, 1] + 0.5 * anchor_heights
 
+        device = annotations.device
+
         for j in range(batch_size):
 
             classification = classifications[j, :, :]
@@ -463,8 +468,8 @@ class FocalLoss(nn.Module):
             bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
 
             if bbox_annotation.shape[0] == 0:
-                regression_losses.append(torch.tensor(0).float().cuda())
-                classification_losses.append(torch.tensor(0).float().cuda())
+                regression_losses.append(torch.tensor(0).float().to(device))
+                classification_losses.append(torch.tensor(0).float().to(device))
 
                 continue
 
@@ -480,7 +485,7 @@ class FocalLoss(nn.Module):
 
             # compute the loss for classification
             targets = torch.ones(classification.shape) * -1
-            targets = targets.cuda()
+            targets = targets.to(device)
 
             targets[torch.lt(IoU_max, 0.4), :] = 0
 
@@ -494,7 +499,7 @@ class FocalLoss(nn.Module):
             targets[positive_indices,
                     assigned_annotations[positive_indices, 4].long()] = 1
 
-            alpha_factor = torch.ones(targets.shape).cuda() * alpha
+            alpha_factor = torch.ones(targets.shape).to(device) * alpha
 
             alpha_factor = torch.where(
                 torch.eq(targets, 1.), alpha_factor, 1. - alpha_factor)
@@ -509,7 +514,7 @@ class FocalLoss(nn.Module):
             cls_loss = focal_weight * bce
 
             cls_loss = torch.where(
-                torch.ne(targets, -1.0), cls_loss, torch.zeros(cls_loss.shape).cuda())
+                torch.ne(targets, -1.0), cls_loss, torch.zeros(cls_loss.shape).to(device))
 
             classification_losses.append(
                 cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0))
@@ -544,7 +549,7 @@ class FocalLoss(nn.Module):
                     (targets_dx, targets_dy, targets_dw, targets_dh))
                 targets = targets.t()
 
-                targets = targets / torch.Tensor([[0.1, 0.1, 0.2, 0.2]]).cuda()
+                targets = targets / torch.Tensor([[0.1, 0.1, 0.2, 0.2]]).to(device)
 
                 # negative_indices = 1 + (~positive_indices)
 
@@ -558,7 +563,7 @@ class FocalLoss(nn.Module):
                 )
                 regression_losses.append(regression_loss.mean())
             else:
-                regression_losses.append(torch.tensor(0).float().cuda())
+                regression_losses.append(torch.tensor(0).float().to(device))
 
         return torch.stack(classification_losses).mean(
             dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
@@ -1526,18 +1531,29 @@ class EfficientDet(nn.Module):
 
     Ignore:
         >>> from bioharn.models.efficientdet import *  # NOQA
-        >>> self = EfficientDet(num_classes=3)
+        >>> self = EfficientDet(classes=3)
+
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> from bioharn.models.mm_models import _demo_batch
+        >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
+        >>> channels = ChannelSpec.coerce('rgb')
+        >>> batch = _demo_batch(bsize=3, channels=channels)
+        >>> outputs = self.forward(batch)
+
     """
-    def __init__(self,
-                 num_classes,
-                 network='efficientdet-d0',
-                 D_bifpn=3,
-                 W_bifpn=88,
-                 D_class=3,
-                 is_training=True,
-                 threshold=0.01,
-                 iou_threshold=0.5):
+    def __init__(self, classes=None, input_stats=None, network='efficientdet-d0',
+                 D_bifpn=3, W_bifpn=88, D_class=3, is_training=True,
+                 threshold=0.01, iou_threshold=0.5):
         super(EfficientDet, self).__init__()
+
+        classes = ndsampler.CategoryTree.coerce(classes)
+        self.classes = classes
+        num_classes = len(classes)
+
+        if input_stats is None:
+            input_stats = {}
+        self.input_norm = nh.layers.InputNorm(**input_stats)
+
         self.backbone = EfficientNet.from_pretrained(MODEL_MAP[network])
         self.is_training = is_training
         self.neck = BIFPN(in_channels=self.backbone.get_list_features()[-5:],
@@ -1562,38 +1578,76 @@ class EfficientDet(nn.Module):
         self.freeze_bn()
         self.criterion = FocalLoss()
 
-    def forward(self, inputs):
-        if self.is_training:
-            inputs, annotations = inputs
+    def forward(self, batch):
+        # if self.is_training:
+        #     inputs, annotations = inputs
+        # else:
+        #     inputs = inputs
+
+        if isinstance(batch['inputs'], dict):
+            import ubelt as ub
+            assert len(batch['inputs']) == 1, ('only early fusion for now')
+            inputs = ub.peek(batch['inputs'].values())
         else:
-            inputs = inputs
-        x = self.extract_feat(inputs)
+            inputs = batch['inputs']
+        assert len(inputs.data) == 1
+        imgs = inputs.data[0]
+
+        if 'label' in batch:
+            label = batch['label']
+            assert len(label['tlbr'].data) == 1
+            tlbr_tensor = nh.data.collate.padded_collate(label['tlbr'].data[0], -1)
+            cxywh_tensor = kwimage.Boxes(tlbr_tensor, 'tlbr').to_cxywh().data
+            cidx_tensor = nh.data.collate.padded_collate(
+                [c[:, None] for c in label['class_idxs'].data[0]], -1)
+            annotations = torch.cat([cxywh_tensor, cidx_tensor.float()], axis=2)
+        else:
+            annotations = None
+
+        x = self.extract_feat(imgs)
         outs = self.bbox_head(x)
         classification = torch.cat([out for out in outs[0]], dim=1)
         regression = torch.cat([out for out in outs[1]], dim=1)
-        anchors = self.anchors(inputs)
-        if self.is_training:
-            return self.criterion(
-                classification, regression, anchors, annotations)
-        else:
-            transformed_anchors = self.regressBoxes(anchors, regression)
-            transformed_anchors = self.clipBoxes(transformed_anchors, inputs)
-            scores = torch.max(classification, dim=2, keepdim=True)[0]
-            scores_over_thresh = (scores > self.threshold)[0, :, 0]
+        anchors = self.anchors(imgs)
 
-            if scores_over_thresh.sum() == 0:
-                print('No boxes to NMS')
-                # no boxes to NMS, just return
-                return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
-            classification = classification[:, scores_over_thresh, :]
-            transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
-            scores = scores[:, scores_over_thresh, :]
-            anchors_nms_idx = nms(
-                transformed_anchors[0, :, :], scores[0, :, 0], iou_threshold=self.iou_threshold)
-            nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(
-                dim=1)
-            return [nms_scores, nms_class,
-                    transformed_anchors[0, anchors_nms_idx, :]]
+        # annotations should be B,5,N shaped tensor with cxywh + cidx label
+        # cidx of -1 indicates unused
+        # annotations = annotations.permute(0, 2, 1)
+
+        if annotations is not None:
+            loss = self.criterion(
+                classification, regression, anchors, annotations)
+            loss_parts = {
+                'loss': loss,
+            }
+        else:
+            loss_parts = None
+
+        transformed_anchors = self.regressBoxes(anchors, regression)
+        transformed_anchors = self.clipBoxes(transformed_anchors, imgs)
+        scores = torch.max(classification, dim=2, keepdim=True)[0]
+        scores_over_thresh = (scores > self.threshold)[0, :, 0]
+
+        if scores_over_thresh.sum() == 0:
+            print('No boxes to NMS')
+            # no boxes to NMS, just return
+            return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
+        classification = classification[:, scores_over_thresh, :]
+        transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
+        scores = scores[:, scores_over_thresh, :]
+        anchors_nms_idx = nms(
+            transformed_anchors[0, :, :], scores[0, :, 0], iou_threshold=self.iou_threshold)
+        nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(
+            dim=1)
+        nms_boxes = transformed_anchors[0, anchors_nms_idx, :]
+
+        outputs = {
+            'nms_scores': nms_scores,
+            'nms_class': nms_class,
+            'nms_boxes': nms_boxes,
+            'loss_parts': loss_parts,
+        }
+        return outputs
 
     def freeze_bn(self):
         '''Freeze BatchNorm layers.'''
