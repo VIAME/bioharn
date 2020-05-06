@@ -705,12 +705,17 @@ class CocoEvaluator(object):
         if classes_of_interest:
             ignore_classes.update(set(classes) - set(classes_of_interest))
 
+
         # Detection only scoring
         print('Building confusion vectors')
         cfsn_vecs = dmet.confusion_vectors(ignore_classes=ignore_classes,
                                            workers=0)
 
         negative_classes = ['background']
+
+        print('negative_classes = {!r}'.format(negative_classes))
+        print('classes_of_interest = {!r}'.format(classes_of_interest))
+        print('ignore_classes = {!r}'.format(ignore_classes))
 
         # Get pure per-item detection results
         binvecs = cfsn_vecs.binarize_peritem(negative_classes=negative_classes)
