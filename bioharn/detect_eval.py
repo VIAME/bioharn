@@ -539,13 +539,13 @@ class DetectEvaluator(object):
             classes_of_interest = [
                 'flatfish', 'live sea scallop', 'dead sea scallop']
 
-        ignore_class_freq_thresh = 200
         ignore_classes = {'ignore'}
-        truth_sampler = evaluator.sampler
-        true_catfreq = truth_sampler.dset.category_annotation_frequency()
-        rare_canames = {cname for cname, freq in true_catfreq.items()
-                        if freq < ignore_class_freq_thresh}
-        ignore_classes.update(rare_canames)
+        # ignore_class_freq_thresh = 200
+        # truth_sampler = evaluator.sampler
+        # true_catfreq = truth_sampler.dset.category_annotation_frequency()
+        # rare_canames = {cname for cname, freq in true_catfreq.items()
+        #                 if freq < ignore_class_freq_thresh}
+        # ignore_classes.update(rare_canames)
 
         expt_title = '{} {}\n{}'.format(
             evaluator.model_tag, evaluator.predcfg_tag, evaluator.dset_tag,)
@@ -680,6 +680,21 @@ class CocoEvaluator(object):
         classes = coco_eval.classes
         gid_to_true = coco_eval.gid_to_true
         gid_to_pred = coco_eval.gid_to_pred
+
+        if 0:
+            true_names = []
+            for det in coco_eval.gid_to_true.values():
+                class_idxs = det.data['class_idxs']
+                cnames = list(ub.take(det.meta['classes'], class_idxs))
+                true_names += cnames
+            ub.dict_hist(true_names)
+
+            pred_names = []
+            for det in coco_eval.gid_to_pred.values():
+                class_idxs = det.data['class_idxs']
+                cnames = list(ub.take(det.meta['classes'], class_idxs))
+                pred_names += cnames
+            ub.dict_hist(pred_names)
 
         # n_true_annots = sum(map(len, gid_to_true.values()))
         # fp_cutoff = n_true_annots
