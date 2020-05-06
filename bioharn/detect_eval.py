@@ -975,12 +975,13 @@ class CocoEvaluator(object):
                 # on-disk detections
                 if isdir(dataset):
                     pred_fpaths = sorted(glob.glob(join(dataset, '*.json')))
-                    detect_predict._load_dets(pred_fpaths)
+                    dets = detect_predict._load_dets(pred_fpaths)
+                    gid_to_dets = {d.meta['gid']: d for d in dets}
                     # directory of predictions
                     pass
                 elif isfile(dataset):
                     # mscoco file
-                    pass
+                    raise NotImplementedError
                 pass
         else:
             raise NotImplementedError

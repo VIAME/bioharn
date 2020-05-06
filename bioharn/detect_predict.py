@@ -948,29 +948,9 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
     if enable_cache:
         pred_fpaths = [gid_to_pred_fpath[gid] for gid in have_gids]
         cached_dets = _load_dets(pred_fpaths, workers=6)
-        gid_to_pred = ub.dzip(gids, cached_dets)
-        # MODE = 'simple'
-        # MODE = 'parallel'
-        # if MODE == 'simple':
-        #     for gid in ub.ProgIter(have_gids, desc='loading cached pred gids'):
-        #         single_pred_fpath = gid_to_pred_fpath[gid]
-        #         single_img_coco = ndsampler.CocoDataset(single_pred_fpath)
-        #         dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
-        #                                                    dset=single_img_coco)
-        #         gid_to_pred[gid] = dets
-        # elif MODE == 'parallel':
-        #     # Process mode is much faster than thread.
-        #     from ndsampler.utils import util_futures
-        #     # 15,000 images took about 7 minutes on 4 workers
-        #     # 15,000 images took about 3 minutes on 8 workers
-        #     # 15,000 images took about 3 minutes on 16 workers
-        #     jobs = util_futures.JobPool(mode='process', max_workers=6)
-        #     for gid in ub.ProgIter(have_gids, desc='submit load jobs'):
-        #         single_pred_fpath = gid_to_pred_fpath[gid]
-        #         job = jobs.submit(_load_dets_worker, single_pred_fpath)
-        #         job.gid = gid
-        #     for job in ub.ProgIter(jobs.as_completed(), total=len(jobs), desc='loading cached predictions'):
-        #         gid_to_pred[job.gid] = job.result()
+        assert have_gids == [d.meta['gid'] for d in cached_dets]
+        gid_to_cached = ub.dzip(have_gids, cached_dets)
+        gid_to_pred.update(gid_to_cached)
 
     return gid_to_pred, gid_to_pred_fpath
 
@@ -984,6 +964,7 @@ def _load_dets(pred_fpaths, workers=6):
     dets = []
     for job in ub.ProgIter(jobs.jobs, total=len(jobs), desc='loading cached dets'):
         dets.append(job.result())
+    return dets
 
 
 def _load_dets_worker(single_pred_fpath):
