@@ -1204,7 +1204,7 @@ if __name__ == '__main__':
                 $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v45/jsghbnij/torch_snapshots/_epoch_00000050.pt,\
             ]"\
             "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
-            --sampler_backend=None --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto --workers=6 --async-buffer
+            --sampler_backend=None --batch_size=64 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto --workers=6 --async-buffer
 
 
         /home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/

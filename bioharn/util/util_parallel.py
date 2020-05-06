@@ -46,6 +46,31 @@ class AsyncBufferedGenerator(object):
 
     References:
         http://code.activestate.com/recipes/576999-concurrent-buffer-for-generators/
+
+    Example:
+        >>> # Running this example will show items being produced
+        >>> # well before they are consumed. Removing the AsyncBuffer will
+        >>> # put the producer and consumer in lock step.
+        >>> import time
+        >>> num = 100
+        >>> factor = 0.0001  # speed up for unit tests
+        >>> logs = []
+        >>> _print = logs.append
+        >>> def producer(n):
+        >>>     for i in range(n):
+        >>>         time.sleep(0.1 * factor)
+        >>>         _print(ub.color_text('Produce item {}'.format(i), 'blue'))
+        >>>         yield i
+        >>> buf = producer(num)
+        >>> buf = AsyncBufferedGenerator(buf, size=num)
+        >>> for i in buf:
+        >>>     _print(ub.color_text('Consume item {}'.format(i), 'green'))
+        >>>     time.sleep(0.5 * factor)
+        >>> print('\n'.join(logs))
+        >>> # check the first half produces more often than it consumes
+        >>> n_consume = sum('Consume' in line for line in logs[0:num // 2])
+        >>> n_produce = sum('Produce' in line for line in logs[0:num // 2])
+        >>> assert n_produce > n_consume
     """
     def __init__(self, source, size=100):
         self._queue = queue.Queue(size)

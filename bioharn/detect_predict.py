@@ -882,15 +882,16 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
     pred_gen = predictor.predict_sampler(sampler, gids=gids)
 
     if async_buffer:
+        desc = 'buffered detect'
         buffered_gen = util.AsyncBufferedGenerator(pred_gen,
                                                    size=coco_dset.n_images)
         gen = buffered_gen
     else:
+        desc = 'unbuffered detect'
         gen = pred_gen
 
     gid_to_pred = {}
-    prog = ub.ProgIter(gen, total=len(gids), desc='buffered detect',
-                       verbose=verbose)
+    prog = ub.ProgIter(gen, total=len(gids), desc=desc, verbose=verbose)
     for img_idx, (gid, dets) in enumerate(prog):
         gid_to_pred[gid] = dets
 
@@ -917,6 +918,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
         # prog.ensure_newline()
         # print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
+        # TODO: use safer?
         single_img_coco.dump(tmp_fpath, newlines=True)
         util.atomic_move(tmp_fpath, single_pred_fpath)
 
