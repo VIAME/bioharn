@@ -932,6 +932,7 @@ class CocoEvaluator(object):
             pred_dataset = dataset = gid_to_pred
         """
         # coerce the input into dictionary of detection objects.
+        import kwcoco
         if 1:
             # hack
             isinstance = kwimage.structs._generic._isinstance2
@@ -946,43 +947,51 @@ class CocoEvaluator(object):
                     raise NotImplementedError
             else:
                 gid_to_det = {}
-        elif isinstance(dataset, ndsampler.CocoSampler):
-            # Input is an ndsampler object
-            sampler = dataset
+        elif isinstance(dataset, kwcoco.CocoDataset):
+            coco_dset = dataset
             gid_to_det = {}
-            gids = sorted(sampler.dset.imgs.keys())
-            classes = sampler.classes
-            for gid in ub.ProgIter(gids, desc='convert sampler to dets'):
-                annots = sampler.load_annotations(gid)
-                cids = [a['category_id'] for a in annots]
+            gids = sorted(coco_dset.imgs.keys())
+            classes = coco_dset.object_categories()
+            for gid in ub.ProgIter(gids, desc='convert coco to dets'):
+                aids = coco_dset.index.gid_to_aids[gid]
+                anns = [coco_dset.anns[aid] for aid in aids]
+                cids = [a['category_id'] for a in anns]
                 # remap truth cids to be consistent with "classes"
                 # cids = [cid_true_to_pred.get(cid, cid) for cid in cids]
 
                 cxs = np.array([classes.id_to_idx[c] for c in cids])
-                ssegs = [a.get('segmentation') for a in annots]
-                weights = [a.get('weight', 1) for a in annots]
+                ssegs = [a.get('segmentation') for a in anns]
+                weights = [a.get('weight', 1) for a in anns]
 
                 dets = kwimage.Detections(
-                    boxes=kwimage.Boxes([a['bbox'] for a in annots], 'xywh'),
+                    boxes=kwimage.Boxes([a['bbox'] for a in anns], 'xywh'),
                     segmentations=ssegs,
                     class_idxs=cxs,
                     classes=classes,
                     weights=np.array(weights),
                 ).numpy()
                 gid_to_det[gid] = dets
+        elif isinstance(dataset, ndsampler.CocoSampler):
+            # Input is an ndsampler object
+            sampler = dataset
+            coco_dset = sampler.dset
+            gid_to_det = cls._coerce_dets(coco_dset)
         elif isinstance(dataset, six.string_types):
             if exists(dataset):
                 # on-disk detections
                 if isdir(dataset):
+                    # directory of predictions
                     pred_fpaths = sorted(glob.glob(join(dataset, '*.json')))
                     dets = detect_predict._load_dets(pred_fpaths)
-                    gid_to_dets = {d.meta['gid']: d for d in dets}
-                    # directory of predictions
+                    gid_to_det = {d.meta['gid']: d for d in dets}
                     pass
                 elif isfile(dataset):
                     # mscoco file
+                    coco_fpath = dataset
+                    coco_dset = kwcoco.CocoDataset(coco_fpath)
+                    gid_to_det = cls._coerce_dets(coco_dset)
+                else:
                     raise NotImplementedError
-                pass
         else:
             raise NotImplementedError
 
