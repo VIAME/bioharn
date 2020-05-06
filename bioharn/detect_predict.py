@@ -946,32 +946,44 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
             kwimage.imwrite(viz_fpath, toshow, space='rgb')
 
     if enable_cache:
-        MODE = 'simple'
-        MODE = 'parallel'
-        if MODE == 'simple':
-            for gid in ub.ProgIter(have_gids, desc='loading cached pred gids'):
-                single_pred_fpath = gid_to_pred_fpath[gid]
-                break
-
-                single_img_coco = ndsampler.CocoDataset(single_pred_fpath)
-                dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
-                                                           dset=single_img_coco)
-                gid_to_pred[gid] = dets
-        elif MODE == 'parallel':
-            # Process mode is much faster than thread.
-            from ndsampler.utils import util_futures
-            # 15,000 images took about 7 minutes on 4 workers
-            # 15,000 images took about 3 minutes on 8 workers
-            # 15,000 images took about 3 minutes on 16 workers
-            jobs = util_futures.JobPool(mode='process', max_workers=6)
-            for gid in ub.ProgIter(have_gids, desc='submit load jobs'):
-                single_pred_fpath = gid_to_pred_fpath[gid]
-                job = jobs.submit(_load_dets_worker, single_pred_fpath)
-                job.gid = gid
-            for job in ub.ProgIter(jobs.as_completed(), total=len(jobs), desc='loading cached predictions'):
-                gid_to_pred[job.gid] = job.result()
+        pred_fpaths = [gid_to_pred_fpath[gid] for gid in have_gids]
+        cached_dets = _load_dets(pred_fpaths, workers=6)
+        gid_to_pred = ub.dzip(gids, cached_dets)
+        # MODE = 'simple'
+        # MODE = 'parallel'
+        # if MODE == 'simple':
+        #     for gid in ub.ProgIter(have_gids, desc='loading cached pred gids'):
+        #         single_pred_fpath = gid_to_pred_fpath[gid]
+        #         single_img_coco = ndsampler.CocoDataset(single_pred_fpath)
+        #         dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
+        #                                                    dset=single_img_coco)
+        #         gid_to_pred[gid] = dets
+        # elif MODE == 'parallel':
+        #     # Process mode is much faster than thread.
+        #     from ndsampler.utils import util_futures
+        #     # 15,000 images took about 7 minutes on 4 workers
+        #     # 15,000 images took about 3 minutes on 8 workers
+        #     # 15,000 images took about 3 minutes on 16 workers
+        #     jobs = util_futures.JobPool(mode='process', max_workers=6)
+        #     for gid in ub.ProgIter(have_gids, desc='submit load jobs'):
+        #         single_pred_fpath = gid_to_pred_fpath[gid]
+        #         job = jobs.submit(_load_dets_worker, single_pred_fpath)
+        #         job.gid = gid
+        #     for job in ub.ProgIter(jobs.as_completed(), total=len(jobs), desc='loading cached predictions'):
+        #         gid_to_pred[job.gid] = job.result()
 
     return gid_to_pred, gid_to_pred_fpath
+
+
+def _load_dets(pred_fpaths, workers=6):
+    # Process mode is much faster than thread.
+    from ndsampler.utils import util_futures
+    jobs = util_futures.JobPool(mode='process', max_workers=workers)
+    for single_pred_fpath in ub.ProgIter(pred_fpaths, desc='submit load dets jobs'):
+        job = jobs.submit(_load_dets_worker, single_pred_fpath)
+    dets = []
+    for job in ub.ProgIter(jobs.jobs, total=len(jobs), desc='loading cached dets'):
+        dets.append(job.result())
 
 
 def _load_dets_worker(single_pred_fpath):
@@ -980,8 +992,12 @@ def _load_dets_worker(single_pred_fpath):
     """
     import ndsampler
     single_img_coco = ndsampler.CocoDataset(single_pred_fpath, autobuild=False)
+    if len(single_img_coco.dataset['images']) != 1:
+        raise Exception('Expected predictions for a single image only')
+    gid = single_img_coco.dataset['images'][0]['id']
     dets = kwimage.Detections.from_coco_annots(single_img_coco.dataset['annotations'],
                                                dset=single_img_coco)
+    dets.meta['gid'] = gid
     return dets
 
 

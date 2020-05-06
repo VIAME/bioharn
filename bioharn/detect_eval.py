@@ -4,6 +4,9 @@ TODO:
          * Note: if we determine an optimal budget for test data size, then we
          have the option to use reintroduce rest back into the training set.
 """
+import glob
+from os.path import isdir
+from os.path import isfile
 
 from os.path import exists
 from os.path import join
@@ -967,6 +970,18 @@ class CocoEvaluator(object):
                     weights=np.array(weights),
                 ).numpy()
                 gid_to_det[gid] = dets
+        elif isinstance(dataset, six.string_types):
+            if exists(dataset):
+                # on-disk detections
+                if isdir(dataset):
+                    pred_fpaths = sorted(glob.glob(join(dataset, '*.json')))
+                    detect_predict._load_dets(pred_fpaths)
+                    # directory of predictions
+                    pass
+                elif isfile(dataset):
+                    # mscoco file
+                    pass
+                pass
         else:
             raise NotImplementedError
 
