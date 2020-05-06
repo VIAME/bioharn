@@ -676,14 +676,15 @@ class CocoEvaluator(object):
 
     def evaluate(coco_eval, classes_of_interest=[], ignore_classes=None,
                  expt_title='', metrics_dpath='.'):
+
         classes = coco_eval.classes
         gid_to_true = coco_eval.gid_to_true
         gid_to_pred = coco_eval.gid_to_pred
 
         # n_true_annots = sum(map(len, gid_to_true.values()))
         # fp_cutoff = n_true_annots
-        # fp_cutoff = 10000
-        fp_cutoff = None
+        fp_cutoff = 10000
+        # fp_cutoff = None
 
         from netharn.metrics import DetectionMetrics
         dmet = DetectionMetrics(classes=classes)
@@ -777,9 +778,14 @@ class CocoEvaluator(object):
             import kwplot
             kwplot.autompl()
 
+            import seaborn
+            seaborn.set()
+
+            figsize = (9, 7)
+
             fig = kwplot.figure(fnum=1, pnum=(1, 2, 1), doclf=True,
                                 figtitle=expt_title)
-            fig.set_size_inches((11, 6))
+            fig.set_size_inches(figsize)
             pr_result.draw()
             kwplot.figure(fnum=1, pnum=(1, 2, 2))
             roc_result.draw()
@@ -789,7 +795,7 @@ class CocoEvaluator(object):
 
             fig = kwplot.figure(fnum=1, pnum=(1, 1, 1), doclf=True,
                                 figtitle=expt_title)
-            fig.set_size_inches((11, 6))
+            fig.set_size_inches(figsize)
             thresh_result.draw()
             fig_fpath = join(metrics_dpath, 'loc_thresh.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
@@ -797,7 +803,7 @@ class CocoEvaluator(object):
 
             fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
                                 figtitle=expt_title)
-            fig.set_size_inches((11, 6))
+            fig.set_size_inches(figsize)
             ovr_roc_result.draw(fnum=2)
 
             fig_fpath = join(metrics_dpath, 'perclass_roc.png')
@@ -806,7 +812,7 @@ class CocoEvaluator(object):
 
             fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
                                 figtitle=expt_title)
-            fig.set_size_inches((11, 6))
+            fig.set_size_inches(figsize)
             ovr_pr_result.draw(fnum=2)
             fig_fpath = join(metrics_dpath, 'perclass_pr.png')
             print('write fig_fpath = {!r}'.format(fig_fpath))
@@ -815,7 +821,7 @@ class CocoEvaluator(object):
             if classes_of_interest:
                 fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
                                     figtitle=expt_title)
-                fig.set_size_inches((11, 6))
+                fig.set_size_inches(figsize)
                 ovr_pr_result2.draw(fnum=2, prefix='coi-vs-bg-only')
                 fig_fpath = join(metrics_dpath, 'perclass_pr_coi_vs_bg.png')
                 print('write fig_fpath = {!r}'.format(fig_fpath))
@@ -823,7 +829,7 @@ class CocoEvaluator(object):
 
                 fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
                                     figtitle=expt_title)
-                fig.set_size_inches((11, 6))
+                fig.set_size_inches(figsize)
                 ovr_roc_result2.draw(fnum=2, prefix='coi-vs-bg-only')
                 fig_fpath = join(metrics_dpath, 'perclass_roc_coi_vs_bg.png')
                 print('write fig_fpath = {!r}'.format(fig_fpath))
@@ -834,7 +840,7 @@ class CocoEvaluator(object):
             for key in keys:
                 fig = kwplot.figure(fnum=2, pnum=(1, 1, 1), doclf=True,
                                     figtitle=expt_title)
-                fig.set_size_inches((11, 6))
+                fig.set_size_inches(figsize)
                 ovr_thresh_result.draw(fnum=2, key=key)
                 fig_fpath = join(metrics_dpath, 'perclass_{}.png'.format(key))
                 print('write fig_fpath = {!r}'.format(fig_fpath))
@@ -850,6 +856,14 @@ class CocoEvaluator(object):
                 fig_fpath = join(metrics_dpath, 'confusion.png')
                 print('write fig_fpath = {!r}'.format(fig_fpath))
                 ax.figure.savefig(fig_fpath)
+
+                if classes_of_interest:
+                    subkeys = ['background'] + classes_of_interest
+                    coi_confusion = confusion[subkeys].loc[subkeys]
+                    ax = kwplot.plot_matrix(coi_confusion, fnum=3, showvals=0, logscale=True)
+                    fig_fpath = join(metrics_dpath, 'confusion_coi.png')
+                    print('write fig_fpath = {!r}'.format(fig_fpath))
+                    ax.figure.savefig(fig_fpath)
 
                 fig = kwplot.figure(fnum=3, doclf=True)
                 row_norm_cfsn = confusion / confusion.values.sum(axis=1, keepdims=True)
