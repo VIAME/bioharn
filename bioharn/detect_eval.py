@@ -730,8 +730,6 @@ class CocoEvaluator(object):
         print('negative_classes = {!r}'.format(negative_classes))
         print('classes_of_interest = {!r}'.format(classes_of_interest))
         print('ignore_classes = {!r}'.format(ignore_classes))
-        import xdev
-        xdev.embed()
 
         # Get pure per-item detection results
         binvecs = cfsn_vecs.binarize_peritem(negative_classes=negative_classes)
