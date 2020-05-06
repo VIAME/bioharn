@@ -129,11 +129,38 @@ class DetectFitDataset(torch.utils.data.Dataset):
     @classmethod
     def demo(cls, key='habcam', augment='simple', channels='rgb', window_dims=(512, 512), **kw):
         """
-        self = DetectFitDataset.demo()
+        Ignore:
+            from bioharn.detect_dataset import *  # NOQA
+            self = DetectFitDataset.demo('habcam', augment='complex', channels='rgb|disparity')
+            index = 30
+
+            self.disable_augmenter = False
+            item = self[index]
+            # xdoc: +REQUIRES(--show)
+            import kwplot
+            kwplot.figure(doclf=True, fnum=1)
+            kwplot.autompl()  # xdoc: +SKIP
+            components = self.channels.decode(item['inputs'], axis=0)
+            rgb01 = components['rgb'].data.numpy().transpose(1, 2, 0)
+            boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
+            canvas_rgb = np.ascontiguousarray(kwimage.ensure_uint255(rgb01))
+            canvas_rgb = boxes.draw_on(canvas_rgb)
+            if 'disparity' in components:
+                disp = components['disparity'].data.numpy().transpose(1, 2, 0)
+                disp_canvs = np.ascontiguousarray(disp.copy())
+                disp_canvs = disp_canvs - disp_canvs.min()
+                disp_canvs = disp_canvs / disp_canvs.max()
+                disp_canvs = boxes.draw_on(disp_canvs)
+                kwplot.imshow(canvas_rgb, pnum=(1, 2, 1), fnum=1)
+                kwplot.imshow(disp_canvs, pnum=(1, 2, 2), fnum=1)
+            else:
+                kwplot.imshow(canvas_rgb, pnum=(1, 1, 1), fnum=1)
+            kwplot.show_if_requested()
         """
         import ndsampler
         if key == 'habcam':
-            fpath = ub.expandpath('$HOME/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
+            # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
+            fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json')
             dset = ndsampler.CocoDataset(fpath)
             from bioharn.detect_fit import DetectFitConfig
             config = DetectFitConfig()

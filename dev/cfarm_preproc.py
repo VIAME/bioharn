@@ -906,6 +906,8 @@ def fix_cats_offset():
 
     cd ~/data/noaa_habcam/combos
     rsync may_priority_habcam* viame:data/noaa_habcam/combos/
+
+
     """
     import kwcoco
     root = ub.expandpath('~/data/noaa_habcam/combos')
@@ -925,3 +927,20 @@ def fix_cats_offset():
 
     for dset in dsets:
         dset.dump(dset.fpath, newlines=True)
+
+
+def _reduce_test_size():
+    """
+
+    kwcoco split --src may_priority_habcam_cfarm_v7_test.mscoco.json --dst1 tmp1.mscoco.json --dst2 tmp2.mscoco.json --factor=4
+    kwcoco stats --src tmp1.mscoco.json tmp2.mscoco.json
+
+    kwcoco union --src may_priority_habcam_cfarm_v7_test.mscoco.json tmp1.mscoco.json --dst habcam_cfarm_v8_train.mscoco.json
+    mv tmp2.mscoco.json habcam_cfarm_v8_test.mscoco.json
+    cp may_priority_habcam_cfarm_v7_vali.mscoco.json habcam_cfarm_v8_vali.mscoco.json
+
+
+    kwcoco stats --src habcam_cfarm_v8_*.mscoco.json
+
+
+    """

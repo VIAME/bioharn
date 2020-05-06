@@ -1602,9 +1602,35 @@ if __name__ == '__main__':
             --bstep=8
 
 
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgb-coi-v46 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p5-c5 \
+            --max_epoch=400 \
+            --augment=complex \
+            --init=noop \
+            --workdir=/home/joncrall/work/bioharn \
+            --arch=cascade \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --window_dims=512,512 \
+            --input_dims=window \
+            --window_overlap=0.5 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+            --workers=8 \
+            --xpu=auto \
+            --batch_size=4 \
+            --num_batches=2000 \
+            --balance=tfidf \
+            --bstep=8
+
+
 
 # Maybe hard code these for validation tuning?
-
 input_stats = {'std': array([[[0.38 ]], [[0.384]], [[0.388]], [[0.213]]]),
                'mean': array([[[0.185]], [[0.169]], [[0.161]], [[0.267]]])}
 

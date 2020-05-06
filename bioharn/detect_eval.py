@@ -1246,6 +1246,17 @@ if __name__ == '__main__':
             --sampler_backend=None --batch_size=64 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto --workers=6 --async-buffer
 
 
+        # SMALLER TEST DATA WITH WINDOW OVERLAP
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_test.mscoco.json \
+            "--deployed=[\
+                $HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000007.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000020.pt,\
+            ]" \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto --window_overlap=0.5
+
+
         /home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/
         /home/joncrall/work/bioharn/fit/nice
 

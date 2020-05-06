@@ -521,10 +521,10 @@ class StereoCalibration():
             >>>     kwimage.ensure_alpha_channel(img_unrect1, 0.65), img1])
             >>> canvas_unrect2 = kwimage.overlay_alpha_layers([
             >>>     kwimage.ensure_alpha_channel(img_unrect2, 0.65), img2])
-            >>> _, ax5 = kwplot.imshow(canvas_unrect1, pnum=(nrows, 2, 5), title='un-rectified V2 (with overlay)')
+            >>> _, ax5 = kwplot.imshow(canvas_unrect1, pnum=(nrows, 2, 5), title='un-rectified (with overlay)')
             >>> _, ax6 = kwplot.imshow(canvas_unrect2, pnum=(nrows, 2, 6))
-            >>> kwplot.draw_points(points_unrect1, color='orange', radius=7, ax=ax5)
-            >>> kwplot.draw_points(points_unrect2, color='orange', radius=7, ax=ax6)
+            >>> kwplot.draw_points(points_unrect1, color='red', radius=7, ax=ax5)
+            >>> kwplot.draw_points(points_unrect2, color='red', radius=7, ax=ax6)
         """
         img_left_fpath = ub.grabdata('https://raw.githubusercontent.com/opencv/opencv/master/samples/data/left01.jpg')
         img_right_fpath = ub.grabdata('https://raw.githubusercontent.com/opencv/opencv/master/samples/data/right01.jpg')
