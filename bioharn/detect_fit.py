@@ -1547,6 +1547,61 @@ if __name__ == '__main__':
             kwcoco union --src $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json --dst $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_trainval.mscoco.json
 
 
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgb-fine-coi-v44 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p4-c2 \
+            --max_epoch=200 \
+            --augment=complex \
+            --init=noop \
+            --workdir=/home/joncrall/work/bioharn \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --arch=cascade \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=512,512 \
+            --window_dims=full \
+            --window_overlap=0.0 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+            --workers=8 \
+            --xpu=auto \
+            --batch_size=4 \
+            --num_batches=600 \
+            --balance=tfidf \
+            --bstep=8
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn-det-mc-cascade-rgbd-fine-coi-v45 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p4-c2 \
+            --max_epoch=200 \
+            --augment=complex \
+            --init=noop \
+            --workdir=/home/joncrall/work/bioharn \
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --arch=cascade \
+            --channels="rgb|disparity" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=512,512 \
+            --window_dims=full \
+            --window_overlap=0.0 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
+            --workers=8 \
+            --xpu=auto \
+            --batch_size=4 \
+            --num_batches=600 \
+            --balance=tfidf \
+            --bstep=8
+
+
 
 # Maybe hard code these for validation tuning?
 

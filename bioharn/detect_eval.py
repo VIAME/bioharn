@@ -498,7 +498,8 @@ class DetectEvaluator(object):
 
         draw = evaluator.config['draw']
         enable_cache = evaluator.config['enable_cache']
-        async_buffer = False
+        # async_buffer = False
+        async_buffer = ub.argval('--async-buffer')  # hack
 
         gid_to_pred, gid_to_pred_fpath = detect_predict._cached_predict(
             predictor, sampler, out_dpath, gids=gids,
@@ -1194,6 +1195,16 @@ if __name__ == '__main__':
                 $HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-coi-v43_valitune/nfnqoxuu/torch_snapshots/_epoch_00000005.pt,]" \
             "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
             --sampler_backend=cog --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto
+
+
+        python ~/code/bioharn/bioharn/detect_eval.py \
+            --dataset=$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json \
+            "--deployed=[\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-fine-coi-v44/ovxflcrh/torch_snapshots/_epoch_00000050.pt,\
+                $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v45/jsghbnij/torch_snapshots/_epoch_00000050.pt,\
+            ]"\
+            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+            --sampler_backend=None --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto --workers=6 --async-buffer
 
 
         /home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/
