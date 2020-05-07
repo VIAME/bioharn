@@ -213,7 +213,11 @@ class DetectHarn(nh.FitHarn):
         return_result = harn._hack_do_draw
 
         if getattr(harn.raw_model, '__BUILTIN_CRITERION__', False):
-            harn.raw_model.detector.test_cfg['score_thr'] = 0.0
+            try:
+                # hack for mmdet
+                harn.raw_model.detector.test_cfg['score_thr'] = 0.0
+            except AttributeError:
+                pass
 
             batch = batch.copy()
             batch.pop('tr')
@@ -329,7 +333,8 @@ class DetectHarn(nh.FitHarn):
             >>>     # datasets='special:voc',
             >>>     datasets='special:shapes8',
             >>>     gravity=1, augment=None,
-            >>>     arch='yolo2', pretrained='lightnet', lr=3e-5, normalize_inputs=False, anchors='lightnet', ensure_background_class=0, seen_thresh=110,
+            >>>     #arch='yolo2', pretrained='lightnet', lr=3e-5, normalize_inputs=False, anchors='lightnet', ensure_background_class=0, seen_thresh=110,
+            >>>     arch='efficientdet', init='noop', lr=3e-5, normalize_inputs=False,
             >>>     #arch='retinanet', init='noop', normalize_inputs=True, lr=1e-3,
             >>>     #arch='cascade', init='noop', normalize_inputs=True, lr=1e-3,
             >>>     channels='rgb',
@@ -364,7 +369,13 @@ class DetectHarn(nh.FitHarn):
                 # loss_parts.pop('cls')
 
                 batch_dets = harn.raw_model.coder.decode_batch(outputs)
+                print('batch_dets = {!r}'.format(batch_dets))
                 dets0 = batch_dets[0].numpy().sort()
+                print('dets0.classes = {!r}'.format(dets0.classes))
+                try:
+                    print('dets0.probs =\n{}'.format(ub.repr2(dets0.probs, precision=2)))
+                except AttributeError:
+                    pass
                 print('dets0.scores = {!r}'.format(dets0.scores[0:3]))
                 print('dets0.boxes = {!r}'.format(dets0.boxes.to_cxywh()[0:3]))
 
@@ -1042,6 +1053,25 @@ if __name__ == '__main__':
             --normalize_inputs=True \
             --workers=4 --xpu=0 --batch_size=8 --bstep=1 \
             --sampler_backend=cog
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn_shapes_example3 \
+            --train_dataset=special:shapes2048 \
+            --vali_dataset=special:shapes128 \
+            --augment=simple \
+            --init=noop \
+            --arch=efficientdet \
+            --optim=sgd --lr=1e-3 \
+            --schedule=ReduceLROnPlateau-p10-c10 \
+            --patience=100 \
+            --max_epochs=500 \
+            --input_dims=window \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --normalize_inputs=True \
+            --workers=4 --xpu=0 --batch_size=2 --bstep=4 \
+            --sampler_backend=cog \
+            --num_batches=200
 
         python ~/code/ndsampler/ndsampler/make_demo_coco.py
 

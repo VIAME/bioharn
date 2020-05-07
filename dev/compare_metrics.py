@@ -189,6 +189,7 @@ def _SCORE_SCALLOP_TK():
 
     pred_dataset = ub.expandpath('$HOME/remote/namek/remote/videonas/other/projects/noaa/scallop_detections/v1/scallop_tk_detections_fixed.json')
     true_dataset = ub.expandpath('$HOME/remote/videonas/other/projects/noaa/scallop_detections/v1/truth_scallop_only.json')
+    pred_dset = kwcoco.CocoDataset(pred_dataset)
 
     classes_of_interest = ['scallop']
 

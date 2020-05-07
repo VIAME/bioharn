@@ -1,4 +1,6 @@
 """
+Original model code "liberated" from https://github.com/toandaominh1997/EfficientDet.Pytorch
+
 from liberator.closer import Closer
 
 closer = Closer()
@@ -19,7 +21,7 @@ from netharn.data.channel_spec import ChannelSpec
 # from models.efficientnet import EfficientNet
 # from models.losses import FocalLoss
 # from models.retinahead import RetinaHead
-from torchvision.ops import nms
+# from torchvision.ops import nms
 # from models.module import xavier_init
 # from models.utils import MemoryEfficientSwish
 # from models.utils import Swish
@@ -400,8 +402,8 @@ class RetinaHead(nn.Module):
         for reg_conv in self.reg_convs:
             reg_feat = reg_conv(reg_feat)
 
-        cls_score = self.retina_cls(cls_feat)
-        cls_score = self.output_act(cls_score)
+        cls_energy = self.retina_cls(cls_feat)
+        cls_score = self.output_act(cls_energy)
         # out is B x C x W x H, with C = n_classes + n_anchors
         cls_score = cls_score.permute(0, 2, 3, 1)
         batch_size, width, height, channels = cls_score.shape
@@ -477,7 +479,7 @@ class FocalLoss(nn.Module):
             classification = torch.clamp(classification, 1e-4, 1.0 - 1e-4)
 
             # num_anchors x num_annotations
-            IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4])
+            IoU = calc_iou(anchors[j, :, :], bbox_annotation[:, :4])
 
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)  # num_anchors x 1
 
@@ -502,10 +504,10 @@ class FocalLoss(nn.Module):
 
             alpha_factor = torch.ones(targets.shape).to(device) * alpha
 
-            alpha_factor = torch.where(
-                torch.eq(targets, 1.), alpha_factor, 1. - alpha_factor)
-            focal_weight = torch.where(
-                torch.eq(targets, 1.), 1. - classification, classification)
+            alpha_factor = torch.where(torch.eq(targets, 1.),
+                                       alpha_factor, 1. - alpha_factor)
+            focal_weight = torch.where(torch.eq(targets, 1.),
+                                       1. - classification, classification)
             focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
 
             bce = -(targets * torch.log(classification) +
@@ -521,7 +523,6 @@ class FocalLoss(nn.Module):
                 cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0))
 
             # compute the loss for regression
-
             if positive_indices.sum() > 0:
                 assigned_annotations = assigned_annotations[positive_indices, :]
 
@@ -530,16 +531,15 @@ class FocalLoss(nn.Module):
                 anchor_ctr_x_pi = anchor_ctr_x[positive_indices]
                 anchor_ctr_y_pi = anchor_ctr_y[positive_indices]
 
-                gt_widths = assigned_annotations[:,
-                                                 2] - assigned_annotations[:, 0]
-                gt_heights = assigned_annotations[:,
-                                                  3] - assigned_annotations[:, 1]
+                gt_widths = assigned_annotations[:, 2] - assigned_annotations[:, 0]
+                gt_heights = assigned_annotations[:, 3] - assigned_annotations[:, 1]
                 gt_ctr_x = assigned_annotations[:, 0] + 0.5 * gt_widths
                 gt_ctr_y = assigned_annotations[:, 1] + 0.5 * gt_heights
 
-                # clip widths to 1
-                gt_widths = torch.clamp(gt_widths, min=1)
-                gt_heights = torch.clamp(gt_heights, min=1)
+                if 0:
+                    # clip widths to 1
+                    gt_widths = torch.clamp(gt_widths, min=1)
+                    gt_heights = torch.clamp(gt_heights, min=1)
 
                 targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
                 targets_dy = (gt_ctr_y - anchor_ctr_y_pi) / anchor_heights_pi
@@ -566,8 +566,10 @@ class FocalLoss(nn.Module):
             else:
                 regression_losses.append(torch.tensor(0).float().to(device))
 
-        return torch.stack(classification_losses).mean(
-            dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
+        clf_loss = torch.stack(classification_losses).mean(dim=0, keepdim=True)
+        regression_loss = torch.stack(regression_losses).mean(dim=0, keepdim=True)
+
+        return clf_loss, regression_loss
 
 
 def drop_connect(inputs, p, training):
@@ -1476,6 +1478,16 @@ def generate_anchors(base_size=16, ratios=None, scales=None):
 
 
 class Anchors(nn.Module):
+    """
+    Example:
+        >>> from bioharn.models.efficientdet import *  # NOQA
+        >>> self = Anchors()
+        >>> image_shape = (130, 130)
+        >>> anchors = self.forward(image_shape)
+        >>> anchors = kwimage.Boxes(anchors, 'tlbr')
+        >>> print(anchors.to_cxywh())
+
+    """
     def __init__(self, pyramid_levels=None, strides=None,
                  sizes=None, ratios=None, scales=None):
         super(Anchors, self).__init__()
@@ -1492,11 +1504,10 @@ class Anchors(nn.Module):
             self.scales = np.array(
                 [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
 
-    def forward(self, image):
-
-        image_shape = image.shape[2:]
+    def forward(self, image_shape, device=None):
+        # image_shape = image.shape[2:]
         image_shape = np.array(image_shape)
-        image_shapes = [(image_shape + 2 ** x - 1) // (2 ** x)
+        level_shapes = [(image_shape + 2 ** x - 1) // (2 ** x)
                         for x in self.pyramid_levels]
 
         # compute anchors over all pyramid levels
@@ -1505,14 +1516,14 @@ class Anchors(nn.Module):
         for idx, p in enumerate(self.pyramid_levels):
             anchors = generate_anchors(
                 base_size=self.sizes[idx], ratios=self.ratios, scales=self.scales)
-            shifted_anchors = shift(
-                image_shapes[idx], self.strides[idx], anchors)
+            level_shape = level_shapes[idx]
+            shifted_anchors = shift(level_shape, self.strides[idx], anchors)
             all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
 
         all_anchors = np.expand_dims(all_anchors, axis=0)
 
         return torch.from_numpy(
-            all_anchors.astype(np.float32)).to(image.device)
+            all_anchors.astype(np.float32)).to(device)
 
 
 MODEL_MAP = {
@@ -1531,12 +1542,12 @@ class EfficientDetCoder(object):
     """
     Transforms output of EfficientDet into kwimage.Detections
     """
-    def __init__(coder, model):
-        coder.model = model
+    def __init__(coder, classes, threshold, iou_threshold):
+        coder.classes = classes
+        coder.threshold = threshold
+        coder.iou_threshold = iou_threshold
 
-    def decode(coder, outputs):
-        self = coder.model
-
+    def decode_batch(coder, outputs):
         classification = outputs['classification']
         transformed_anchors = outputs['transformed_anchors']
 
@@ -1546,17 +1557,17 @@ class EfficientDetCoder(object):
         for bx in range(batch_size):
             pred_probs = classification[bx]
             pred_score, pred_cidx = pred_probs.max(dim=1)
-            pred_cxywh = transformed_anchors[bx]
+            pred_coords = transformed_anchors[bx]
             det = kwimage.Detections(
-                boxes=kwimage.Boxes(pred_cxywh, 'cxywh'),
+                boxes=kwimage.Boxes(pred_coords, 'tlbr'),
                 scores=pred_score,
                 probs=pred_probs,
                 class_idxs=pred_cidx,
-                classes=self.classes
+                classes=coder.classes
             )
-            flags = det.scores > self.threshold
+            flags = det.scores > coder.threshold
             det = det.compress(flags)
-            det = det.non_max_supress(thresh=self.iou_threshold)
+            det = det.non_max_supress(thresh=coder.iou_threshold)
             batch_dets.append(det)
         return batch_dets
 
@@ -1586,9 +1597,12 @@ class EfficientDet(nn.Module):
         >>> outputs = self.forward(batch)
         >>> batch_dets = self.coder.decode(outputs)
     """
+
+    __BUILTIN_CRITERION__ = True
+
     def __init__(self, classes=None, input_stats=None, channels=None,
                  network='efficientdet-d0', D_bifpn=3, W_bifpn=88, D_class=3,
-                 is_training=True, threshold=0.01, iou_threshold=0.5):
+                 threshold=0.01, iou_threshold=0.5):
         super(EfficientDet, self).__init__()
 
         classes = ndsampler.CategoryTree.coerce(classes)
@@ -1600,37 +1614,45 @@ class EfficientDet(nn.Module):
         self.input_norm = nh.layers.InputNorm(**input_stats)
 
         self.channels = ChannelSpec.coerce(channels)
+        # TODO: use channels when input is not RGB
 
         self.backbone = EfficientNet.from_pretrained(MODEL_MAP[network])
-        self.is_training = is_training
         self.neck = BIFPN(in_channels=self.backbone.get_list_features()[-5:],
                           out_channels=W_bifpn,
                           stack=D_bifpn,
                           num_outs=5)
+
         self.bbox_head = RetinaHead(num_classes=num_classes,
                                     in_channels=W_bifpn)
 
         self.anchors = Anchors()
-        self.regressBoxes = BBoxTransform()
-        self.clipBoxes = ClipBoxes()
-        self.threshold = threshold
-        self.iou_threshold = iou_threshold
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-        self.freeze_bn()
+        self.regressBoxes = BBoxTransform()  # TODO: move to coder
+        # self.clipBoxes = ClipBoxes()  # TODO: move to coder
+
+        if 0:
+            for m in self.modules():
+                if isinstance(m, nn.Conv2d):
+                    n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                    m.weight.data.normal_(0, math.sqrt(2. / n))
+                elif isinstance(m, nn.BatchNorm2d):
+                    m.weight.data.fill_(1)
+                    m.bias.data.zero_()
+            self.freeze_bn()
+
         self.criterion = FocalLoss()
 
-        self.coder = EfficientDetCoder(self)
+        self.threshold = threshold
+        self.iou_threshold = iou_threshold
+        self.coder = EfficientDetCoder(
+            self.classes, self.threshold, self.iou_threshold)
 
     def _encode_batch(self, batch):
         """
         Transform bioharn inputs into efficientdet format
         """
+        if not isinstance(batch, dict):
+            raise Exception('expected bioharn style batch')
+
         if isinstance(batch['inputs'], dict):
             assert len(batch['inputs']) == 1, ('only early fusion for now')
             inputs = ub.peek(batch['inputs'].values())
@@ -1644,47 +1666,57 @@ class EfficientDet(nn.Module):
 
         if 'label' in batch:
             label = batch['label']
+            batch_size = imgs.shape[0]
 
             if 'tlbr' in label:
                 assert len(label['tlbr'].data) == 1
                 tlbr_tensor = nh.data.collate.padded_collate(label['tlbr'].data[0], -1)
-                cxywh_tensor = kwimage.Boxes(tlbr_tensor, 'tlbr').to_cxywh().data
+                boxes_tensor = kwimage.Boxes(tlbr_tensor, 'tlbr')
             else:
                 assert len(label['cxywh'].data) == 1
                 cxywh_tensor = nh.data.collate.padded_collate(label['cxywh'].data[0], -1)
+                boxes_tensor = kwimage.Boxes(cxywh_tensor, 'cxywh')
+
+            tlbr_tensor = boxes_tensor.to_tlbr().data
             cidx_tensor = nh.data.collate.padded_collate(
                 [c[:, None] for c in label['class_idxs'].data[0]], -1)
-            annotations = torch.cat([cxywh_tensor, cidx_tensor.float()], axis=2)
+            annotations = torch.cat([tlbr_tensor, cidx_tensor.float()], axis=2)
+            annotations = annotations.view(batch_size, -1, 5)
             annotations = annotations.to(device)
         else:
             annotations = None
 
         return imgs, annotations
 
-    def forward(self, batch):
+    def forward(self, batch, return_result=None, return_loss=None):
         imgs, annotations = self._encode_batch(batch)
+
+        imgs = self.input_norm(imgs)
 
         x = self.extract_feat(imgs)
         outs = self.bbox_head(x)
         classification = torch.cat([out for out in outs[0]], dim=1)
         regression = torch.cat([out for out in outs[1]], dim=1)
-        anchors = self.anchors(imgs)
+
+        # TODO: memoize this
+        anchors = self.anchors(imgs.shape[2:], imgs.device)
 
         # annotations should be B,5,N shaped tensor with cxywh + cidx label
         # cidx of -1 indicates unused
         # annotations = annotations.permute(0, 2, 1)
 
         if annotations is not None:
-            loss = self.criterion(
+            clf_loss, regression_loss = self.criterion(
                 classification, regression, anchors, annotations)
             loss_parts = {
-                'loss': loss,
+                'clf_loss': clf_loss,
+                'regression_loss': regression_loss,
             }
         else:
             loss_parts = None
 
         transformed_anchors = self.regressBoxes(anchors, regression)
-        transformed_anchors = self.clipBoxes(transformed_anchors, imgs)
+        # transformed_anchors = self.clipBoxes(transformed_anchors, imgs)
 
         outputs = {
             'transformed_anchors': transformed_anchors,
@@ -1693,11 +1725,28 @@ class EfficientDet(nn.Module):
         }
         return outputs
 
-    def freeze_bn(self):
-        '''Freeze BatchNorm layers.'''
-        for layer in self.modules():
-            if isinstance(layer, nn.BatchNorm2d):
-                layer.eval()
+    # def freeze_bn(self):
+    #     '''Freeze BatchNorm layers.'''
+    #     for layer in self.modules():
+    #         if isinstance(layer, nn.BatchNorm2d):
+    #             layer.eval()
+
+    # def train(self, mode=True):
+    #     r"""Sets the module in training mode.
+
+    #     Args:
+    #         mode (bool): whether to set training mode (``True``) or evaluation
+    #                      mode (``False``). Default: ``True``.
+
+    #     Returns:
+    #         Module: self
+    #     """
+    #     # Don't unfreeze BN layers when training
+    #     self.training = mode
+    #     for module in self.children():
+    #         if not isinstance(module, nn.BatchNorm2d):
+    #             module.train(mode)
+    #     return self
 
     def extract_feat(self, img):
         """

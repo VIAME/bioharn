@@ -487,10 +487,10 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>>         break
         """
         # dataset = self
-        import torch.utils.data.sampler as torch_sampler
         assert len(self) > 0, 'must have some data'
         if shuffle:
-            sampler = torch_sampler.RandomSampler(self)
+            sampler = RandomSampler(self, num_samples=(
+                None if num_batches == 'auto' else num_batches * batch_size))
         else:
             sampler = torch_sampler.SequentialSampler(self)
 
@@ -558,6 +558,40 @@ class DetectFitDataset(torch.utils.data.Dataset):
             collate_fn=collate_fn, num_workers=num_workers,
             pin_memory=pin_memory, worker_init_fn=worker_init_fn)
         return loader
+
+
+class RandomSampler(torch_sampler.RandomSampler):
+    r"""
+    Extends torch RandomSampler allow num_samples when replacement=False
+
+    See: https://github.com/pytorch/pytorch/issues/38032
+    """
+
+    def __init__(self, data_source, replacement=False, num_samples=None):
+        if num_samples == 'auto':
+            num_samples = None
+
+        self.data_source = data_source
+        self.replacement = replacement
+        self._num_samples = num_samples
+
+        if not isinstance(self.replacement, bool):
+            raise ValueError("replacement should be a boolean value, but got "
+                             "replacement={}".format(self.replacement))
+
+        if not isinstance(self.num_samples, int) or self.num_samples <= 0:
+            raise ValueError("num_samples should be a positive integer "
+                             "value, but got num_samples={}".format(self.num_samples))
+
+    def __iter__(self):
+        n = len(self.data_source)
+        if self.replacement:
+            return iter(torch.randint(high=n, size=(self.num_samples,), dtype=torch.int64).tolist())
+        else:
+            return iter(torch.randperm(n).tolist()[:self._num_samples])
+
+    def __len__(self):
+        return self.num_samples
 
 
 def reseed_(auger, rng):
