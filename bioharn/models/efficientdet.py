@@ -9,7 +9,8 @@ print(closer.current_sourcecode())
 import kwimage
 import ndsampler
 import netharn as nh
-
+import ubelt as ub
+from netharn.data.channel_spec import ChannelSpec
 
 # from models.module import Anchors
 # from models.module import BBoxTransform
@@ -1526,9 +1527,42 @@ MODEL_MAP = {
 }
 
 
+class EfficientDetCoder(object):
+    """
+    Transforms output of EfficientDet into kwimage.Detections
+    """
+    def __init__(coder, model):
+        coder.model = model
+
+    def decode(coder, outputs):
+        self = coder.model
+
+        classification = outputs['classification']
+        transformed_anchors = outputs['transformed_anchors']
+
+        batch_size = classification.shape[0]
+
+        batch_dets = []
+        for bx in range(batch_size):
+            pred_probs = classification[bx]
+            pred_score, pred_cidx = pred_probs.max(dim=1)
+            pred_cxywh = transformed_anchors[bx]
+            det = kwimage.Detections(
+                boxes=kwimage.Boxes(pred_cxywh, 'cxywh'),
+                scores=pred_score,
+                probs=pred_probs,
+                class_idxs=pred_cidx,
+                classes=self.classes
+            )
+            flags = det.scores > self.threshold
+            det = det.compress(flags)
+            det = det.non_max_supress(thresh=self.iou_threshold)
+            batch_dets.append(det)
+        return batch_dets
+
+
 class EfficientDet(nn.Module):
     """
-
     Ignore:
         >>> from bioharn.models.efficientdet import *  # NOQA
         >>> self = EfficientDet(classes=3)
@@ -1540,10 +1574,21 @@ class EfficientDet(nn.Module):
         >>> batch = _demo_batch(bsize=3, channels=channels)
         >>> outputs = self.forward(batch)
 
+    Ignore:
+        >>> from bioharn.detect_fit import *  # NOQA
+        >>> harn = setup_harn(bsize=2, datasets='special:shapes256',
+        >>>     arch='efficientdet', init='noop', xpu=0, channels='rgb',
+        >>>     workers=0, normalize_inputs=False, sampler_backend=None)
+        >>> harn.initialize()
+
+        >>> self = harn.raw_model
+        >>> batch = harn._demo_batch(tag='vali')
+        >>> outputs = self.forward(batch)
+        >>> batch_dets = self.coder.decode(outputs)
     """
-    def __init__(self, classes=None, input_stats=None, network='efficientdet-d0',
-                 D_bifpn=3, W_bifpn=88, D_class=3, is_training=True,
-                 threshold=0.01, iou_threshold=0.5):
+    def __init__(self, classes=None, input_stats=None, channels=None,
+                 network='efficientdet-d0', D_bifpn=3, W_bifpn=88, D_class=3,
+                 is_training=True, threshold=0.01, iou_threshold=0.5):
         super(EfficientDet, self).__init__()
 
         classes = ndsampler.CategoryTree.coerce(classes)
@@ -1553,6 +1598,8 @@ class EfficientDet(nn.Module):
         if input_stats is None:
             input_stats = {}
         self.input_norm = nh.layers.InputNorm(**input_stats)
+
+        self.channels = ChannelSpec.coerce(channels)
 
         self.backbone = EfficientNet.from_pretrained(MODEL_MAP[network])
         self.is_training = is_training
@@ -1578,14 +1625,13 @@ class EfficientDet(nn.Module):
         self.freeze_bn()
         self.criterion = FocalLoss()
 
-    def forward(self, batch):
-        # if self.is_training:
-        #     inputs, annotations = inputs
-        # else:
-        #     inputs = inputs
+        self.coder = EfficientDetCoder(self)
 
+    def _encode_batch(self, batch):
+        """
+        Transform bioharn inputs into efficientdet format
+        """
         if isinstance(batch['inputs'], dict):
-            import ubelt as ub
             assert len(batch['inputs']) == 1, ('only early fusion for now')
             inputs = ub.peek(batch['inputs'].values())
         else:
@@ -1593,16 +1639,30 @@ class EfficientDet(nn.Module):
         assert len(inputs.data) == 1
         imgs = inputs.data[0]
 
+        device = self.backbone._conv_stem.weight.device
+        imgs = imgs.to(device)
+
         if 'label' in batch:
             label = batch['label']
-            assert len(label['tlbr'].data) == 1
-            tlbr_tensor = nh.data.collate.padded_collate(label['tlbr'].data[0], -1)
-            cxywh_tensor = kwimage.Boxes(tlbr_tensor, 'tlbr').to_cxywh().data
+
+            if 'tlbr' in label:
+                assert len(label['tlbr'].data) == 1
+                tlbr_tensor = nh.data.collate.padded_collate(label['tlbr'].data[0], -1)
+                cxywh_tensor = kwimage.Boxes(tlbr_tensor, 'tlbr').to_cxywh().data
+            else:
+                assert len(label['cxywh'].data) == 1
+                cxywh_tensor = nh.data.collate.padded_collate(label['cxywh'].data[0], -1)
             cidx_tensor = nh.data.collate.padded_collate(
                 [c[:, None] for c in label['class_idxs'].data[0]], -1)
             annotations = torch.cat([cxywh_tensor, cidx_tensor.float()], axis=2)
+            annotations = annotations.to(device)
         else:
             annotations = None
+
+        return imgs, annotations
+
+    def forward(self, batch):
+        imgs, annotations = self._encode_batch(batch)
 
         x = self.extract_feat(imgs)
         outs = self.bbox_head(x)
@@ -1625,28 +1685,10 @@ class EfficientDet(nn.Module):
 
         transformed_anchors = self.regressBoxes(anchors, regression)
         transformed_anchors = self.clipBoxes(transformed_anchors, imgs)
-        scores = torch.max(classification, dim=2, keepdim=True)[0]
-        scores_over_thresh = (scores > self.threshold)[0, :, 0]
-
-        if scores_over_thresh.sum() == 0:
-            print('No boxes to NMS')
-            # no boxes to NMS, just return
-            return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
-        classification = classification[:, scores_over_thresh, :]
-        transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
-        scores = scores[:, scores_over_thresh, :]
-        anchors_nms_idx = nms(
-
-
-            transformed_anchors[0, :, :], scores[0, :, 0], iou_threshold=self.iou_threshold)
-        nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(
-            dim=1)
-        nms_boxes = transformed_anchors[0, anchors_nms_idx, :]
 
         outputs = {
-            'nms_scores': nms_scores,
-            'nms_class': nms_class,
-            'nms_boxes': nms_boxes,
+            'transformed_anchors': transformed_anchors,
+            'classification': classification,
             'loss_parts': loss_parts,
         }
         return outputs

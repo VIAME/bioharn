@@ -159,6 +159,58 @@ def _SCORE_FISH_YOLO2():
     coco_eval.evaluate(classes_of_interest, ignore_classes, expt_title, metrics_dpath)
 
 
+def _SCORE_SCALLOP_TK():
+
+    ### FIXUP GIDS
+
+    import kwcoco
+    pred_dataset = ub.expandpath('$HOME/remote/namek/remote/videonas/other/projects/noaa/scallop_detections/v1/scallop_tk_detections.json')
+    pred_dset = kwcoco.CocoDataset(pred_dataset)
+
+    true_dataset = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json')
+    true_dset = kwcoco.CocoDataset(true_dataset)
+
+    gid_mapping = {idx: img['id'] for idx, img in enumerate(true_dset.imgs.values())}
+    def _remap_image_ids(dset, gid_mapping):
+        dset.index.clear()
+        for img in dset.dataset['images']:
+            old_gid = img['id']
+            img['id'] = gid_mapping.get(old_gid, old_gid)
+        for ann in dset.dataset['annotations']:
+            old_gid = ann['image_id']
+            ann['image_id'] = gid_mapping.get(old_gid, old_gid)
+    _remap_image_ids(pred_dset, gid_mapping)
+    pred_dset._build_index()
+    pred_dset.rename_categories({'live_scallop': 'scallop'})
+    pred_dset.fpath = ub.augpath(pred_dset.fpath, suffix='_fixed')
+    pred_dset.dump(pred_dset.fpath, newlines=True)
+
+    #### SCORE
+
+    pred_dataset = ub.expandpath('$HOME/remote/namek/remote/videonas/other/projects/noaa/scallop_detections/v1/scallop_tk_detections_fixed.json')
+    true_dataset = ub.expandpath('$HOME/remote/videonas/other/projects/noaa/scallop_detections/v1/truth_scallop_only.json')
+
+    classes_of_interest = ['scallop']
+
+    model_tag = 'scallop_tk'
+    dset_tag = basename(true_dataset)
+    metrics_dpath = ub.ensuredir('tmp_metrics_scallop_tk')
+
+    ignore_classes = None
+    model_tag = basename(dirname(dirname(pred_dataset)))
+    dset_tag = basename(dirname(dirname(dirname(pred_dataset))))
+
+    # expt_title = '{} {}\n{}'.format(model_tag, predcfg_tag, dset_tag,)
+    expt_title = '{}\n{}'.format(model_tag, dset_tag)
+
+    config = {'draw': True}
+    from bioharn.detect_eval import CocoEvaluator  # NOQA
+    coco_eval = CocoEvaluator(true_dataset, pred_dataset, config)
+    coco_eval._init()
+    coco_eval.evaluate(classes_of_interest, ignore_classes, expt_title, metrics_dpath)
+
+
+
 def _SCORE_HACKS():
     """
     from bioharn.detect_eval import *  # NOQA

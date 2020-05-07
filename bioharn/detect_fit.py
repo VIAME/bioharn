@@ -185,6 +185,11 @@ class DetectHarn(nh.FitHarn):
 
             >>> from bioharn.detect_fit import *  # NOQA
             >>> harn = setup_harn(bsize=2, datasets='special:shapes256',
+            >>>     arch='efficientdet', init='noop', xpu=0, channels='rgb',
+            >>>     workers=0, normalize_inputs=False, sampler_backend=None)
+
+            >>> from bioharn.detect_fit import *  # NOQA
+            >>> harn = setup_harn(bsize=2, datasets='special:shapes256',
             >>>     arch='yolo2', init='lightnet', xpu=0, channels='rgb',
             >>>     workers=0, normalize_inputs=False, sampler_backend=None)
 
@@ -802,7 +807,16 @@ def setup_harn(cmdline=True, **kw):
     classes = samplers['train'].classes
 
     criterion_ = None
-    if arch == 'retinanet':
+    if arch == 'efficientdet':
+        from bioharn.models import efficientdet
+        initkw = dict(
+            classes=classes,
+            channels=config['channels'],
+            input_stats=input_stats,
+        )
+        model = efficientdet.EfficientDet(**initkw)
+        model._initkw = initkw
+    elif arch == 'retinanet':
         from bioharn.models import mm_models
         initkw = dict(
             classes=classes,
