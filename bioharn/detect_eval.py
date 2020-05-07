@@ -647,7 +647,10 @@ class CocoEvaluator(object):
         coco_eval.config = config
 
     def _init(coco_eval):
+        print('init truth dset')
         gid_to_true = CocoEvaluator._coerce_dets(coco_eval._true_dataset)
+
+        print('init pred dset')
         gid_to_pred = CocoEvaluator._coerce_dets(coco_eval._pred_dataset)
 
         gids = sorted(gid_to_pred.keys())
@@ -655,8 +658,11 @@ class CocoEvaluator(object):
         true_classes = ub.peek(gid_to_true.values()).classes
         pred_classes = ub.peek(gid_to_pred.values()).classes
 
-        classes, cid_true_to_pred = CocoEvaluator._rectify_classes(
+        classes, unified_cid_maps = CocoEvaluator._rectify_classes(
             true_classes, pred_classes)
+
+        true_to_unified_cid = unified_cid_maps['true']
+        pred_to_unified_cid = unified_cid_maps['pred']
 
         # Move truth to the same class indices as predictions
         for gid in ub.ProgIter(gids, desc='Rectify truth class idxs'):
@@ -665,7 +671,19 @@ class CocoEvaluator(object):
             old_classes = det.meta['classes']
             old_cidxs = det.data['class_idxs']
             old_cids = [old_classes.idx_to_id[cx] for cx in old_cidxs]
-            new_cids = [cid_true_to_pred.get(cid, cid) for cid in old_cids]
+            new_cids = [true_to_unified_cid.get(cid, cid) for cid in old_cids]
+            new_cidxs = np.array([new_classes.id_to_idx[c] for c in new_cids])
+            det.meta['classes'] = new_classes
+            det.data['class_idxs'] = new_cidxs
+
+        # Move truth to the same class indices as predictions
+        for gid in ub.ProgIter(gids, desc='Rectify pred class idxs'):
+            det = gid_to_pred[gid]
+            new_classes = classes
+            old_classes = det.meta['classes']
+            old_cidxs = det.data['class_idxs']
+            old_cids = [old_classes.idx_to_id[cx] for cx in old_cidxs]
+            new_cids = [pred_to_unified_cid.get(cid, cid) for cid in old_cids]
             new_cidxs = np.array([new_classes.id_to_idx[c] for c in new_cids])
             det.meta['classes'] = new_classes
             det.data['class_idxs'] = new_cidxs
@@ -723,7 +741,7 @@ class CocoEvaluator(object):
         # Detection only scoring
         print('Building confusion vectors')
         cfsn_vecs = dmet.confusion_vectors(ignore_classes=ignore_classes,
-                                           workers=0)
+                                           workers=8)
 
         negative_classes = ['background']
 
@@ -733,6 +751,8 @@ class CocoEvaluator(object):
 
         # Get pure per-item detection results
         binvecs = cfsn_vecs.binarize_peritem(negative_classes=negative_classes)
+
+        fp_cutoff = None
 
         roc_result = binvecs.roc(fp_cutoff=fp_cutoff)
         pr_result = binvecs.precision_recall()
@@ -932,25 +952,40 @@ class CocoEvaluator(object):
                         'node={} exists in pred and true but have '
                         'different ids, {}, {}'.format(node1, id1, id2))
 
-        graph2 = pred_classes.graph.copy()
-        for node1, id1 in true_classes.node_to_id.items():
-            if node1 not in pred_classes.node_to_id:
-                graph2.add_node(node1, id=id1)
-        classes = ndsampler.CategoryTree(graph2)
+        # TODO: determine if the class ids are the same, in which case we dont
+        # need to do unification.
 
-        cid_true_to_pred = {}
+        # mappings to unified cids
+        unified_cid_maps = {
+            'true': {},
+            'pred': {},
+        }
+        def _normalize_name(name):
+            return name.lower().replace(' ', '_')
+        pred_norm = {_normalize_name(name): name for name in pred_classes}
+        true_norm = {_normalize_name(name): name for name in true_classes}
+        unified_names = list(ub.unique(['background'] + list(pred_norm) + list(true_norm)))
+        classes = ndsampler.CategoryTree.coerce(unified_names)
 
-        if errors:
-            # raise Exception('\n'.join(errors))
-            for node1, true_cid in true_classes.node_to_id.items():
-                if node1 in pred_classes.node_to_id:
-                    pred_cid = pred_classes.node_to_id[node1]
-                    cid_true_to_pred[true_cid] = pred_cid
-                else:
-                    if true_cid in pred_classes.id_to_node:
-                        raise Exception('cannot remap conflicting ids')
-            classes = pred_classes
-        return classes, cid_true_to_pred
+        # raise Exception('\n'.join(errors))
+        for true_name, true_cid in true_classes.node_to_id.items():
+            true_norm_name = _normalize_name(true_name)
+            cid = classes.node_to_id[true_norm_name]
+            unified_cid_maps['true'][true_cid] = cid
+
+        for pred_name, pred_cid in pred_classes.node_to_id.items():
+            pred_norm_name = _normalize_name(pred_name)
+            cid = classes.node_to_id[pred_norm_name]
+            unified_cid_maps['pred'][pred_cid] = cid
+
+        # if errors:
+        #     graph2 = pred_classes.graph.copy()
+        #     for node1, id1 in true_classes.node_to_id.items():
+        #         if node1 not in pred_classes.node_to_id:
+        #             graph2.add_node(node1, id=id1)
+        #     classes = ndsampler.CategoryTree(graph2)
+
+        return classes, unified_cid_maps
 
     @classmethod
     def _coerce_dets(cls, dataset):
@@ -995,6 +1030,7 @@ class CocoEvaluator(object):
                 cxs = np.array([classes.id_to_idx[c] for c in cids])
                 ssegs = [a.get('segmentation') for a in anns]
                 weights = [a.get('weight', 1) for a in anns]
+                scores = [a.get('score', np.nan) for a in anns]
 
                 dets = kwimage.Detections(
                     boxes=kwimage.Boxes([a['bbox'] for a in anns], 'xywh'),
@@ -1002,6 +1038,7 @@ class CocoEvaluator(object):
                     class_idxs=cxs,
                     classes=classes,
                     weights=np.array(weights),
+                    scores=np.array(scores),
                 ).numpy()
                 gid_to_det[gid] = dets
         elif isinstance(dataset, ndsampler.CocoSampler):
@@ -1020,6 +1057,7 @@ class CocoEvaluator(object):
                     pass
                 elif isfile(dataset):
                     # mscoco file
+                    print('Loading mscoco file')
                     coco_fpath = dataset
                     coco_dset = kwcoco.CocoDataset(coco_fpath)
                     gid_to_det = cls._coerce_dets(coco_dset)

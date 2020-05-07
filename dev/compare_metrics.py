@@ -1,3 +1,5 @@
+from os.path import dirname
+from os.path import basename
 from os.path import exists
 from os.path import join
 import ubelt as ub
@@ -101,11 +103,60 @@ def hack_gather():
     print('\n=== mAP ==='.format(key))
     print(map_df.to_string(float_format=lambda x: '%0.3f' % x))
 
-
     for key in ap_columns:
         print('\n=== {!r} ==='.format(key))
         class_df = df.sort_values(key, ascending=False)
         print(class_df.to_string(float_format=lambda x: '%0.3f' % x))
+
+
+def _SCORE_FISH_YOLO2():
+
+    ### FIXUP GIDS
+
+    import kwcoco
+    pred_dataset = ub.expandpath('$HOME/remote/namek/remote/videonas/other/projects/noaa/scallop_detections/v1/svm_detections.json')
+    pred_dset = kwcoco.CocoDataset(pred_dataset)
+
+    true_dataset = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json')
+    true_dset = kwcoco.CocoDataset(true_dataset)
+
+    gid_mapping = {idx: img['id'] for idx, img in enumerate(true_dset.imgs.values())}
+    def _remap_image_ids(dset, gid_mapping):
+        dset.index.clear()
+        for img in dset.dataset['images']:
+            old_gid = img['id']
+            img['id'] = gid_mapping.get(old_gid, old_gid)
+        for ann in dset.dataset['annotations']:
+            old_gid = ann['image_id']
+            ann['image_id'] = gid_mapping.get(old_gid, old_gid)
+    pred_dset._build_index()
+    _remap_image_ids(pred_dset, gid_mapping)
+    pred_dset.fpath = ub.augpath(pred_dset.fpath, suffix='_fixed')
+    pred_dset.dump(pred_dset.fpath, newlines=True)
+
+    #### SCORE
+
+    pred_dataset = ub.expandpath('$HOME/remote/namek/remote/videonas/other/projects/noaa/scallop_detections/v1/svm_detections_fixed.json')
+    true_dataset = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json')
+
+    classes_of_interest = ['flatfish', 'roundfish', 'skate']
+
+    model_tag = 'fish_yolo_v2'
+    dset_tag = basename(true_dataset)
+    metrics_dpath = ub.ensuredir('tmp_metrics_fish_yolo_v2')
+
+    ignore_classes = None
+    model_tag = basename(dirname(dirname(pred_dataset)))
+    dset_tag = basename(dirname(dirname(dirname(pred_dataset))))
+
+    # expt_title = '{} {}\n{}'.format(model_tag, predcfg_tag, dset_tag,)
+    expt_title = '{}\n{}'.format(model_tag, dset_tag)
+
+    config = {'draw': True}
+    from bioharn.detect_eval import CocoEvaluator  # NOQA
+    coco_eval = CocoEvaluator(true_dataset, pred_dataset, config)
+    coco_eval._init()
+    coco_eval.evaluate(classes_of_interest, ignore_classes, expt_title, metrics_dpath)
 
 
 def _SCORE_HACKS():
@@ -123,8 +174,65 @@ def _SCORE_HACKS():
     metrics_dpath = ub.ensuredir('tmp_metrics_rgbd')
 
 
+    metrics_dpath = ub.ensuredir('tmp_metrics_svm')
+    pred_dataset = ub.expandpath('$HOME/remote/namek/remote/videonas/other/projects/noaa/scallop_detections/v1/svm_detections.json')
+    pred_dset = kwcoco.CocoDataset(pred_dataset)
+
+    import kwcoco
+    metrics_dpath = ub.ensuredir('tmp_metrics_old_cfrnn')
+    pred_dataset = ub.expandpath('$HOME/remote/videonas/other/projects/noaa/scallop_detections/v1/scallop_old_cfrnn_detections.json')
+    pred_dset = kwcoco.CocoDataset(pred_dataset)
+
+    import kwcoco
     true_dataset = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json')
+    scallop_dset = kwcoco.CocoDataset(true_dataset)
+    scallop_dset.rename_categories({
+        'live sea scallop': 'scallop',
+        'swimming sea scallop': 'scallop',
+        'dead sea scallop': 'scallop',
+        'clapper': 'scallop',
+    })
+    scallop_dset.remove_categories(set(scallop_dset.name_to_cat) - {'scallop'})
+    scallop_dset.fpath = ub.expandpath('$HOME/remote/videonas/other/projects/noaa/scallop_detections/v1/truth_scallop_only.json')
+    scallop_dset.dump(scallop_dset.fpath)
+
+    true_dataset = ub.expandpath('$HOME/remote/videonas/other/projects/noaa/scallop_detections/v1/truth_scallop_only.json')
+    true_dset = kwcoco.CocoDataset(true_dataset)
+
+    # HACK
+
+    gid_mapping = {idx: img['id'] for idx, img in enumerate(true_dset.imgs.values())}
+    dset = pred_dset
+    def _remap_image_ids(dset, gid_mapping):
+        dset.index.clear()
+        for img in dset.dataset['images']:
+            old_gid = img['id']
+            img['id'] = gid_mapping.get(old_gid, old_gid)
+        for ann in dset.dataset['annotations']:
+            old_gid = ann['image_id']
+            ann['image_id'] = gid_mapping.get(old_gid, old_gid)
+    pred_dset._build_index()
+    _remap_image_ids(pred_dset, gid_mapping)
+    pred_dset.fpath = ub.augpath(pred_dset.fpath, suffix='_fixed')
+    pred_dset.dump(pred_dset.fpath, newlines=True)
+
+    pred_dataset = ub.expandpath('$HOME/remote/namek/remote/videonas/other/projects/noaa/scallop_detections/v1/scallop_old_cfrnn_detections_fixed.json')
+    pred_dset = kwcoco.CocoDataset(pred_dataset)
+    predcfg_tag = ''
+    model_tag = 'old_cfrnn'
+    dset_tag = basename(true_dataset)
+
+    true_dataset = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_test.mscoco.json')
+
+    pred_dataset = ub.expandpath('$HOME/remote/namek/remote/videonas/other/projects/noaa/scallop_detections/v1/svm_detections_fixed.json')
+    pred_dset = kwcoco.CocoDataset(pred_dataset)
+    predcfg_tag = ''
+    model_tag = 'svm'
+    dset_tag = basename(true_dataset)
+    metrics_dpath = ub.ensuredir('tmp_metrics_svm')
+
     classes_of_interest = ['live sea scallop', 'swimming sea scallop', 'flatfish', 'clapper']
+    classes_of_interest = ['live_sea_scallop', 'swimming_sea_scallop', 'flatfish', 'clapper']
     ignore_classes = None
 
     # expt_title = ''
@@ -132,6 +240,8 @@ def _SCORE_HACKS():
     predcfg_tag = basename(dirname(pred_dataset))
     model_tag = basename(dirname(dirname(pred_dataset)))
     dset_tag = basename(dirname(dirname(dirname(pred_dataset))))
+
+
     # expt_title = '{} {}\n{}'.format(model_tag, predcfg_tag, dset_tag,)
     expt_title = '{}\n{}'.format(model_tag, dset_tag)
 
