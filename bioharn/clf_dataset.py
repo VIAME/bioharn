@@ -78,13 +78,19 @@ class ClfDataset(torch.utils.data.Dataset):
         import kwimage
 
         # Load sample image and category
-        tr = self.sampler.regions.get_positive(index, rng=None)
+        rng = kwarray.ensure_rng(None)
+        tr = self.sampler.regions.get_positive(index, rng=rng)
 
         # always sample a square region with a minimum size
         dim = max(tr['width'], tr['height'])
         dim = max(dim, 64)
-        tr['width'] = tr['height'] = dim
 
+        if not self.disable_augmenter:
+            if rng.rand() > 0.5:
+                # sometimes add a random pad
+                dim += int((rng.rand() * 0.2) * dim)
+
+        tr['width'] = tr['height'] = dim
         sample = self.sampler.load_sample(tr, with_annots=False)
 
         image = kwimage.atleast_3channels(sample['im'])[:, :, 0:3]
