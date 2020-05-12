@@ -48,7 +48,7 @@ class ClfConfig(scfg.Config):
         'normalize_inputs': scfg.Value(True, help=(
             'if True, precompute training mean and std for data whitening')),
 
-        'balance': scfg.Value(None, help='balance strategy. Can be category or None'),
+        'balance': scfg.Value(None, help='balance strategy. Can be classes or None'),
 
         'augmenter': scfg.Value('simple', help='type of training dataset augmentation'),
 
@@ -130,6 +130,8 @@ class ClfModel(nh.layers.Module):
             state_dict = resnet.load_state_dict_from_url(
                     resnet.model_urls[arch])
             model.load_state_dict(state_dict)
+            new_conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7,
+                                        stride=3, padding=3, bias=False)
             new_fc = torch.nn.Linear(2048, num_classes, bias=True)
             new_conv1.weight.data[:, 0:in_channels, :, :] = model.conv1.weight.data[0:, 0:in_channels, :, :]
             new_fc.weight.data[0:num_classes, :] = model.fc.weight.data[0:num_classes, :]
@@ -642,6 +644,6 @@ if __name__ == '__main__':
             --xpu=auto \
             --batch_size=8 \
             --num_batches=2000 \
-            --balance=category
+            --balance=classes
     """
     main()
