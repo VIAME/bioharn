@@ -30,20 +30,22 @@ class ClfDataset(torch.utils.data.Dataset):
         >>> kwplot.autompl()
         >>> kwplot.imshow(batch['inputs']['rgb'][0])
     """
-    def __init__(self, sampler, input_dims=(256, 256), augmenter=None):
+    def __init__(self, sampler, input_dims=(256, 256), augment=None):
         self.sampler = sampler
-        self.augmenter = None
+        self.augment = augment
         self.conditional_augmentors = None
         self.input_dims = input_dims
         self.classes = self.sampler.catgraph
 
-        self.augmenter = self._coerce_augmenter(augmenter)
+        self.disable_augmenter = not bool(augment)
+        self.augmenter = self._coerce_augmenter(augment)
 
     def __len__(self):
         return self.sampler.n_positives
 
     @ub.memoize_property
     def input_id(self):
+        # TODO: reset memoize dict if augmentation / other param is changed
         def imgaug_json_id(aug):
             import imgaug
             if isinstance(aug, tuple):
@@ -107,26 +109,26 @@ class ClfDataset(torch.utils.data.Dataset):
         }
         return batch
 
-    def _coerce_augmenter(self, augmenter):
+    def _coerce_augmenter(self, augment):
         import netharn as nh
         import imgaug.augmenters as iaa
         import imgaug as ia
-        if augmenter is True:
-            augmenter = 'simple'
-        if not augmenter:
+        if augment is True:
+            augment = 'simple'
+        if not augment:
             augmenter = None
-        elif augmenter == 'simple':
+        elif augment == 'simple':
             augmenter = iaa.Sequential([
                 iaa.Crop(percent=(0, .2)),
                 iaa.Fliplr(p=.5)
             ])
-        elif augmenter == 'medium':
+        elif augment == 'medium':
             augmenter = iaa.Sequential([
                 iaa.Sometimes(0.2, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
                 iaa.Crop(percent=(0, .2)),
                 iaa.Fliplr(p=.5)
             ])
-        elif augmenter == 'complex':
+        elif augment == 'complex':
             gravity = 0
             self._geometric = iaa.Sequential([
                 iaa.Sometimes(0.55, iaa.Affine(

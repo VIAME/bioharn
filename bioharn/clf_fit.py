@@ -441,17 +441,19 @@ def setup_harn(cmdline=True, **kw):
         'train': clf_dataset.ClfDataset(
             samplers['train'],
             input_dims=config['input_dims'],
-            augmenter=config['augmenter'],
+            augment=config['augmenter'],
         ),
         'vali': clf_dataset.ClfDataset(
             samplers['vali'],
             input_dims=config['input_dims'],
-            augmenter=False),
+            augment=False),
     }
 
     if config['normalize_inputs']:
         # Get stats on the dataset (todo: turn off augmentation for this)
         _dset = torch_datasets['train']
+        prev = _dset.disable_augmenter
+        _dset.disable_augmenter = False
         stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(1000, len(_dset))]
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
 
@@ -497,6 +499,7 @@ def setup_harn(cmdline=True, **kw):
 
             input_stats = ub.peek(perchan_input_stats.values())
             cacher.save(input_stats)
+        _dset.disable_augmenter = prev
     else:
         input_stats = {}
 
@@ -627,7 +630,7 @@ if __name__ == '__main__':
             --max_epoch=400 \
             --augment=complex \
             --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
+            --workdir=$HOME/work/bioharn \
             --arch=resnext101 \
             --channels="rgb" \
             --optim=sgd \
