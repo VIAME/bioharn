@@ -625,7 +625,7 @@ if __name__ == '__main__':
 
     Example:
         python -m bioharn.clf_fit \
-            --nice=bioharn-clf-rgb-v001 \
+            --name=bioharn-clf-rgb-v001 \
             --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
             --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
             --schedule=ReduceLROnPlateau-p5-c5 \
@@ -642,7 +642,7 @@ if __name__ == '__main__':
             --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x8d-8ba56ff5.pth \
             --workers=8 \
             --xpu=auto \
-            --batch_size=8 \
+            --batch_size=32 \
             --num_batches=2000 \
             --balance=classes
     """
