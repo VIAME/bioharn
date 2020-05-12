@@ -45,7 +45,7 @@ class ClfDataset(torch.utils.data.Dataset):
 
     @ub.memoize_property
     def input_id(self):
-        # TODO: reset memoize dict if augmentation / other param is changed
+        # TODO: reset memoize dict if augment / other param is changed
         def imgaug_json_id(aug):
             import imgaug
             if isinstance(aug, tuple):
@@ -83,7 +83,7 @@ class ClfDataset(torch.utils.data.Dataset):
         target = sample['tr']
 
         image = kwimage.ensure_uint255(image)
-        if self.augmenter is not None:
+        if self.augmenter is not None and not self.disable_augmenter:
             det = self.augmenter.to_deterministic()
             image = det.augment_image(image)
 
@@ -148,7 +148,7 @@ class ClfDataset(torch.utils.data.Dataset):
                     iaa.Sometimes(.9, iaa.CropAndPad(px=(-16, 16))),
                  ],
             )
-            self._intensity = iaa.Sequential([
+            self._rgb_intensity = iaa.Sequential([
                 # Color, brightness, saturation, and contrast
                 iaa.Sometimes(0.1, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
                 iaa.Sometimes(.10, iaa.GammaContrast((0.5, 2.0))),
@@ -191,10 +191,19 @@ class ClfDataset(torch.utils.data.Dataset):
                     ),
                 ])),
             ], random_order=True)
+
+            augmenter = []
+
             self._disp_intensity = iaa.Sequential([
                 iaa.Sometimes(.1, iaa.CoarseDropout(p=(.1, .3), size_percent=(0.02, 0.5))),
                 iaa.Sometimes(.1, iaa.AddElementwise((-40, 40))),
             ], random_order=True)
+
+            # TODO: better multi-channel augmentation
+            augmenter = iaa.Sequential([
+                self._rgb_intensity,
+                self._geometric,
+            ], random_order=False)
         else:
             raise KeyError('Unknown augmentation {!r}'.format(self.augment))
         return augmenter
