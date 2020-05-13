@@ -66,6 +66,11 @@ class ClfConfig(scfg.Config):
 
         'init': scfg.Value('noop', help='How to initialized weights: e.g. noop, kaiming_normal, path-to-a-pretrained-model)'),
         'pretrained': scfg.Path(help=('alternative way to specify a path to a pretrained model')),
+
+        # preference
+        'num_draw': scfg.Value(4, help='Number of initial batchs to draw per epoch'),
+        'draw_interval': scfg.Value(1, help='Minutes to wait between drawing'),
+        'draw_per_batch': scfg.Value(8, help='Number of items to draw within each batch'),
     }
 
     def normalize(self):
@@ -262,7 +267,15 @@ class ClfHarn(nh.FitHarn):
         Custom code executed at the end of each batch.
         """
         bx = harn.bxs[harn.current_tag]
-        if bx < 3:
+
+        if not getattr(harn, '_draw_timer', None):
+            harn._draw_timer = ub.Timer().tic()
+        # need to hack do draw here, because we need to call
+        # mmdet forward in a special way
+        harn._hack_do_draw = (harn.batch_index < harn.script_config['num_draw'])
+        harn._hack_do_draw |= ((harn._draw_timer.toc() > 60 * harn.script_config['draw_interval']) and
+                               (harn.script_config['draw_interval'] > 0))
+        if harn._hack_do_draw:
             stacked = harn._draw_batch(batch, outputs)
             dpath = ub.ensuredir((harn.train_dpath, 'monitor', harn.current_tag))
             fpath = join(dpath, 'batch_{}_epoch_{}.jpg'.format(bx, harn.epoch))
@@ -276,14 +289,14 @@ class ClfHarn(nh.FitHarn):
         harn._accum_confusion_vectors['y_pred'].append(y_pred)
         harn._accum_confusion_vectors['probs'].append(probs)
 
-    def _draw_batch(harn, batch, outputs, limit=32):
+    def _draw_batch(harn, batch, outputs, idxs=None):
         """
         Example:
             >>> # xdoctest: +REQUIRES(--download)
             >>> harn = setup_harn(batch_size=3).initialize()
             >>> batch = harn._demo_batch(0, tag='train')
             >>> outputs, loss = harn.run_batch(batch)
-            >>> stacked = harn._draw_batch(batch, outputs, limit=12)
+            >>> stacked = harn._draw_batch(batch, outputs)
             >>> # xdoctest: +REQUIRES(--show)
             >>> import kwplot
             >>> kwplot.autompl()
@@ -291,7 +304,7 @@ class ClfHarn(nh.FitHarn):
             >>> kwplot.show_if_requested()
         """
         import kwimage
-        inputs = batch['inputs']['rgb'][0:limit].data.cpu().numpy()
+        inputs = batch['inputs']['rgb'].data.cpu().numpy()
         true_cxs = batch['labels']['class_idxs'].data.cpu().numpy()
         class_probs = outputs['class_probs'].data.cpu().numpy()
         pred_cxs = kwarray.ArrayAPI.numpy(outputs['pred_cxs'])
@@ -299,8 +312,26 @@ class ClfHarn(nh.FitHarn):
         dset = harn.datasets[harn.current_tag]
         classes = dset.classes
 
+        if idxs is None:
+            bsize = len(inputs)
+            # Get a varied sample of the batch
+            # (the idea is ensure that we show things on the non-dominat gpu)
+            num_want = harn.script_config['draw_per_batch']
+            num_want = min(num_want, bsize)
+            # This will never produce duplicates (difference between
+            # consecutive numbers will always be > 1 there fore they will
+            # always round to a different number)
+            idxs = np.linspace(bsize - 1, 0, num_want).round().astype(np.int).tolist()
+            idxs = sorted(idxs)
+        else:
+            idxs = [idxs] if not ub.iterable(idxs) else idxs
+
         todraw = []
-        for im, pcx, tcx, probs in zip(inputs, pred_cxs, true_cxs, class_probs):
+        for idx in idxs:
+            im = inputs[idx]
+            pcx = pred_cxs[idx]
+            tcx = true_cxs[idx]
+            probs = class_probs[idx]
             im_ = im.transpose(1, 2, 0)
 
             # Renormalize and resize image for drawing

@@ -3,9 +3,10 @@ import numpy as np
 import torch
 import ubelt as ub
 import kwarray
+from torch.utils import data as torch_data
 
 
-class ClfDataset(torch.utils.data.Dataset):
+class ClfDataset(torch_data.Dataset):
     """
     Efficient loader for classification training on coco samplers.
 
@@ -39,6 +40,13 @@ class ClfDataset(torch.utils.data.Dataset):
 
         self.disable_augmenter = not bool(augment)
         self.augmenter = self._coerce_augmenter(augment)
+
+    @classmethod
+    def demo(ClfDataset, key='shapes8', **kw):
+        import ndsampler
+        sampler = ndsampler.CocoSampler.demo(key)
+        self = ClfDataset(sampler, **kw)
+        return self
 
     def __len__(self):
         return self.sampler.n_positives
@@ -225,7 +233,24 @@ class ClfDataset(torch.utils.data.Dataset):
     def make_loader(self, batch_size=16, num_batches='auto', num_workers=0,
                     shuffle=False, pin_memory=False, drop_last=False,
                     balance=None):
-
+        """
+        Example:
+            >>> from bioharn.clf_dataset import *  # NOQA
+            >>> self = ClfDataset.demo(key='shapes8')
+            >>> index_to_cid = self.sampler.regions.targets['category_id']
+            >>> loader1 = self.make_loader(balance=None, shuffle=True)
+            >>> loader2 = self.make_loader(balance=None, shuffle=False)
+            >>> loader3 = self.make_loader(balance='classes', shuffle=True)
+            >>> list(loader1)
+            >>> list(loader2)
+            >>> list(loader3)
+            >>> list(loader1.batch_sampler)
+            >>> list(loader2.batch_sampler)
+            >>> list(loader3.batch_sampler)
+            >>> print([index_to_cid[idxs] for idxs in list(loader1.batch_sampler)])
+            >>> print([index_to_cid[idxs] for idxs in list(loader2.batch_sampler)])
+            >>> print([index_to_cid[idxs] for idxs in list(loader3.batch_sampler)])
+        """
         if len(self) == 0:
             raise Exception('must have some data')
 
@@ -244,9 +269,28 @@ class ClfDataset(torch.utils.data.Dataset):
             'worker_init_fn': worker_init_fn,
         }
         if balance is None:
-            loaderkw['shuffle'] = shuffle
-            loaderkw['batch_size'] = batch_size
-            loaderkw['drop_last'] = drop_last
+            balance = 'sequential'
+
+        if balance == 'sequential':
+            if shuffle:
+                loaderkw['shuffle'] = shuffle
+                loaderkw['batch_size'] = batch_size
+                loaderkw['drop_last'] = drop_last
+                sampler = torch_data.RandomSampler(self)
+            else:
+                # When in sequential mode, stratify categories uniformly
+                # This makes the first few validation batches more informative
+                index_to_cid = self.sampler.regions.targets['category_id']
+                cid_to_idxs = ub.dzip(*kwarray.group_indices(index_to_cid))
+                for idxs in cid_to_idxs.values():
+                    kwarray.shuffle(idxs, rng=718860067)
+                idx_groups = sorted(cid_to_idxs.values(), key=len)
+                sortx = list(roundrobin(*idx_groups))
+                reordered = torch_data.Subset(self, sortx)
+                sampler = torch_data.SequentialSampler(reordered)
+                batch_sampler = torch_data.BatchSampler(
+                    sampler, batch_size=batch_size, drop_last=drop_last)
+                loaderkw['batch_sampler'] = batch_sampler
         elif balance == 'classes':
             from netharn.data.batch_samplers import BalancedBatchSampler
             index_to_cid = [
@@ -259,5 +303,26 @@ class ClfDataset(torch.utils.data.Dataset):
         else:
             raise KeyError(balance)
 
-        loader = torch.utils.data.DataLoader(self, **loaderkw)
+        loader = torch_data.DataLoader(self, **loaderkw)
         return loader
+
+
+def roundrobin(*iterables):
+    """
+    Python recipe by George Sakkis
+
+    Example:
+        >>> list(roundrobin('ABC', 'D', 'EF'))
+        ['A', 'D', 'E', 'B', 'F', 'C']
+    """
+    from itertools import cycle, islice
+    num_active = len(iterables)
+    nexts = cycle(iter(it).__next__ for it in iterables)
+    while num_active:
+        try:
+            for next in nexts:
+                yield next()
+        except StopIteration:
+            # Remove the iterator we just exhausted from the cycle.
+            num_active -= 1
+            nexts = cycle(islice(nexts, num_active))
