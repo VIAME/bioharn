@@ -31,11 +31,12 @@ class ClfDataset(torch_data.Dataset):
         >>> kwplot.autompl()
         >>> kwplot.imshow(batch['inputs']['rgb'][0])
     """
-    def __init__(self, sampler, input_dims=(256, 256), augment=None):
+    def __init__(self, sampler, input_dims=(256, 256), min_dim=64, augment=None):
         self.sampler = sampler
         self.augment = augment
         self.conditional_augmentors = None
         self.input_dims = input_dims
+        self.min_dim = min_dim
         self.classes = self.sampler.catgraph
 
         self.disable_augmenter = not bool(augment)
@@ -77,6 +78,8 @@ class ClfDataset(torch_data.Dataset):
                     return str(aug)
         depends = [
             self.sampler._depends(),
+            self.min_dim,
+            self.input_dims,
             self.augmenter and imgaug_json_id(self.augmenter),
         ]
         _input_id = ub.hash_data(depends, hasher='sha512', base='abc')[0:40]
@@ -91,7 +94,7 @@ class ClfDataset(torch_data.Dataset):
 
         # always sample a square region with a minimum size
         dim = max(tr['width'], tr['height'])
-        dim = max(dim, 64)
+        dim = max(dim, self.min_dim)
 
         if not self.disable_augmenter:
             if rng.rand() > 0.5:
@@ -114,6 +117,9 @@ class ClfDataset(torch_data.Dataset):
             dsize = tuple(self.input_dims[::-1])
             image = kwimage.imresize(image, dsize=dsize, letterbox=True)
 
+        # if 'disparity' in self.channels:
+        #     raise NotImplemented
+
         class_id_to_idx = self.sampler.classes.id_to_idx
         cid = target['category_id']
         cidx = class_id_to_idx[cid]
@@ -125,11 +131,11 @@ class ClfDataset(torch_data.Dataset):
         labels = {
             'class_idxs': cidx,
         }
-        batch = {
+        item = {
             'inputs': inputs,
             'labels': labels,
         }
-        return batch
+        return item
 
     def _coerce_augmenter(self, augment):
         import netharn as nh

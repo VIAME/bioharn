@@ -44,6 +44,7 @@ class ClfConfig(scfg.Config):
         'arch': scfg.Value('resnet50', help='Network architecture code'),
         'optim': scfg.Value('adam', help='Weight optimizer. Can be SGD, ADAM, ADAMW, etc..'),
 
+        'min_dim': scfg.Value(64, help='absolute minimum window size'),
         'input_dims': scfg.Value((224, 224), help='Window size to input to the network'),
         'normalize_inputs': scfg.Value(True, help=(
             'if True, precompute training mean and std for data whitening')),
@@ -71,6 +72,8 @@ class ClfConfig(scfg.Config):
         'num_draw': scfg.Value(4, help='Number of initial batchs to draw per epoch'),
         'draw_interval': scfg.Value(1, help='Minutes to wait between drawing'),
         'draw_per_batch': scfg.Value(32, help='Number of items to draw within each batch'),
+
+        'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
     }
 
     def normalize(self):
@@ -474,11 +477,13 @@ def setup_harn(cmdline=True, **kw):
         'train': clf_dataset.ClfDataset(
             samplers['train'],
             input_dims=config['input_dims'],
+            min_dim=config['min_dim'],
             augment=config['augmenter'],
         ),
         'vali': clf_dataset.ClfDataset(
             samplers['vali'],
             input_dims=config['input_dims'],
+            min_dim=config['min_dim'],
             augment=False),
     }
 
@@ -602,6 +607,7 @@ def setup_harn(cmdline=True, **kw):
         'keep_freq': 10,
         'tensorboard_groups': ['loss'],
         'eager_dump_tensorboard': True,
+        'timeout': config['timeout'],
     })
     harn.intervals.update({})
     harn.script_config = config
@@ -651,6 +657,8 @@ if __name__ == '__main__':
     TODO:
         - [ ] Construct training dataset based on truth boxes unioned with
               predicted boxes from a detector.
+
+        - [ ] Evaluate trained models (create clf_predict / clf_eval)
 
         - [ ] Student Teacher
 
