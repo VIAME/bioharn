@@ -458,7 +458,6 @@ class ClfSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             'aid': tr['aid'],
             'gid': tr['gid'],
             'cid': tr['category_id'],
-            'cx':  tr['class_idxs'],
         }
         item = {
             'inputs': inputs,
