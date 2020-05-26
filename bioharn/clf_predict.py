@@ -447,7 +447,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_clf_out',
         >>> config = {}
         >>> config['deployed'] = ub.expandpath('$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip')
         >>> predictor = ClfPredictor(config)
-        >>> out_dpath = './cached_out'
+        >>> out_dpath = './cached_clf_out'
         >>> coco_fpath = ub.expandpath("$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v43/eval/may_priority_habcam_cfarm_v7_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v43__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.0/all_pred.mscoco.json")
         >>> coco_dset = ndsampler.CocoDataset(coco_fpath)
         >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
