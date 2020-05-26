@@ -71,6 +71,23 @@ class ClfPredictor(object):
         predictor.coder = None
 
     @classmethod
+    def demo(ClfPredictor):
+        from bioharn import clf_fit
+        harn = clf_fit.setup_harn(cmdline=False, dataset='special:shapes128',
+                                  max_epoch=1, timeout=60)
+        harn.initialize()
+        if not harn.prev_snapshots():
+            # generate a model if needed
+            deployed = harn.run()
+        else:
+            deployed = harn.prev_snapshots()[-1]
+        config = {
+            'deployed': deployed,
+        }
+        predictor = ClfPredictor(config)
+        return predictor
+
+    @classmethod
     def _infer_native(cls, config):
         """
         Preforms whatever hacks are necessary to introspect the correct
@@ -179,6 +196,12 @@ class ClfPredictor(object):
 
         Yields:
             ClassificationResult
+
+        Example:
+            >>> import ndsampler
+            >>> predictor = ClfPredictor.demo()
+            >>> sampler = ndsampler.CocoSampler.demo()
+            >>> classifications = list(predictor.predict_sampler(sampler))
         """
         native = predictor._infer_native(predictor.config)
         dataset = ClfSamplerDataset(sampler, input_dims=native['input_dims'],
@@ -197,18 +220,35 @@ class ClfPredictor(object):
         prog = ub.ProgIter(loader, desc='clf predict sampler',
                            verbose=predictor.config['verbose'])
         with torch.no_grad():
+            classes = predictor.raw_model.classes
             for raw_batch in prog:
-                batch_result = predictor.predict_batch(raw_batch)
-                for item in batch_result:
-                    yield item
+                result, class_probs = predictor.predict_batch(raw_batch)
+                # Translate to row-based data structure
+                # (Do we want a column based data structure option?)
+                for (rx, row), prob in zip(result.iterrows(), class_probs):
+                    datakeys = set(Classification.__datakeys__) | set(row.keys())
+                    clf_kwargs = row.copy()
+                    clf_kwargs.update({
+                        'prob': prob,
+                        'classes': classes,
+                        'datakeys': datakeys,
+                    })
+                    result = Classification(**clf_kwargs)
+                    yield result
 
     def predict_batch(predictor, raw_batch):
         """
         Internal method, runs prediction on a single batch
+
+        Returns:
+            DataFrameArray: batched results
         """
+
+        labels = raw_batch.get('labels', None)
+
         inputs = predictor.xpu.move(raw_batch['inputs'])
         outputs = predictor.model(inputs)
-        classes = predictor.raw_model.classes
+        # classes = predictor.raw_model.classes
 
         if predictor.coder is not None:
             decoded = predictor.coder.decode_batch(outputs)
@@ -218,15 +258,19 @@ class ClfPredictor(object):
             pred_cxs = kwarray.ArrayAPI.numpy(decoded['pred_cxs'])
             pred_conf = kwarray.ArrayAPI.numpy(decoded['pred_conf'])
 
-            for probs, pcx, conf in zip(class_probs, pred_cxs, pred_conf):
-                clf_kwargs = {
-                    'prob': probs,
-                    'cidx': pcx,
-                    'conf': conf,
-                    'classes': classes,
-                }
-                result = Classification(**clf_kwargs)
-                yield result
+            data = {
+                'cidx': pred_cxs,
+                'conf': pred_conf,
+            }
+            if labels is not None:
+                if 'aid' in labels:
+                    data['aid'] = kwarray.ArrayAPI.numpy(labels['aid'])
+                if 'gid' in labels:
+                    data['gid'] = kwarray.ArrayAPI.numpy(labels['gid'])
+                if 'cid' in labels:
+                    data['true_cid'] = kwarray.ArrayAPI.numpy(labels['cid'])
+            result = kwarray.DataFrameArray(data)
+            return result, class_probs
         else:
             # should there be a clf decoder? (probably for consistency)
             raise NotImplementedError
@@ -412,6 +456,7 @@ class ClfSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         labels = {
             'class_idxs': class_id_to_idx[tr['category_id']],
             'aid': tr['aid'],
+            'gid': tr['gid'],
             'cid': tr['category_id']
         }
         item = {
