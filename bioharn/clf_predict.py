@@ -269,6 +269,8 @@ class ClfPredictor(object):
                     data['gid'] = kwarray.ArrayAPI.numpy(labels['gid'])
                 if 'cid' in labels:
                     data['true_cid'] = kwarray.ArrayAPI.numpy(labels['cid'])
+                if 'class_idxs' in labels:
+                    data['true_cidx'] = kwarray.ArrayAPI.numpy(labels['class_idxs'])
             batch_result = kwarray.DataFrameArray(data)
             return batch_result, class_probs
         else:
