@@ -222,10 +222,10 @@ class ClfPredictor(object):
         with torch.no_grad():
             classes = predictor.raw_model.classes
             for raw_batch in prog:
-                result, class_probs = predictor.predict_batch(raw_batch)
+                batch_result, class_probs = predictor.predict_batch(raw_batch)
                 # Translate to row-based data structure
                 # (Do we want a column based data structure option?)
-                for (rx, row), prob in zip(result.iterrows(), class_probs):
+                for (rx, row), prob in zip(batch_result.iterrows(), class_probs):
                     datakeys = set(Classification.__datakeys__) | set(row.keys())
                     clf_kwargs = row.copy()
                     clf_kwargs.update({
@@ -269,8 +269,8 @@ class ClfPredictor(object):
                     data['gid'] = kwarray.ArrayAPI.numpy(labels['gid'])
                 if 'cid' in labels:
                     data['true_cid'] = kwarray.ArrayAPI.numpy(labels['cid'])
-            result = kwarray.DataFrameArray(data)
-            return result, class_probs
+            batch_result = kwarray.DataFrameArray(data)
+            return batch_result, class_probs
         else:
             # should there be a clf decoder? (probably for consistency)
             raise NotImplementedError
@@ -457,7 +457,8 @@ class ClfSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             'class_idxs': class_id_to_idx[tr['category_id']],
             'aid': tr['aid'],
             'gid': tr['gid'],
-            'cid': tr['category_id']
+            'cid': tr['category_id'],
+            'cx':  tr['class_idxs'],
         }
         item = {
             'inputs': inputs,
