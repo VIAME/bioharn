@@ -203,6 +203,9 @@ class ClfPredictor(object):
                     yield item
 
     def predict_batch(predictor, raw_batch):
+        """
+        Internal method, runs prediction on a single batch
+        """
         inputs = predictor.xpu.move(raw_batch['inputs'])
         outputs = predictor.model(inputs)
         classes = predictor.raw_model.classes
@@ -432,8 +435,126 @@ class ImageListDataset(torch_data.Dataset):
 
     def __getitem__(self, index):
         raise NotImplementedError
-        full_rgb = self.images[index]
-        return full_rgb
+
+
+def _cached_predict(predictor, sampler, out_dpath='./cached_clf_out',
+                    draw=False, enable_cache=True, async_buffer=False,
+                    verbose=1, draw_truth=True):
+    """
+
+    Ignore:
+        >>> import ndsampler
+        >>> config = {}
+        >>> config['deployed'] = ub.expandpath('$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip')
+        >>> predictor = ClfPredictor(config)
+        >>> out_dpath = './cached_out'
+        >>> coco_fpath = ub.expandpath("$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v43/eval/may_priority_habcam_cfarm_v7_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v43__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.0/all_pred.mscoco.json")
+        >>> coco_dset = ndsampler.CocoDataset(coco_fpath)
+        >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
+        >>>                                 backend=None)
+    """
+    import kwarray
+    import ndsampler
+    from bioharn import util
+    import tempfile
+    coco_dset = sampler.dset
+    # predictor.config['verbose'] = 1
+
+    det_outdir = ub.ensuredir((out_dpath, 'pred'))
+    tmp_fpath = tempfile.mktemp()
+
+    # if gids is None:
+    #     gids = list(coco_dset.imgs.keys())
+
+    gid_to_pred_fpath = {
+        gid: join(det_outdir, 'dets_gid_{:08d}_v2.mscoco.json'.format(gid))
+        # for gid in gids
+    }
+
+    if enable_cache:
+        # Figure out what gids have already been computed
+        have_gids = [gid for gid, fpath in gid_to_pred_fpath.items() if exists(fpath)]
+    else:
+        have_gids = []
+
+    print('enable_cache = {!r}'.format(enable_cache))
+    # print('Found {} / {} existing predictions'.format(len(have_gids), len(gids)))
+
+    # gids = ub.oset(gids) - have_gids
+    pred_gen = predictor.predict_sampler(sampler, gids=gids)
+
+    if async_buffer:
+        desc = 'buffered detect'
+        buffered_gen = util.AsyncBufferedGenerator(pred_gen,
+                                                   size=coco_dset.n_images)
+        gen = buffered_gen
+    else:
+        desc = 'unbuffered detect'
+        gen = pred_gen
+
+    gid_to_pred = {}
+    prog = ub.ProgIter(gen, total=len(gids), desc=desc, verbose=verbose)
+    for img_idx, (gid, dets) in enumerate(prog):
+        gid_to_pred[gid] = dets
+
+        img = coco_dset.imgs[gid]
+
+        single_img_coco = ndsampler.CocoDataset()
+        gid = single_img_coco.add_image(**img)
+
+        for cat in dets.classes.to_coco():
+            single_img_coco.add_category(**cat)
+
+        # for cat in coco_dset.cats.values():
+        #     single_img_coco.add_category(**cat)
+
+        for ann in dets.to_coco():
+            ann['image_id'] = gid
+            if 'category_name' in ann:
+                catname = ann['category_name']
+                cid = single_img_coco.ensure_category(catname)
+                ann['category_id'] = cid
+            single_img_coco.add_annotation(**ann)
+
+        single_pred_fpath = gid_to_pred_fpath[gid]
+
+        # prog.ensure_newline()
+        # print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
+        # TODO: use safer?
+        single_img_coco.dump(tmp_fpath, newlines=True)
+        util.atomic_move(tmp_fpath, single_pred_fpath)
+
+        if draw is True or (draw and img_idx < draw):
+            draw_outdir = ub.ensuredir((out_dpath, 'draw'))
+            img_fpath = coco_dset.get_image_fpath(gid)
+            gname = basename(img_fpath)
+            viz_fname = ub.augpath(gname, prefix='detect_', ext='.jpg')
+            viz_fpath = join(draw_outdir, viz_fname)
+
+            image = kwimage.imread(img_fpath)
+
+            if draw_truth:
+                # draw truth if available
+                anns = list(ub.take(coco_dset.anns, coco_dset.gid_to_aids[gid]))
+                true_dets = kwimage.Detections.from_coco_annots(anns,
+                                                                dset=coco_dset)
+                true_dets.draw_on(image, alpha=None, color='green')
+
+            flags = dets.scores > .2
+            flags[kwarray.argmaxima(dets.scores, num=10)] = True
+            top_dets = dets.compress(flags)
+            toshow = top_dets.draw_on(image, alpha=None)
+            # kwplot.imshow(toshow)
+            kwimage.imwrite(viz_fpath, toshow, space='rgb')
+
+    if enable_cache:
+        pred_fpaths = [gid_to_pred_fpath[gid] for gid in have_gids]
+        cached_dets = _load_dets(pred_fpaths, workers=6)
+        assert have_gids == [d.meta['gid'] for d in cached_dets]
+        gid_to_cached = ub.dzip(have_gids, cached_dets)
+        gid_to_pred.update(gid_to_cached)
+
+    return gid_to_pred, gid_to_pred_fpath
 
 
 if __name__ == '__main__':

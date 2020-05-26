@@ -68,6 +68,14 @@ def prototype_eval_clf():
     roc_coi = nh.metrics.confusion_vectors.PerClass_ROC_Result(ub.dict_isect(roc_result.to_dict(), coi))
     pr_coi = nh.metrics.confusion_vectors.PerClass_PR_Result(ub.dict_isect(pr_result.to_dict(), coi))
 
+    fig = kwplot.figure(fnum=3, doclf=True)
+    confusion = cfsn_vecs.confusion_matrix()
+    import kwplot
+    ax = kwplot.plot_matrix(confusion, fnum=3, showvals=0, logscale=True)
+
+    roc_coi.draw(fnum=1)
+    pr_coi.draw(fnum=2)
+
     import kwplot
     kwplot.autompl()
 
