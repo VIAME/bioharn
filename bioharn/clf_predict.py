@@ -423,17 +423,27 @@ class ClfSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         >>> kwplot.imshow(item['inputs']['rgb'])
     """
 
-    def __init__(self, sampler, input_dims=(224, 224), min_dim=64):
+    def __init__(self, sampler, input_dims=(224, 224), min_dim=64, aids=None):
         self.input_dims = input_dims
         self.sampler = sampler
         self.min_dim = min_dim
+
+        if aids is None:
+            # use all annotation if unspecified
+            aids = list(sampler.dset.anns.keys())
+        self.aids = aids
 
     def __len__(self):
         return len(self.sampler)
 
     def __getitem__(self, index):
         sampler = self.sampler
-        tr = sampler.regions.get_positive(index=index)
+
+        if self.aids is None:
+            tr = sampler.regions.get_positive(index=index)
+        else:
+            tr = {'aid': self.aids[index]}
+        tr = sampler._infer_target_attributes(tr)
 
         # always sample a square region with a minimum size
         dim = np.ceil((max(tr['width'], tr['height'])))
@@ -490,6 +500,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_clf_out',
     """
 
     Ignore:
+        >>> from bioharn.clf_predict import *  # NOQA
         >>> import ndsampler
         >>> config = {}
         >>> config['deployed'] = ub.expandpath('$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip')
@@ -499,6 +510,10 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_clf_out',
         >>> coco_dset = ndsampler.CocoDataset(coco_fpath)
         >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
         >>>                                 backend=None)
+
+
+        globals().update(xdev.get_func_kwargs(_cached_predict))
+
     """
     import kwarray
     import ndsampler
@@ -513,22 +528,11 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_clf_out',
     # if gids is None:
     #     gids = list(coco_dset.imgs.keys())
 
-    gid_to_pred_fpath = {
-        gid: join(det_outdir, 'dets_gid_{:08d}_v2.mscoco.json'.format(gid))
-        # for gid in gids
-    }
-
-    if enable_cache:
-        # Figure out what gids have already been computed
-        have_gids = [gid for gid, fpath in gid_to_pred_fpath.items() if exists(fpath)]
-    else:
-        have_gids = []
-
     print('enable_cache = {!r}'.format(enable_cache))
     # print('Found {} / {} existing predictions'.format(len(have_gids), len(gids)))
 
     # gids = ub.oset(gids) - have_gids
-    pred_gen = predictor.predict_sampler(sampler, gids=gids)
+    pred_gen = predictor.predict_sampler(sampler)
 
     if async_buffer:
         desc = 'buffered detect'
