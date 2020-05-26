@@ -190,7 +190,7 @@ class ClfPredictor(object):
                 for item in batch_result:
                     yield item
 
-    def predict_sampler(predictor, sampler):
+    def predict_sampler(predictor, sampler, aids=None):
         """
         Runs prediction on all positive instances in a sampler.
 
@@ -205,7 +205,7 @@ class ClfPredictor(object):
         """
         native = predictor._infer_native(predictor.config)
         dataset = ClfSamplerDataset(sampler, input_dims=native['input_dims'],
-                                    min_dim=native['min_dim'])
+                                    min_dim=native['min_dim'], aids=aids)
         loader = torch_data.DataLoader(dataset,
                                        batch_size=predictor.config['batch_size'],
                                        num_workers=predictor.config['workers'],
@@ -520,6 +520,8 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_clf_out',
     from bioharn import util
     import tempfile
     coco_dset = sampler.dset
+
+    aids = list(coco_dset.anns.keys())
     # predictor.config['verbose'] = 1
 
     det_outdir = ub.ensuredir((out_dpath, 'pred'))
@@ -532,7 +534,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_clf_out',
     # print('Found {} / {} existing predictions'.format(len(have_gids), len(gids)))
 
     # gids = ub.oset(gids) - have_gids
-    pred_gen = predictor.predict_sampler(sampler)
+    pred_gen = predictor.predict_sampler(sampler, aids=aids)
 
     if async_buffer:
         desc = 'buffered detect'
@@ -544,7 +546,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_clf_out',
         gen = pred_gen
 
     gid_to_pred = {}
-    prog = ub.ProgIter(gen, total=len(gids), desc=desc, verbose=verbose)
+    prog = ub.ProgIter(gen, total=len(aids), desc=desc, verbose=verbose)
     for img_idx, (gid, dets) in enumerate(prog):
         gid_to_pred[gid] = dets
 
