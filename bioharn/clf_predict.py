@@ -495,14 +495,16 @@ class ImageListDataset(torch_data.Dataset):
 
 
 def _cached_predict(predictor, sampler, out_dpath='./cached_clf_out',
-                    draw=False, enable_cache=True, async_buffer=False,
-                    verbose=1, draw_truth=True):
+                    enable_cache=True, async_buffer=False, verbose=1):
     """
 
     Ignore:
         >>> from bioharn.clf_predict import *  # NOQA
+        >>> from bioharn.clf_predict import _cached_predict
         >>> import ndsampler
         >>> config = {}
+        >>> config['batch_size'] = 16
+        >>> config['workers'] = 4
         >>> config['deployed'] = ub.expandpath('$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip')
         >>> predictor = ClfPredictor(config)
         >>> out_dpath = './cached_clf_out'
@@ -511,103 +513,79 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_clf_out',
         >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
         >>>                                 backend=None)
 
-
         globals().update(xdev.get_func_kwargs(_cached_predict))
-
     """
-    import kwarray
-    import ndsampler
+    # import kwarray
+    # import ndsampler
+    # import tempfile
+
+    # TODO: Use a better more transparent way to cache than shelve
+    # Should we re-output coco on a per-image basis? Not sure.
+    import shelve
+
+    ub.ensuredir(out_dpath)
+
+    dset_hashid = sampler.dset.hashid[0:16]
+    shelf_fpath = join(out_dpath, 'cache_{}.shelf'.format(dset_hashid))
+    shelf = shelve.open(shelf_fpath)
+
+    have_aids = list(map(int, shelf.keys()))
+
     from bioharn import util
-    import tempfile
     coco_dset = sampler.dset
 
     aids = list(coco_dset.anns.keys())
-    # predictor.config['verbose'] = 1
-
-    det_outdir = ub.ensuredir((out_dpath, 'pred'))
-    tmp_fpath = tempfile.mktemp()
-
-    # if gids is None:
-    #     gids = list(coco_dset.imgs.keys())
+    predictor.config['verbose'] = 0
 
     print('enable_cache = {!r}'.format(enable_cache))
-    # print('Found {} / {} existing predictions'.format(len(have_gids), len(gids)))
+    print('Found {} / {} existing predictions'.format(len(have_aids), len(aids)))
 
     # gids = ub.oset(gids) - have_gids
     pred_gen = predictor.predict_sampler(sampler, aids=aids)
 
     if async_buffer:
-        desc = 'buffered detect'
+        desc = 'buffered classify'
         buffered_gen = util.AsyncBufferedGenerator(pred_gen,
                                                    size=coco_dset.n_images)
         gen = buffered_gen
     else:
-        desc = 'unbuffered detect'
+        desc = 'unbuffered classify'
         gen = pred_gen
 
-    gid_to_pred = {}
+    clf = next(gen)
+
+    classifications = []
     prog = ub.ProgIter(gen, total=len(aids), desc=desc, verbose=verbose)
-    for img_idx, (gid, dets) in enumerate(prog):
-        gid_to_pred[gid] = dets
+    for img_idx, clf in enumerate(prog):
+        # What's the best way to cache efficiently?
+        shelf[str(clf.data['aid'])] = clf
+        classifications.append(clf)
 
-        img = coco_dset.imgs[gid]
+    classifications2 = [
+        shelf[str(aid)] for aid in ub.ProgIter(aids, desc='load from cache')]
 
-        single_img_coco = ndsampler.CocoDataset()
-        gid = single_img_coco.add_image(**img)
+    reclassified = coco_dset.copy()
+    for clf in ub.ProgIter(classifications, desc='reclassify'):
+        ann = reclassified.anns[clf.data['aid']]
+        cid = clf.classes.idx_to_id[clf.data['cidx']]
+        cname = clf.classes[clf.data['cidx']]
+        ann['old_category_id'] = ann['category_id']
+        ann['old_category_name'] = ann['category_name']
+        ann['old_score'] = ann['score']
+        ann['category_id'] = int(cid)
+        ann['category_name'] = cname
+        ann['score'] = float(clf.conf)
+        ann['prob'] = clf.prob.tolist()
 
-        for cat in dets.classes.to_coco():
-            single_img_coco.add_category(**cat)
+    reclassified.dump(join(out_dpath, 'reclassified.mscoco.json'), newlines=True)
 
-        # for cat in coco_dset.cats.values():
-        #     single_img_coco.add_category(**cat)
-
-        for ann in dets.to_coco():
-            ann['image_id'] = gid
-            if 'category_name' in ann:
-                catname = ann['category_name']
-                cid = single_img_coco.ensure_category(catname)
-                ann['category_id'] = cid
-            single_img_coco.add_annotation(**ann)
-
-        single_pred_fpath = gid_to_pred_fpath[gid]
-
-        # prog.ensure_newline()
-        # print('write single_pred_fpath = {!r}'.format(single_pred_fpath))
-        # TODO: use safer?
-        single_img_coco.dump(tmp_fpath, newlines=True)
-        util.atomic_move(tmp_fpath, single_pred_fpath)
-
-        if draw is True or (draw and img_idx < draw):
-            draw_outdir = ub.ensuredir((out_dpath, 'draw'))
-            img_fpath = coco_dset.get_image_fpath(gid)
-            gname = basename(img_fpath)
-            viz_fname = ub.augpath(gname, prefix='detect_', ext='.jpg')
-            viz_fpath = join(draw_outdir, viz_fname)
-
-            image = kwimage.imread(img_fpath)
-
-            if draw_truth:
-                # draw truth if available
-                anns = list(ub.take(coco_dset.anns, coco_dset.gid_to_aids[gid]))
-                true_dets = kwimage.Detections.from_coco_annots(anns,
-                                                                dset=coco_dset)
-                true_dets.draw_on(image, alpha=None, color='green')
-
-            flags = dets.scores > .2
-            flags[kwarray.argmaxima(dets.scores, num=10)] = True
-            top_dets = dets.compress(flags)
-            toshow = top_dets.draw_on(image, alpha=None)
-            # kwplot.imshow(toshow)
-            kwimage.imwrite(viz_fpath, toshow, space='rgb')
-
-    if enable_cache:
-        pred_fpaths = [gid_to_pred_fpath[gid] for gid in have_gids]
-        cached_dets = _load_dets(pred_fpaths, workers=6)
-        assert have_gids == [d.meta['gid'] for d in cached_dets]
-        gid_to_cached = ub.dzip(have_gids, cached_dets)
-        gid_to_pred.update(gid_to_cached)
-
-    return gid_to_pred, gid_to_pred_fpath
+    # if enable_cache:
+    #     pred_fpaths = [gid_to_pred_fpath[gid] for gid in have_gids]
+    #     cached_dets = _load_dets(pred_fpaths, workers=6)
+    #     assert have_gids == [d.meta['gid'] for d in cached_dets]
+    #     gid_to_cached = ub.dzip(have_gids, cached_dets)
+    #     gid_to_pred.update(gid_to_cached)
+    # return gid_to_pred, gid_to_pred_fpath
 
 
 if __name__ == '__main__':
