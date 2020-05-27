@@ -957,7 +957,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
 def _load_dets(pred_fpaths, workers=6):
     # Process mode is much faster than thread.
-    from ndsampler.utils import util_futures
+    from kwcoco.utils import util_futures
     jobs = util_futures.JobPool(mode='process', max_workers=workers)
     for single_pred_fpath in ub.ProgIter(pred_fpaths, desc='submit load dets jobs'):
         job = jobs.submit(_load_dets_worker, single_pred_fpath)
@@ -971,8 +971,8 @@ def _load_dets_worker(single_pred_fpath):
     """
     single_pred_fpath = ub.expandpath('$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/eval/habcam_cfarm_v6_test.mscoc/bioharn-det-mc-cascade-rgbd-v36__epoch_00000018/c=0.2,i=window,n=0.5,window_d=512,512,window_o=0.0/pred/dets_gid_00004070_v2.mscoco.json')
     """
-    import ndsampler
-    single_img_coco = ndsampler.CocoDataset(single_pred_fpath, autobuild=False)
+    import kwcoco
+    single_img_coco = kwcoco.CocoDataset(single_pred_fpath, autobuild=False)
     if len(single_img_coco.dataset['images']) != 1:
         raise Exception('Expected predictions for a single image only')
     gid = single_img_coco.dataset['images'][0]['id']
