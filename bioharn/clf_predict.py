@@ -434,7 +434,7 @@ class ClfSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         self.aids = aids
 
     def __len__(self):
-        return len(self.sampler)
+        return len(self.aids)
 
     def __getitem__(self, index):
         sampler = self.sampler
@@ -536,13 +536,15 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
     coco_dset = sampler.dset
 
     aids = list(coco_dset.anns.keys())
+
+    need_aids = sorted(set(aids) - set(have_aids))
     predictor.config['verbose'] = 0
 
     print('enable_cache = {!r}'.format(enable_cache))
     print('Found {} / {} existing predictions'.format(len(have_aids), len(aids)))
 
     # gids = ub.oset(gids) - have_gids
-    pred_gen = predictor.predict_sampler(sampler, aids=aids)
+    pred_gen = predictor.predict_sampler(sampler, aids=need_aids)
 
     if async_buffer:
         desc = 'buffered classify'
@@ -553,14 +555,14 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
         desc = 'unbuffered classify'
         gen = pred_gen
 
-    clf = next(gen)
-
     classifications = []
-    prog = ub.ProgIter(gen, total=len(aids), desc=desc, verbose=verbose)
+    prog = ub.ProgIter(gen, total=len(need_aids), desc=desc, verbose=verbose)
     for img_idx, clf in enumerate(prog):
         # What's the best way to cache efficiently?
         shelf[str(clf.data['aid'])] = clf
         classifications.append(clf)
+
+    shelf.sync()
 
     classifications2 = [
         shelf[str(aid)] for aid in ub.ProgIter(aids, desc='load from cache')]
