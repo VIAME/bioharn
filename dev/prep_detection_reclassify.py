@@ -1,3 +1,4 @@
+from os.path import dirname
 from os.path import basename
 from os.path import exists
 from os.path import join
@@ -8,7 +9,9 @@ import kwcoco
 
 def prototype_prep_detection_reclassify():
 
-    prediction_dpath = ub.expandpath("$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v43/eval/may_priority_habcam_cfarm_v7_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v43__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.0/pred")
+    prediction_dpath = ub.expandpath('$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/eval/habcam_cfarm_v8_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v40__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.5/pred')
+
+    # prediction_dpath = ub.expandpath("$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v43/eval/may_priority_habcam_cfarm_v7_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v43__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.0/pred")
 
     prediction_fpaths = list(glob.glob(join(prediction_dpath, '*.mscoco.json')))
     fpaths =  prediction_fpaths[0:10]
@@ -24,16 +27,24 @@ def prototype_prep_detection_reclassify():
     pred_dsets = results = thread_based_multi_read(prediction_fpaths)
     pred_dset = kwcoco.CocoDataset.union(*pred_dsets)
 
-    if not exists(pred_dset.get_image_fpath(1)):
+    gid = ub.peek(pred_dset.imgs.keys())
+    if not exists(pred_dset.get_image_fpath(gid)):
         print('need to reroot pred dset')
         orig_img_root = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos')
-        pred_dset.img_root = orig_img_root
-        if exists(pred_dset.get_image_fpath(1)):
-            pred_dset.reroot(orig_img_root, absolute=True)
-            assert exists(pred_dset.imgs[1]['file_name'])
 
-    pred_fpath = ub.expandpath("$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v43/eval/may_priority_habcam_cfarm_v7_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v43__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.0/all_pred.mscoco.json")
-    pred_dset.dump(pred_fpath, newlines=True)
+        self = pred_dset
+        new_img_root = orig_img_root
+
+        if exists(join(orig_img_root, pred_dset.imgs[gid]['file_name'])):
+            print('the hacked root seems to work')
+            for img in ub.ProgIter(list(pred_dset.imgs.values()), desc='checking all'):
+                assert exists(join(orig_img_root, img['file_name']))
+            pred_dset.reroot(orig_img_root, absolute=True, check=True, safe=True)
+        else:
+            raise Exception('the hacked root doesnt work')
+
+    all_pred_fpath = join(dirname(prediction_dpath), 'all_pred.mscoco.json')
+    pred_dset.dump(all_pred_fpath, newlines=True)
 
     truth_fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos')
 
