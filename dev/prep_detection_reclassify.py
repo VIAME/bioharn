@@ -9,7 +9,19 @@ Notes:
 
     3. Load that file in clf_predict and predict on each box. Dump reclassified.mscoco.json
 
+        python -m bioharn.clf_predict \
+            --batch_size=16 \
+            --workers=4 \
+            --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip \
+            --dataset=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/eval/habcam_cfarm_v8_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v40__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.5/all_pred.mscoco.json \
+            --out_dpath=$HOME/tmp/cached_clf_out_cli
+
+        # Produces: $HOME/tmp/cached_clf_out_cli/reclassified.mscoco.json
+
     4. Use kwcoco evalaute to compare reclassified.mscoco.json to the truth habcam_cfarm_v8_test.mscoco.json
+
+
+        $HOME/tmp/cached_clf_out_cli/reclassified.mscoco.json
 """
 
 from os.path import dirname

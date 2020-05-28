@@ -201,6 +201,11 @@ class ClfPredictor(object):
             >>> classifications = list(predictor.predict_sampler(sampler))
         """
         native = predictor._infer_native(predictor.config)
+        if aids is None:
+            # use all annotation if unspecified
+            aids = list(sampler.dset.anns.keys())
+        if len(aids) == 0:
+            return
         dataset = ClfSamplerDataset(sampler, input_dims=native['input_dims'],
                                     min_dim=native['min_dim'], aids=aids)
         loader = torch_data.DataLoader(dataset,
@@ -536,6 +541,9 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
 
     need_aids = sorted(set(aids) - set(have_aids))
     predictor.config['verbose'] = 0
+    predictor._ensure_model()
+
+    classes = predictor.raw_model.classes
 
     print('enable_cache = {!r}'.format(enable_cache))
     print('Found {} / {} existing predictions'.format(len(have_aids), len(aids)))
@@ -565,10 +573,19 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
         shelf[str(aid)] for aid in ub.ProgIter(aids, desc='load from cache')]
 
     reclassified = coco_dset.copy()
+
+    # Change the categories of the dataset to reflect the classifier
+    reclassified.remove_categories(
+        list(reclassified.cats.keys()),
+        keep_annots=True, verbose=1)
+    for cat in list(classes.to_coco()):
+        reclassified.add_category(**cat)
+
     for clf in ub.ProgIter(classifications2, desc='reclassify'):
         ann = reclassified.anns[clf.data['aid']]
         cid = clf.classes.idx_to_id[clf.data['cidx']]
         cname = clf.classes[clf.data['cidx']]
+        assert cid == reclassified._resolve_to_cat(cname)['id']
         ann['old_category_id'] = ann['category_id']
         ann['old_category_name'] = ann['category_name']
         ann['old_score'] = ann['score']
