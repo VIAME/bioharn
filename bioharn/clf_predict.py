@@ -623,6 +623,8 @@ def clf_cli():
     print('config = {}'.format(ub.repr2(dict(config))))
 
     coco_dset = kwcoco.CocoDataset(config['dataset'])
+    print('coco_dset = {!r}'.format(coco_dset))
+
     sampler = ndsampler.CocoSampler(
         coco_dset,
         workdir=config['sampler_workdir'],
