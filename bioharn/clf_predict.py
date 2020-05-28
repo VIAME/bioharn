@@ -601,15 +601,26 @@ class ClfPredictCLIConfig(scfg.Config):
 
 
 def clf_cli():
-    """
+    r"""
     Command line script that wraps the predictor with logic to accept a dataset
     input and an output directory.
+
+    Ignore:
+
+        python -m bioharn.clf_predict \
+            --batch_size=16 \
+            --workers=4 \
+            --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip \
+            --dataset=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/eval/habcam_cfarm_v8_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v40__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.5/all_pred.mscoco.json \
+            --out_dpath=$HOME/tmp/cached_clf_out_cli
     """
     import kwcoco
     import ndsampler
     config = ClfPredictCLIConfig(cmdline=True)
     predict_config = ub.dict_isect(config, ClfPredictConfig.default)
     predictor = ClfPredictor(predict_config)
+
+    print('config = {}'.format(ub.repr2(dict(config))))
 
     coco_dset = kwcoco.CocoDataset(config['dataset'])
     sampler = ndsampler.CocoSampler(
