@@ -990,6 +990,8 @@ class DetectPredictCLIConfig(scfg.Config):
             'draw': scfg.Value(False),
             'sampler_backend': scfg.Value(None),
             'workdir': scfg.Path('~/work/bioharn', help='work directory for sampler if needed'),
+
+            'async_buffer': scfg.Value(False, help="I've seen this increase prediction rate from 2.0Hz to 2.3Hz, but it increases instability, unsure of the reason"),
         },
         DetectPredictConfig.default
     )
