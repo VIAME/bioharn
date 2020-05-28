@@ -590,7 +590,7 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
 
 class ClfPredictCLIConfig(scfg.Config):
     default = ub.dict_union(ClfPredictConfig.default, {
-        'dataset': scfg.Value(None, help='mscoco dataset to reclassify'),
+        'dataset': scfg.Value(None, type=str, help='mscoco dataset to reclassify'),
         'out_dpath': scfg.Value('./cached_clf_out', help='path to write results'),
         'enable_cache': scfg.Value(True, help='use shelf cachine'),
         'async_buffer': scfg.Value(False),
