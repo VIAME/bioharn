@@ -586,12 +586,13 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
         cid = clf.classes.idx_to_id[clf.data['cidx']]
         cname = clf.classes[clf.data['cidx']]
         assert cid == reclassified._resolve_to_cat(cname)['id']
-        ann['old_category_id'] = ann['category_id']
+        # ann['old_category_id'] = ann['category_id']
         ann['old_category_name'] = ann['category_name']
         ann['old_score'] = ann['score']
         ann['category_id'] = int(cid)
         ann['category_name'] = cname
         ann['score'] = float(clf.conf)
+        # We need to make sure the coco class ordering agrees with this
         ann['prob'] = clf.prob.tolist()
 
     reclassified.dump(join(out_dpath, 'reclassified.mscoco.json'), newlines=True)
