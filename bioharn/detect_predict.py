@@ -957,7 +957,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
 def _load_dets(pred_fpaths, workers=6):
     # Process mode is much faster than thread.
-    from kwcoco.utils import util_futures
+    from kwcoco.util import util_futures
     jobs = util_futures.JobPool(mode='process', max_workers=workers)
     for single_pred_fpath in ub.ProgIter(pred_fpaths, desc='submit load dets jobs'):
         job = jobs.submit(_load_dets_worker, single_pred_fpath)

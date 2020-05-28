@@ -20,8 +20,19 @@ Notes:
 
     4. Use kwcoco evalaute to compare reclassified.mscoco.json to the truth habcam_cfarm_v8_test.mscoco.json
 
-
         $HOME/tmp/cached_clf_out_cli/reclassified.mscoco.json
+
+
+
+NEXT STEPS:
+
+    * Run prediction on train / validation dataset
+
+    * Create expanded set of true boxes with background boxes.
+
+    * Train a classifier on that dataset.
+
+    * Rerun the evaluation steps
 """
 
 from os.path import dirname
@@ -82,6 +93,21 @@ def thread_based_multi_read(fpaths, max_workers=8, verbose=0):
     for fpath in ub.ProgIter(fpaths, desc='submit load jobs', verbose=verbose):
         jobs.submit(kwcoco.CocoDataset, fpath)
     results = [f.result() for f in ub.ProgIter(jobs.as_completed(), desc='collect load jobs', total=len(jobs), verbose=verbose)]
+    return results
+
+
+def thread_based_multi_read2(fpaths, max_workers=8, verbose=0):
+    # Can this be done better with asyncio?
+    from concurrent import futures
+    executor = futures.ThreadPoolExecutor(max_workers=max_workers)
+    with executor:
+        jobs = [
+            executor.submit(kwcoco.CocoDataset, fpath)
+            for fpath in ub.ProgIter(fpaths, desc='submit load jobs', verbose=verbose)
+        ]
+        prog = ub.ProgIter(futures.as_completed(jobs), total=len(jobs),
+                           desc='collect load jobs', verbose=verbose)
+        results = [f.result() for f in prog]
     return results
 
 
@@ -149,6 +175,25 @@ def async_based_multi_read(fpaths, max_workers=8):
     produce_got, consume_got = loop.run_until_complete(gathered)
     results = consume_got
     return results
+
+
+def make_hardnegative_clf_dataset():
+    """
+        # Detect on the training set
+        python -m bioharn.detect_predict \
+            --dataset=$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
+            --deployed=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/deploy_MM_CascadeRCNN_rgb-fine-coi-v40_ntjzrxlb_007_FVMWBU.zip \
+            --out_dpath=~/tmp/detect_habcam_v8_train \
+            --xpu=auto --batch_size=10 --workers=4
+
+        # Detect on the validation set
+        python -m bioharn.detect_predict \
+            --dataset=$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
+            --deployed=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/deploy_MM_CascadeRCNN_rgb-fine-coi-v40_ntjzrxlb_007_FVMWBU.zip \
+            --out_dpath=~/tmp/detect_habcam_v8_vali \
+            --xpu=auto --batch_size=32 --workers=8
+    """
+    pass
 
 
 def foo(fpaths):
