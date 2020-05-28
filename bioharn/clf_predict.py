@@ -595,8 +595,8 @@ class ClfPredictCLIConfig(scfg.Config):
         'enable_cache': scfg.Value(True, help='use shelf cachine'),
         'async_buffer': scfg.Value(False),
 
-        'sampler_workdir': scfg.Value(None),
-        'sampler_backend': scfg.Value('auto'),
+        'sampler_workdir': scfg.Value(None, help='only used if sampler backend is specified'),
+        'sampler_backend': scfg.Value(None, help='not typically needed if annotations are accessed sequentially w.r.t. containing images'),
     })
 
 
