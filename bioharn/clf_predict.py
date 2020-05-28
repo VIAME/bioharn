@@ -1,6 +1,3 @@
-from os.path import exists
-from os.path import isfile
-from os.path import basename
 from os.path import join
 import warnings
 import ubelt as ub
@@ -495,9 +492,8 @@ class ImageListDataset(torch_data.Dataset):
 
 
 def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
-                    enable_cache=True, async_buffer=False, verbose=1):
+                        enable_cache=True, async_buffer=False, verbose=1):
     """
-
     Ignore:
         >>> from bioharn.clf_predict import *  # NOQA
         >>> from bioharn.clf_predict import _cached_clf_predict
@@ -526,6 +522,7 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
 
     ub.ensuredir(out_dpath)
 
+    sampler.dset._build_hashid()
     dset_hashid = sampler.dset.hashid[0:16]
     shelf_fpath = join(out_dpath, 'cache_{}.shelf'.format(dset_hashid))
     shelf = shelve.open(shelf_fpath)
@@ -568,7 +565,7 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
         shelf[str(aid)] for aid in ub.ProgIter(aids, desc='load from cache')]
 
     reclassified = coco_dset.copy()
-    for clf in ub.ProgIter(classifications, desc='reclassify'):
+    for clf in ub.ProgIter(classifications2, desc='reclassify'):
         ann = reclassified.anns[clf.data['aid']]
         cid = clf.classes.idx_to_id[clf.data['cidx']]
         cname = clf.classes[clf.data['cidx']]
@@ -591,6 +588,45 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
     # return gid_to_pred, gid_to_pred_fpath
 
 
+class ClfPredictCLIConfig(scfg.Config):
+    default = ub.dict_union(ClfPredictConfig.default, {
+        'dataset': scfg.Value(None, help='mscoco dataset to reclassify'),
+        'out_dpath': scfg.Value('./cached_clf_out', help='path to write results'),
+        'enable_cache': scfg.Value(True, help='use shelf cachine'),
+        'async_buffer': scfg.Value(False),
+
+        'sampler_workdir': scfg.Value(None),
+        'sampler_backend': scfg.Value('auto'),
+    })
+
+
+def clf_cli():
+    """
+    Command line script that wraps the predictor with logic to accept a dataset
+    input and an output directory.
+    """
+    import kwcoco
+    import ndsampler
+    config = ClfPredictCLIConfig(cmdline=True)
+    predict_config = ub.dict_isect(config, ClfPredictConfig.default)
+    predictor = ClfPredictor(predict_config)
+
+    coco_dset = kwcoco.CocoDataset(config['dataset'])
+    sampler = ndsampler.CocoSampler(
+        coco_dset,
+        workdir=config['sampler_workdir'],
+        backend=config['sampler_backend']
+    )
+
+    _cached_clf_predict(
+        predictor, sampler,
+        out_dpath=config['out_dpath'],
+        enable_cache=config['enable_cache'],
+        async_buffer=config['async_buffer'],
+        verbose=config['verbose']
+    )
+
+
 if __name__ == '__main__':
     """
     CommandLine:
@@ -599,5 +635,4 @@ if __name__ == '__main__':
     Ignore:
         $HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip
     """
-    import xdoctest
-    xdoctest.doctest_module(__file__)
+    clf_cli()

@@ -1,3 +1,17 @@
+"""
+Notes:
+
+    Steps I manually took, need to automate these more effectively
+
+    1. Find the best detection model we had. In this case `rgb-fine-coi-v40__epoch_00000007`
+
+    2. Load the predictions file here, and dump them into an all_pred.mscoco.json file
+
+    3. Load that file in clf_predict and predict on each box. Dump reclassified.mscoco.json
+
+    4. Use kwcoco evalaute to compare reclassified.mscoco.json to the truth habcam_cfarm_v8_test.mscoco.json
+"""
+
 from os.path import dirname
 from os.path import basename
 from os.path import exists
@@ -16,7 +30,7 @@ def prototype_prep_detection_reclassify():
     prediction_fpaths = list(glob.glob(join(prediction_dpath, '*.mscoco.json')))
     fpaths =  prediction_fpaths[0:10]
 
-    truth_fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json')
+    truth_fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_test.mscoco.json')
     true_dset = kwcoco.CocoDataset(truth_fpath)
 
     # prediction_dsets = [
