@@ -492,7 +492,11 @@ def setup_harn(cmdline=True, **kw):
         _dset = torch_datasets['train']
         prev = _dset.disable_augmenter
         _dset.disable_augmenter = False
-        stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(1000, len(_dset))]
+        if config['normalize_inputs'] is True:
+            est_size = 4000
+        else:
+            est_size = config['normalize_inputs']
+        stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(est_size, len(_dset))]
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
 
         cacher = ub.Cacher('dset_mean', cfgstr=_dset.input_id + 'v3')

@@ -61,7 +61,7 @@ Notes:
             --optim=sgd \
             --lr=1e-3 \
             --input_dims=256,256 \
-            --normalize_inputs=True \
+            --normalize_inputs=10000 \
             --workers=8 \
             --xpu=auto \
             --batch_size=64 \
