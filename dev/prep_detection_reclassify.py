@@ -64,7 +64,7 @@ Notes:
             --normalize_inputs=10000 \
             --workers=8 \
             --xpu=auto \
-            --batch_size=64 \
+            --batch_size=48 \
             --balance=classes
 
             /home/joncrall/

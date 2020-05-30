@@ -493,13 +493,18 @@ def setup_harn(cmdline=True, **kw):
         prev = _dset.disable_augmenter
         _dset.disable_augmenter = False
         if config['normalize_inputs'] is True:
-            est_size = 4000
+            est_size = 1000
         else:
             est_size = config['normalize_inputs']
         stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(est_size, len(_dset))]
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
 
-        cacher = ub.Cacher('dset_mean', cfgstr=_dset.input_id + 'v3')
+        depends = [
+            config['normalize_inputs'],
+            _dset.input_id
+        ]
+
+        cacher = ub.Cacher('dset_mean', cfgstr=ub.hash_data(depends) + 'v4')
         input_stats = cacher.tryload()
 
         channels = ChannelSpec.coerce(config['channels'])
