@@ -306,12 +306,6 @@ class ClfDataset(torch_data.Dataset):
                 for idxs in cid_to_idxs.values():
                     kwarray.shuffle(idxs, rng=718860067)
 
-                # if 0:
-                #     cid_to_cids = {cid: index_to_cid[idxs]
-                #                    for cid, idxs in cid_to_idxs.items()}
-                #     cid_groupxs = sorted(cid_to_cids.values(), key=len)
-                #     list(roundrobin(*cid_groupxs))[0:100]
-
                 idx_groups = sorted(cid_to_idxs.values(), key=len)
                 sortx = list(roundrobin(*idx_groups))
                 idx_sampler = SubsetSampler(sortx)
