@@ -298,7 +298,6 @@ class ClfDataset(torch_data.Dataset):
                 loaderkw['shuffle'] = shuffle
                 loaderkw['batch_size'] = batch_size
                 loaderkw['drop_last'] = drop_last
-                idx_sampler = torch_data.RandomSampler(self)
             else:
                 # When in sequential mode, stratify categories uniformly
                 # This makes the first few validation batches more informative
@@ -316,9 +315,9 @@ class ClfDataset(torch_data.Dataset):
                 idx_groups = sorted(cid_to_idxs.values(), key=len)
                 sortx = list(roundrobin(*idx_groups))
                 idx_sampler = SubsetSampler(sortx)
-            batch_sampler = torch_data.BatchSampler(
-                idx_sampler, batch_size=batch_size, drop_last=drop_last)
-            loaderkw['batch_sampler'] = batch_sampler
+                batch_sampler = torch_data.BatchSampler(
+                    idx_sampler, batch_size=batch_size, drop_last=drop_last)
+                loaderkw['batch_sampler'] = batch_sampler
         elif balance == 'classes':
             from netharn.data.batch_samplers import BalancedBatchSampler
             index_to_cid = [
