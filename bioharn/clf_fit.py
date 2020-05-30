@@ -727,5 +727,26 @@ if __name__ == '__main__':
             --xpu=auto \
             --batch_size=32 \
             --balance=None
+
+
+        python -m bioharn.clf_fit \
+            --name=bioharn-clf-rgb-hard-v004 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train_hardbg1.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_hardbg1.mscoco.json \
+            --schedule=ReduceLROnPlateau-p5-c5 \
+            --max_epoch=400 \
+            --augment=simple \
+            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip \
+            --workdir=$HOME/work/bioharn \
+            --arch=resnext101 \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=256,256 \
+            --normalize_inputs=True \
+            --workers=8 \
+            --xpu=auto \
+            --batch_size=32 \
+            --balance=classes
     """
     main()

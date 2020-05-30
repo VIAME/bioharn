@@ -256,6 +256,22 @@ class ClfDataset(torch_data.Dataset):
             >>> print([index_to_cid[idxs] for idxs in list(loader1.batch_sampler)])
             >>> print([index_to_cid[idxs] for idxs in list(loader2.batch_sampler)])
             >>> print([index_to_cid[idxs] for idxs in list(loader3.batch_sampler)])
+
+        Ignore:
+            >>> from bioharn.clf_dataset import *  # NOQA
+            >>> import ndsampler
+            >>> import kwcoco
+            >>> dset = kwcoco.CocoDataset(ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_vali_hardbg1.mscoco.json'))
+            >>> sampler = ndsampler.CocoSampler(dset)
+            >>> self = ClfDataset(sampler)
+            >>> index_to_cid = self.sampler.regions.targets['category_id']
+            >>> loader1 = self.make_loader(balance=None, shuffle=False)
+            >>> list(loader1)
+            >>> list(loader1.batch_sampler)
+
+            >>> bgen = iter(loader1.batch_sampler)
+            >>> sample_idxs = [next(bgen) for _ in range(3)]
+            >>> print([index_to_cid[idxs] for idxs in sample_idxs])
         """
         if len(self) == 0:
             raise Exception('must have some data')
@@ -282,7 +298,7 @@ class ClfDataset(torch_data.Dataset):
                 loaderkw['shuffle'] = shuffle
                 loaderkw['batch_size'] = batch_size
                 loaderkw['drop_last'] = drop_last
-                sampler = torch_data.RandomSampler(self)
+                idx_sampler = torch_data.RandomSampler(self)
             else:
                 # When in sequential mode, stratify categories uniformly
                 # This makes the first few validation batches more informative
@@ -290,13 +306,19 @@ class ClfDataset(torch_data.Dataset):
                 cid_to_idxs = ub.dzip(*kwarray.group_indices(index_to_cid))
                 for idxs in cid_to_idxs.values():
                     kwarray.shuffle(idxs, rng=718860067)
+
+                # if 0:
+                #     cid_to_cids = {cid: index_to_cid[idxs]
+                #                    for cid, idxs in cid_to_idxs.items()}
+                #     cid_groupxs = sorted(cid_to_cids.values(), key=len)
+                #     list(roundrobin(*cid_groupxs))[0:100]
+
                 idx_groups = sorted(cid_to_idxs.values(), key=len)
                 sortx = list(roundrobin(*idx_groups))
-                reordered = torch_data.Subset(self, sortx)
-                sampler = torch_data.SequentialSampler(reordered)
-                batch_sampler = torch_data.BatchSampler(
-                    sampler, batch_size=batch_size, drop_last=drop_last)
-                loaderkw['batch_sampler'] = batch_sampler
+                idx_sampler = SubsetSampler(self, sortx)
+            batch_sampler = torch_data.BatchSampler(
+                idx_sampler, batch_size=batch_size, drop_last=drop_last)
+            loaderkw['batch_sampler'] = batch_sampler
         elif balance == 'classes':
             from netharn.data.batch_samplers import BalancedBatchSampler
             index_to_cid = [
@@ -311,6 +333,26 @@ class ClfDataset(torch_data.Dataset):
 
         loader = torch_data.DataLoader(self, **loaderkw)
         return loader
+
+
+class SubsetSampler(torch_data.Sampler):
+    """
+    Generates sample indices based on a specified order / subset
+
+    Example:
+        indices = list(range(10))
+        assert indices == list(SubsetSampler(indices))
+    """
+
+    def __init__(self, indices):
+        self.indices = indices
+
+    def __iter__(self):
+        for idx in self.indices:
+            yield idx
+
+    def __len__(self):
+        return len(self.indices)
 
 
 def roundrobin(*iterables):

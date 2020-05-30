@@ -23,6 +23,69 @@ Notes:
         $HOME/tmp/cached_clf_out_cli/reclassified.mscoco.json
 
 
+    5. Retrain the classification model
+
+        python -m bioharn.clf_fit \
+            --name=bioharn-clf-rgb-hard-v004 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train_hardbg1.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_hardbg1.mscoco.json \
+            --schedule=ReduceLROnPlateau-p5-c5 \
+            --max_epoch=400 \
+            --augment=simple \
+            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip \
+            --workdir=$HOME/work/bioharn \
+            --arch=resnext101 \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=256,256 \
+            --normalize_inputs=True \
+            --workers=8 \
+            --xpu=auto \
+            --batch_size=32 \
+            --balance=classes
+
+        # Re-retrain
+
+        python -m bioharn.clf_fit \
+            --name=bioharn-clf-rgb-hard-v004 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train_hardbg1.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_hardbg1.mscoco.json \
+            --schedule=step-10-20
+            --max_epoch=400 \
+            --augment=complex \
+            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-hard-v004/emrxfdav/deploy_ClfModel_emrxfdav_024_HUEOJO.zip \
+            --workdir=$HOME/work/bioharn \
+            --arch=resnext101 \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=256,256 \
+            --normalize_inputs=True \
+            --workers=8 \
+            --xpu=auto \
+            --batch_size=32 \
+            --balance=classes
+
+            /home/joncrall/
+
+    6. Rerun classifications on the existing predicted data using the new model
+
+        python -m bioharn.clf_predict \
+            --batch_size=16 \
+            --workers=4 \
+            --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-hard-v004/emrxfdav/deploy_ClfModel_emrxfdav_024_HUEOJO.zip \
+            --dataset=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/eval/habcam_cfarm_v8_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v40__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.5/all_pred.mscoco.json \
+            --out_dpath=$HOME/tmp/cached_clf_out_cli_hard
+
+    7. Evaluate new predictions
+
+        python -m kwcoco.coco_evaluator \
+            --pred_dataset=$HOME/tmp/cached_clf_out_cli_hard/reclassified.mscoco.json \
+            --true_dataset=$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_test.mscoco.json \
+            --out_dpath=$HOME/tmp/reclassified_eval_v2
+
+
 
 NEXT STEPS:
 
@@ -192,7 +255,92 @@ def make_hardnegative_clf_dataset():
             --deployed=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/deploy_MM_CascadeRCNN_rgb-fine-coi-v40_ntjzrxlb_007_FVMWBU.zip \
             --out_dpath=~/tmp/detect_habcam_v8_vali \
             --xpu=auto --batch_size=32 --workers=8
+
+        # Detect on the validation set
+        python -m bioharn.detect_predict \
+            --dataset=$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
+            --deployed=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/deploy_MM_CascadeRCNN_rgb-fine-coi-v40_ntjzrxlb_007_FVMWBU.zip \
+            --out_dpath=~/tmp/detect_habcam_v8_vali \
+            --xpu=auto --batch_size=32 --workers=8
     """
+    # from kwcoco import CocoDataset
+    import kwcoco
+    import glob
+    pred_fpaths = list(glob.glob(ub.expandpath('~/tmp/detect_habcam_v8_vali/pred/*.mscoco.json')))
+    true_coco = kwcoco.CocoDataset(ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json'))
+    pred_coco = kwcoco.CocoDataset.from_coco_paths(pred_fpaths)
+    print('true_coco = {!r}'.format(true_coco))
+    print('pred_coco = {!r}'.format(pred_coco))
+
+    hard_true_dset = build_hardneg_dset(true_coco, pred_coco)
+    hard_true_dset.fpath = ub.augpath(true_coco.fpath, suffix='_hardbg1', multidot=True)
+    hard_true_dset.dump(hard_true_dset.fpath, newlines=True)
+
+    pred_fpaths = list(glob.glob(ub.expandpath('~/tmp/detect_habcam_v8_train/pred/*.mscoco.json')))
+    true_coco = kwcoco.CocoDataset(ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json'))
+    pred_coco = kwcoco.CocoDataset.from_coco_paths(pred_fpaths)
+    print('true_coco = {!r}'.format(true_coco))
+    print('pred_coco = {!r}'.format(pred_coco))
+
+    hard_true_dset = build_hardneg_dset(true_coco, pred_coco)
+    hard_true_dset.fpath = ub.augpath(true_coco.fpath, suffix='_hardbg1', multidot=True)
+    hard_true_dset.dump(hard_true_dset.fpath, newlines=True)
+
+
+def build_hardneg_dset(true_coco, pred_coco):
+
+    from netharn.metrics import DetectionMetrics
+    #hack
+    bg_cid = true_coco.ensure_category('background', id=0)
+
+    dmet = DetectionMetrics.from_coco(true_coco, pred_coco, verbose=1)
+    gids = list(set(dmet.gid_to_pred_dets) & set(dmet.gid_to_true_dets))
+    gids = list(ub.oset(gids) - {28487, 28491})
+
+    # TODO: fix background inconsistencies
+    cfsn_vecs = dmet.confusion_vectors(gids=gids, verbose=1, workers=0)
+
+    # These predictions are unassigned, that means either they are unannotated
+    # true boxes that are missing, or they are hard negatives
+    unassigned_preds = (cfsn_vecs.data['true'] == -1)
+
+    # Assume hard negative for now, other path needs manual or expert input
+    unassigned_vecs = cfsn_vecs.data.compress(unassigned_preds)
+
+    # Get the unassigned boxes
+    candidate_hard_anns = []
+    import kwarray
+    unique_gids, groupxs = kwarray.group_indices(unassigned_vecs['gid'])
+    for gid, idxs in ub.ProgIter(zip(unique_gids, groupxs), total=len(unique_gids), desc='extracting hard negatives'):
+        pxs = unassigned_vecs['pxs'][idxs]
+        scores = unassigned_vecs['score'][idxs]
+        thresh = 0.1
+        take_pxs = pxs[scores > thresh]
+        pred_dets = dmet.gid_to_pred_dets[gid].take(take_pxs)
+
+        for ann in pred_dets.to_coco():
+            ann['category_name'] = 'background'
+            ann['category_id'] = bg_cid
+            ann['image_id'] = gid
+            ann.pop('score', None)
+            ann.pop('prob', None)
+            candidate_hard_anns.append(ann)
+
+        if 0:
+            import kwplot
+            kwplot.autompl()
+            canvas = true_coco.load_image(gid)
+            canvas = pred_dets.draw_on(canvas)
+            kwplot.imshow(canvas)
+
+    hard_true_dset = true_coco.copy()
+    for ann in ub.ProgIter(candidate_hard_anns, desc='add hard negs'):
+        hard_true_dset.add_annotation(**ann)
+    return hard_true_dset
+
+    for gid in unassigned_vecs['gid']:
+        pred_dets = dmet.gid_to_pred_dets[gid]
+
     pass
 
 
