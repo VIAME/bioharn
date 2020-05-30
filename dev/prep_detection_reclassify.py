@@ -48,10 +48,10 @@ Notes:
         # Re-retrain
 
         python -m bioharn.clf_fit \
-            --name=bioharn-clf-rgb-hard-v004 \
+            --name=bioharn-clf-rgb-hard-v005 \
             --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train_hardbg1.mscoco.json \
             --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_hardbg1.mscoco.json \
-            --schedule=step-10-20
+            --schedule=step-10-20 \
             --max_epoch=400 \
             --augment=complex \
             --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-hard-v004/emrxfdav/deploy_ClfModel_emrxfdav_024_HUEOJO.zip \
@@ -64,7 +64,7 @@ Notes:
             --normalize_inputs=True \
             --workers=8 \
             --xpu=auto \
-            --batch_size=32 \
+            --batch_size=64 \
             --balance=classes
 
             /home/joncrall/
