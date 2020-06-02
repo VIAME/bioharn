@@ -87,23 +87,84 @@ Notes:
             --batch_size=48 \
             --balance=None
 
+        python -m bioharn.clf_fit \
+            --name=bioharn-clf-rgb-hard-v007 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train_hardbg1.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_hardbg1.mscoco.json \
+            --schedule=ReduceLROnPlateau-p5-c5 \
+            --max_epoch=400 \
+            --augment=complex \
+            --init=kaiming_normal \
+            --workdir=$HOME/work/bioharn \
+            --arch=resnext101 \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=256,256 \
+            --normalize_inputs=10000 \
+            --workers=8 \
+            --xpu=auto \
+            --batch_size=48 \
+            --balance=classes
+
+        python -m bioharn.clf_fit \
+            --name=bioharn-clf-rgb-hard-v008 \
+            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train_hardbg1.mscoco.json \
+            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_hardbg1.mscoco.json \
+            --schedule=ReduceLROnPlateau-p5-c5 \
+            --max_epoch=400 \
+            --augment=complex \
+            --init=noop \
+            --workdir=$HOME/work/bioharn \
+            --arch=resnext101 \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=224,224 \
+            --normalize_inputs=10000 \
+            --workers=8 \
+            --xpu=auto \
+            --batch_size=64 \
+            --balance=classes
+
             /home/joncrall/
 
     6. Rerun classifications on the existing predicted data using the new model
 
+        # New CLF Models
+        $HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-hard-v005/mwgqunsc/deploy_ClfModel_mwgqunsc_093_BBHBJV.zip
+        $HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-hard-v006/lnhmnzai/deploy_ClfModel_lnhmnzai_011_IWKGTO.zip
+
         python -m bioharn.clf_predict \
             --batch_size=16 \
             --workers=4 \
-            --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-hard-v004/emrxfdav/deploy_ClfModel_emrxfdav_024_HUEOJO.zip \
+            --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-hard-v005/mwgqunsc/deploy_ClfModel_mwgqunsc_093_BBHBJV.zip \
             --dataset=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/eval/habcam_cfarm_v8_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v40__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.5/all_pred.mscoco.json \
-            --out_dpath=$HOME/tmp/cached_clf_out_cli_hard
+            --out_dpath=$HOME/tmp/cached_clf_out_cli_v5
+
+        python -m bioharn.clf_predict \
+            --batch_size=16 \
+            --workers=4 \
+            --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-hard-v006/lnhmnzai/deploy_ClfModel_lnhmnzai_011_IWKGTO.zip \
+            --dataset=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/eval/habcam_cfarm_v8_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v40__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.5/all_pred.mscoco.json \
+            --out_dpath=$HOME/tmp/cached_clf_out_cli_v6
 
     7. Evaluate new predictions
 
         python -m kwcoco.coco_evaluator \
-            --pred_dataset=$HOME/tmp/cached_clf_out_cli_hard/reclassified.mscoco.json \
+            --pred_dataset=$HOME/tmp/cached_clf_out_cli_v5/reclassified.mscoco.json \
             --true_dataset=$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_test.mscoco.json \
-            --out_dpath=$HOME/tmp/reclassified_eval_v2
+            --out_dpath=$HOME/tmp/cached_clf_out_cli_v5/eval
+
+        python -m kwcoco.coco_evaluator \
+            --pred_dataset=$HOME/tmp/cached_clf_out_cli_v6/reclassified.mscoco.json \
+            --true_dataset=$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_test.mscoco.json \
+            --out_dpath=$HOME/tmp/cached_clf_out_cli_v6/eval
+
+        python -m kwcoco.coco_evaluator \
+            --pred_dataset=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/eval/habcam_cfarm_v8_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v40__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.5/all_pred.mscoco.json \
+            --true_dataset=$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_test.mscoco.json \
+            --out_dpath=$HOME/tmp/orig_eval
 
 
 

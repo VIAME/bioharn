@@ -320,6 +320,8 @@ class ClfHarn(nh.FitHarn):
             # Get a varied sample of the batch
             # (the idea is ensure that we show things on the non-dominat gpu)
             num_want = harn.script_config['draw_per_batch']
+            if num_want is None:
+                num_want = bsize
             num_want = min(num_want, bsize)
             # This will never produce duplicates (difference between
             # consecutive numbers will always be > 1 there fore they will
@@ -338,8 +340,8 @@ class ClfHarn(nh.FitHarn):
             im_ = im.transpose(1, 2, 0)
 
             # Renormalize and resize image for drawing
-            min_, max_ = im_.min(), im_.max()
-            im_ = ((im_ - min_) / (max_ - min_) * 255).astype(np.uint8)
+            im_ = kwimage.normalize(im_)
+            im_ = kwimage.ensure_uint255(im_)
             im_ = np.ascontiguousarray(im_)
             im_ = kwimage.imresize(im_, dsize=(200, 200),
                                    interpolation='nearest')
@@ -487,6 +489,8 @@ def setup_harn(cmdline=True, **kw):
             augment=False),
     }
 
+    channels = ChannelSpec.coerce(config['channels'])
+
     if config['normalize_inputs']:
         # Get stats on the dataset (todo: turn off augmentation for this)
         _dset = torch_datasets['train']
@@ -506,8 +510,6 @@ def setup_harn(cmdline=True, **kw):
 
         cacher = ub.Cacher('dset_mean', cfgstr=ub.hash_data(depends) + 'v4')
         input_stats = cacher.tryload()
-
-        channels = ChannelSpec.coerce(config['channels'])
 
         if input_stats is None:
             # Use parallel workers to load data faster
