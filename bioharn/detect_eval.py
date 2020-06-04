@@ -549,17 +549,18 @@ class DetectEvaluator(object):
 
         # TODO: clean-up decoupling
         from kwcoco import coco_evaluator
-        coco_config = ub.dict_isect(
+        coco_eval_config = ub.dict_isect(
             evaluator.config, coco_evaluator.CocoEvalConfig.default)
-        coco_config.update({
+        coco_eval_config.update({
             'true_dataset': truth_sampler,
-            'pred_dataset': gid_to_pred,
             'classes_of_interest': classes_of_interest,
             'ignore_classes': ignore_classes,
             'out_dpath': metrics_dpath,
             'expt_title': expt_title,
         })
-        coco_eval = coco_evaluator.CocoEvaluator(coco_config)
+        coco_eval_config['pred_dataset'] = gid_to_pred
+        print('coco_eval_config = {}'.format(ub.repr2(coco_eval_config, nl=1)))
+        coco_eval = coco_evaluator.CocoEvaluator(coco_eval_config)
         coco_eval._init()
         results = coco_eval.evaluate()
 
