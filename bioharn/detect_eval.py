@@ -555,12 +555,13 @@ class DetectEvaluator(object):
             'true_dataset': truth_sampler,
             'pred_dataset': gid_to_pred,
             'classes_of_interest': classes_of_interest,
+            'ignore_classes': ignore_classes,
             'out_dpath': metrics_dpath,
+            'expt_title': expt_title,
         })
         coco_eval = coco_evaluator.CocoEvaluator(coco_config)
         coco_eval._init()
-        results = coco_eval.evaluate(
-            classes_of_interest, ignore_classes, expt_title, metrics_dpath)
+        results = coco_eval.evaluate()
 
         # TODO: cache detections to a file on disk.
         # Give the DetectionMetrics code an entry point that just takes two

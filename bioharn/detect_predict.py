@@ -897,6 +897,9 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
         img = coco_dset.imgs[gid]
 
+        # TODO: need to either add the expected img_root to the coco dataset or
+        # reroot the file name to be a full path so the predicted dataset can
+        # reference the source images if needed.
         single_img_coco = ndsampler.CocoDataset()
         gid = single_img_coco.add_image(**img)
 
