@@ -1,7 +1,10 @@
 Training harness for biology related problems
 
+Uses `netharn` (https://gitlab.kitware.com/computer-vision/netharn) to write
+the boilerplate for training loops. 
+
 Scripts take `kwcoco` datasets as inputs. See
-`https://gitlab.kitware.com/computer-vision/kwcoco` for how to format in the
+https://gitlab.kitware.com/computer-vision/kwcoco for how to format in the
 extended-COCO format (regular MS-COCO files will also work).
 
 To train a detection model see `bioharn/detect_fit.py`. 
