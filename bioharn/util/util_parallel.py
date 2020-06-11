@@ -35,7 +35,8 @@ class _AsyncConsumerThread(Thread):
 
 
 class AsyncBufferedGenerator(object):
-    """Buffers content of an iterator polling the contents of the given
+    r"""
+    Buffers content of an iterator polling the contents of the given
     iterator in a separate thread.
     When the consumer is faster than many producers, this kind of
     concurrency and buffering makes sense.

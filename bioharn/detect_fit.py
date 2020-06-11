@@ -334,7 +334,7 @@ class DetectHarn(nh.FitHarn):
             >>>     datasets='special:shapes8',
             >>>     gravity=1, augment=None,
             >>>     #arch='yolo2', pretrained='lightnet', lr=3e-5, normalize_inputs=False, anchors='lightnet', ensure_background_class=0, seen_thresh=110,
-            >>>     arch='efficientdet', init='noop', lr=3e-5, normalize_inputs=False,
+            >>>     arch='efficientdet', init='noop', lr=1e-4, normalize_inputs=True,
             >>>     #arch='retinanet', init='noop', normalize_inputs=True, lr=1e-3,
             >>>     #arch='cascade', init='noop', normalize_inputs=True, lr=1e-3,
             >>>     channels='rgb',
@@ -352,6 +352,20 @@ class DetectHarn(nh.FitHarn):
             import kwplot
             kwplot.autompl()
 
+            """
+            Ignore:
+
+                model = harn.raw_model
+                imgs, annotations = model._encode_batch(batch)
+                imgs = model.input_norm(imgs)
+                x = model.extract_feat(imgs)
+                outs = model.bbox_head(x)
+                cls_score, bbox_pred = outs
+                classifications = torch.cat([out for out in cls_score], dim=1)
+                regressions = torch.cat([out for out in bbox_pred], dim=1)
+                anchors = model.anchors(imgs.shape[2:], imgs.device)
+            """
+
             curves = ub.ddict(list)
             for bx in xdev.InteractiveIter(list(range(niters))):
 
@@ -361,29 +375,24 @@ class DetectHarn(nh.FitHarn):
                 for k, v in loss_parts.items():
                     curves[k].append(float(v.item()))
 
-                # loss_parts.pop('coord_x')
-                # loss_parts.pop('coord_y')
-                # loss_parts.pop('coord_h')
-                # loss_parts.pop('coord_w')
-                # loss_parts.pop('conf')
-                # loss_parts.pop('cls')
-
                 batch_dets = harn.raw_model.coder.decode_batch(outputs)
                 print('batch_dets = {!r}'.format(batch_dets))
                 dets0 = batch_dets[0].numpy().sort()
                 print('dets0.classes = {!r}'.format(dets0.classes))
                 try:
                     print('dets0.probs =\n{}'.format(ub.repr2(dets0.probs, precision=2)))
-                except AttributeError:
+                except Exception:
                     pass
                 print('dets0.scores = {!r}'.format(dets0.scores[0:3]))
                 print('dets0.boxes = {!r}'.format(dets0.boxes.to_cxywh()[0:3]))
 
                 stacked = harn.draw_batch(batch, outputs, batch_dets)
                 kwplot.imshow(stacked, fnum=1, pnum=(1, 2, 1))
-                kwplot.multi_plot(ydata=curves, fnum=1, pnum=(1, 2, 2))
-                xdev.InteractiveIter.draw()
 
+                # ymax = [v.mean() for v in curves.values()]
+                ymax = 4
+                kwplot.multi_plot(ydata=curves, fnum=1, pnum=(1, 2, 2), ymax=ymax, ymin=0)
+                xdev.InteractiveIter.draw()
                 loss = sum(loss_parts.values())
                 loss.backward()
                 harn.optimizer.step()
@@ -394,6 +403,7 @@ class DetectHarn(nh.FitHarn):
 
                 outputs, loss_parts = harn.run_batch(batch)
                 loss = sum(loss_parts.values())
+                print('loss = {!r}'.format(loss))
                 loss.backward()
                 harn.optimizer.step()
                 harn.optimizer.zero_grad()

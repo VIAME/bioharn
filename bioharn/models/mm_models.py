@@ -1,4 +1,7 @@
 """
+
+Tested against mmdet 1.0 on sha 4c94f10d0ebb566701fb5319f5da6808df0ebf6a
+
 Notes:
     https://github.com/open-mmlab/mmdetection/blob/master/docs/MODEL_ZOO.md
 """
@@ -13,6 +16,12 @@ from distutils.version import LooseVersion
 import warnings  # NOQA
 from bioharn.channel_spec import ChannelSpec
 from bioharn import data_containers
+
+
+@ub.memoize
+def _mmdet_is_version_1x():
+    import mmdet
+    return LooseVersion(mmdet.__version__) < LooseVersion('2.0.0')
 
 
 def _hack_mm_backbone_in_channels(backbone_cfg):
@@ -30,7 +39,12 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
         backbone_key = backbone_cfg['type']
         if backbone_key == 'ResNeXt':
             backbone_key = 'ResNet'
-        backbone_cls = models.registry.BACKBONES.get(backbone_key)
+
+        if _mmdet_is_version_1x():
+            backbone_cls = models.registry.BACKBONES.get(backbone_key)
+        else:
+            backbone_cls = models.builder.BACKBONES.get(backbone_key)
+
         cls_kw = inspect.signature(backbone_cls).parameters
         if 'in_channels' not in cls_kw:
             if backbone_cfg['in_channels'] == 3:
@@ -1204,3 +1218,12 @@ def _load_mmcv_weights(filename, map_location=None):
         raise RuntimeError(
             'No state_dict found in checkpoint file {}'.format(filename))
     return state_dict
+
+
+if __name__ == '__main__':
+    """
+    CommandLine:
+        python ~/code/bioharn/bioharn/models/mm_models.py all
+    """
+    import xdoctest
+    xdoctest.doctest_module(__file__)

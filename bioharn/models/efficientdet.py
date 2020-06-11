@@ -461,7 +461,6 @@ class FocalLoss(nn.Module):
         anchor_ctr_y = anchor[:, 1] + 0.5 * anchor_heights
 
         device = annotations.device
-
         for j in range(batch_size):
 
             classification = classifications[j, :, :]
@@ -476,23 +475,27 @@ class FocalLoss(nn.Module):
 
                 continue
 
-            classification = torch.clamp(classification, 1e-4, 1.0 - 1e-4)
+            clf_eps = 1e-4
+            classification = torch.clamp(classification, clf_eps, 1.0 - clf_eps)
 
             # num_anchors x num_annotations
             IoU = calc_iou(anchors[j, :, :], bbox_annotation[:, :4])
 
+            # For each anchor, find its most similar true box
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)  # num_anchors x 1
 
             #import pdb
             # pdb.set_trace()
 
             # compute the loss for classification
-            targets = torch.ones(classification.shape) * -1
-            targets = targets.to(device)
+            targets = torch.full(classification.shape, fill_value=-1,
+                                 device=device, dtype=torch.float)
 
             targets[torch.lt(IoU_max, 0.4), :] = 0
 
-            positive_indices = torch.ge(IoU_max, 0.5)
+            # anchor_iou_thresh = 0.5  # 0.5 was original
+            anchor_iou_thresh = 0.1  # 0.1 did work
+            positive_indices = torch.ge(IoU_max, anchor_iou_thresh)
 
             num_positive_anchors = positive_indices.sum()
 
@@ -510,17 +513,27 @@ class FocalLoss(nn.Module):
                                        1. - classification, classification)
             focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
 
-            bce = -(targets * torch.log(classification) +
-                    (1.0 - targets) * torch.log(1.0 - classification))
-
+            # bce2 = -(targets * torch.log(classification) +
+            #         (1.0 - targets) * torch.log(1.0 - classification))
+            bce = nn.functional.binary_cross_entropy(
+                classification, targets, reduction='none')
             # cls_loss = focal_weight * torch.pow(bce, gamma)
             cls_loss = focal_weight * bce
+            # cls_loss = bce
 
             cls_loss = torch.where(
-                torch.ne(targets, -1.0), cls_loss, torch.zeros(cls_loss.shape).to(device))
+                torch.ne(targets, -1.0), cls_loss,
+                torch.zeros(cls_loss.shape, device=device))
 
-            classification_losses.append(
-                cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0))
+            print(classification[positive_indices])
+            print(targets[positive_indices])
+            print(cls_loss[positive_indices])
+
+            clf_loss_norm = (
+                cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0)
+            )
+
+            classification_losses.append(clf_loss_norm)
 
             # compute the loss for regression
             if positive_indices.sum() > 0:
@@ -550,13 +563,15 @@ class FocalLoss(nn.Module):
                     (targets_dx, targets_dy, targets_dw, targets_dh))
                 targets = targets.t()
 
+                # TODO: must be paramatarized via whatever the BBoxTransform.std / mean is
                 targets = targets / torch.Tensor([[0.1, 0.1, 0.2, 0.2]]).to(device)
 
                 # negative_indices = 1 + (~positive_indices)
 
-                regression_diff = torch.abs(
-                    targets - regression[positive_indices, :])
+                regression_pi = regression[positive_indices, :]
+                regression_diff = torch.abs(targets - regression_pi)
 
+                # This is a smooth L1 loss
                 regression_loss = torch.where(
                     torch.le(regression_diff, 1.0 / 9.0),
                     0.5 * 9.0 * torch.pow(regression_diff, 2),
@@ -1254,6 +1269,9 @@ class BiFPNModule(nn.Module):
 
 
 class BIFPN(nn.Module):
+    """
+    I think this means bidirectional feature pyramid network
+    """
     def __init__(self,
                  in_channels,
                  out_channels,
@@ -1392,6 +1410,10 @@ class BBoxTransform(nn.Module):
             self.std = std
 
     def forward(self, boxes, deltas):
+        """
+        boxes = anchors
+        deltas = regressions
+        """
 
         widths = boxes[:, :, 2] - boxes[:, :, 0]
         heights = boxes[:, :, 3] - boxes[:, :, 1]
@@ -1548,14 +1570,15 @@ class EfficientDetCoder(object):
         coder.iou_threshold = iou_threshold
 
     def decode_batch(coder, outputs):
-        classification = outputs['classification']
+        classifications = outputs['classifications']
         transformed_anchors = outputs['transformed_anchors']
 
-        batch_size = classification.shape[0]
+        batch_size = classifications.shape[0]
 
+        n_top = 3  # always return at least 3 boxes
         batch_dets = []
         for bx in range(batch_size):
-            pred_probs = classification[bx]
+            pred_probs = classifications[bx]
             pred_score, pred_cidx = pred_probs.max(dim=1)
             pred_coords = transformed_anchors[bx]
             det = kwimage.Detections(
@@ -1566,6 +1589,8 @@ class EfficientDetCoder(object):
                 classes=coder.classes
             )
             flags = det.scores > coder.threshold
+            top_idxs = pred_score.argsort()[-n_top:]
+            flags[top_idxs] = True
             det = det.compress(flags)
             det = det.non_max_supress(thresh=coder.iou_threshold)
             batch_dets.append(det)
@@ -1693,10 +1718,15 @@ class EfficientDet(nn.Module):
 
         imgs = self.input_norm(imgs)
 
+        # x - a tuple of feature pyramid layers
         x = self.extract_feat(imgs)
+
+        # get class scores / boxes for each pyramid layer
         outs = self.bbox_head(x)
-        classification = torch.cat([out for out in outs[0]], dim=1)
-        regression = torch.cat([out for out in outs[1]], dim=1)
+        cls_score, bbox_pred = outs
+
+        classifications = torch.cat([out for out in cls_score], dim=1)
+        regressions = torch.cat([out for out in bbox_pred], dim=1)
 
         # TODO: memoize this
         anchors = self.anchors(imgs.shape[2:], imgs.device)
@@ -1707,7 +1737,7 @@ class EfficientDet(nn.Module):
 
         if annotations is not None:
             clf_loss, regression_loss = self.criterion(
-                classification, regression, anchors, annotations)
+                classifications, regressions, anchors, annotations)
             loss_parts = {
                 'clf_loss': clf_loss,
                 'regression_loss': regression_loss,
@@ -1715,38 +1745,38 @@ class EfficientDet(nn.Module):
         else:
             loss_parts = None
 
-        transformed_anchors = self.regressBoxes(anchors, regression)
+        transformed_anchors = self.regressBoxes(anchors, regressions)
         # transformed_anchors = self.clipBoxes(transformed_anchors, imgs)
 
         outputs = {
             'transformed_anchors': transformed_anchors,
-            'classification': classification,
+            'classifications': classifications,
             'loss_parts': loss_parts,
         }
         return outputs
 
-    # def freeze_bn(self):
-    #     '''Freeze BatchNorm layers.'''
-    #     for layer in self.modules():
-    #         if isinstance(layer, nn.BatchNorm2d):
-    #             layer.eval()
+    def freeze_bn(self):
+        '''Freeze BatchNorm layers.'''
+        for layer in self.modules():
+            if isinstance(layer, nn.BatchNorm2d):
+                layer.eval()
 
-    # def train(self, mode=True):
-    #     r"""Sets the module in training mode.
+    def train(self, mode=True):
+        r"""Sets the module in training mode.
 
-    #     Args:
-    #         mode (bool): whether to set training mode (``True``) or evaluation
-    #                      mode (``False``). Default: ``True``.
+        Args:
+            mode (bool): whether to set training mode (``True``) or evaluation
+                         mode (``False``). Default: ``True``.
 
-    #     Returns:
-    #         Module: self
-    #     """
-    #     # Don't unfreeze BN layers when training
-    #     self.training = mode
-    #     for module in self.children():
-    #         if not isinstance(module, nn.BatchNorm2d):
-    #             module.train(mode)
-    #     return self
+        Returns:
+            Module: self
+        """
+        # Don't unfreeze BN layers when training
+        self.training = mode
+        for module in self.children():
+            if not isinstance(module, nn.BatchNorm2d):
+                module.train(mode)
+        return self
 
     def extract_feat(self, img):
         """
