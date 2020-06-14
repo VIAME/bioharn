@@ -466,20 +466,23 @@ class FocalLoss(nn.Module):
             classification = classifications[j, :, :]
             regression = regressions[j, :, :]
 
-            bbox_annotation = annotations[j, :, :]
-            bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
+            import xdev
+            with xdev.embed_on_exception_context:
 
-            if bbox_annotation.view(-1).shape[0] == 0:
-                regression_losses.append(torch.tensor(0).float().to(device))
-                classification_losses.append(torch.tensor(0).float().to(device))
+                bbox_annotation = annotations[j, :, :]
+                bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
 
-                continue
+                if bbox_annotation.view(-1).shape[0] == 0:
+                    regression_losses.append(torch.tensor(0).float().to(device))
+                    classification_losses.append(torch.tensor(0).float().to(device))
 
-            clf_eps = 1e-4
-            classification = torch.clamp(classification, clf_eps, 1.0 - clf_eps)
+                    continue
 
-            # num_anchors x num_annotations
-            IoU = calc_iou(anchors[j, :, :], bbox_annotation[:, :4])
+                clf_eps = 1e-4
+                classification = torch.clamp(classification, clf_eps, 1.0 - clf_eps)
+
+                # num_anchors x num_annotations
+                IoU = calc_iou(anchors[j, :, :], bbox_annotation[:, :4])
 
             # For each anchor, find its most similar true box
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)  # num_anchors x 1
