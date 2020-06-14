@@ -640,6 +640,7 @@ url_map = {
 def load_pretrained_weights(model, model_name, load_fc=True):
     """ Loads pretrained weights, and downloads if loading for the first time. """
     state_dict = model_zoo.load_url(url_map[model_name])
+
     if load_fc:
         model.load_state_dict(state_dict)
     else:
@@ -1122,8 +1123,12 @@ class EfficientNet(nn.Module):
     def from_pretrained(cls, model_name, num_classes=1000, in_channels=3):
         model = cls.from_name(model_name, override_params={
                               'num_classes': num_classes})
-        load_pretrained_weights(
-            model, model_name, load_fc=(num_classes == 1000))
+        try:
+            load_pretrained_weights(
+                model, model_name, load_fc=(num_classes == 1000))
+        except Exception as ex:
+            import warnings
+            warnings.warn('Failed to get pretrained weights ex = {!r}'.format(ex))
         if in_channels != 3:
             Conv2d = get_same_padding_conv2d(
                 image_size=model._global_params.image_size)
