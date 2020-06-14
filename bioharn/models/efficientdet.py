@@ -482,7 +482,7 @@ class FocalLoss(nn.Module):
                 classification = torch.clamp(classification, clf_eps, 1.0 - clf_eps)
 
                 # num_anchors x num_annotations
-                IoU = calc_iou(anchors[j, :, :], bbox_annotation[:, :4])
+                IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4])
 
             # For each anchor, find its most similar true box
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)  # num_anchors x 1
