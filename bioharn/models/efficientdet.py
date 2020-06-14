@@ -466,23 +466,20 @@ class FocalLoss(nn.Module):
             classification = classifications[j, :, :]
             regression = regressions[j, :, :]
 
-            import xdev
-            with xdev.embed_on_exception_context:
+            bbox_annotation = annotations[j, :, :]
+            bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
 
-                bbox_annotation = annotations[j, :, :]
-                bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
+            if bbox_annotation.view(-1).shape[0] == 0:
+                regression_losses.append(torch.tensor(0).float().to(device))
+                classification_losses.append(torch.tensor(0).float().to(device))
 
-                if bbox_annotation.view(-1).shape[0] == 0:
-                    regression_losses.append(torch.tensor(0).float().to(device))
-                    classification_losses.append(torch.tensor(0).float().to(device))
+                continue
 
-                    continue
+            clf_eps = 1e-4
+            classification = torch.clamp(classification, clf_eps, 1.0 - clf_eps)
 
-                clf_eps = 1e-4
-                classification = torch.clamp(classification, clf_eps, 1.0 - clf_eps)
-
-                # num_anchors x num_annotations
-                IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4])
+            # num_anchors x num_annotations
+            IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4])
 
             # For each anchor, find its most similar true box
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)  # num_anchors x 1
@@ -527,10 +524,6 @@ class FocalLoss(nn.Module):
             cls_loss = torch.where(
                 torch.ne(targets, -1.0), cls_loss,
                 torch.zeros(cls_loss.shape, device=device))
-
-            print(classification[positive_indices])
-            print(targets[positive_indices])
-            print(cls_loss[positive_indices])
 
             clf_loss_norm = (
                 cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0)
