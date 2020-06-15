@@ -324,12 +324,8 @@ class RetinaHead(nn.Module):
                  num_classes,
                  in_channels,
                  feat_channels=256,
-                 anchor_scales=[8, 16, 32],
-                 anchor_ratios=[0.5, 1.0, 2.0],
-                 anchor_strides=[4, 8, 16, 32, 64],
                  stacked_convs=4,
-                 octave_base_scale=4,
-                 scales_per_octave=3,
+                 num_anchors=9,
                  conv_cfg=None,
                  norm_cfg=None,
                  **kwargs):
@@ -337,19 +333,11 @@ class RetinaHead(nn.Module):
         self.in_channels = in_channels
         self.num_classes = num_classes
         self.feat_channels = feat_channels
-        self.anchor_scales = anchor_scales
-        self.anchor_ratios = anchor_ratios
-        self.anchor_strides = anchor_strides
         self.stacked_convs = stacked_convs
-        self.octave_base_scale = octave_base_scale
-        self.scales_per_octave = scales_per_octave
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
-        octave_scales = np.array(
-            [2**(i / scales_per_octave) for i in range(scales_per_octave)])
-        anchor_scales = octave_scales * octave_base_scale
         self.cls_out_channels = num_classes
-        self.num_anchors = len(self.anchor_ratios) * len(self.anchor_scales)
+        self.num_anchors = num_anchors
         self._init_layers()
 
     def _init_layers(self):
@@ -444,9 +432,19 @@ def calc_iou(a, b):
 
 
 class FocalLoss(nn.Module):
+    """
+    TODO:
+        validate loss formulation
+
+        original derived from
+        https://github.com/kuangliu/pytorch-retinanet/blob/master/loss.py
+
+        Alternate impl
+        https://github.com/facebookresearch/detectron2/blob/master/detectron2/modeling/meta_arch/retinanet.py
+    """
     # def __init__(self):
 
-    def forward(self, classifications, regressions, anchors, annotations):
+    def forward(criterion, classifications, regressions, anchors, annotations, ignore_idxs=None):
         alpha = 0.25
         gamma = 2.0
         batch_size = classifications.shape[0]
@@ -455,10 +453,27 @@ class FocalLoss(nn.Module):
 
         anchor = anchors[0, :, :]
 
-        anchor_widths = anchor[:, 2] - anchor[:, 0]
-        anchor_heights = anchor[:, 3] - anchor[:, 1]
-        anchor_ctr_x = anchor[:, 0] + 0.5 * anchor_widths
-        anchor_ctr_y = anchor[:, 1] + 0.5 * anchor_heights
+        if 0:
+            anchor_boxes = kwimage.Boxes(anchors[0], 'tlbr').numpy()
+            anchor_dsizes = list(zip(np.round(anchor_boxes.width.ravel()).tolist(), np.round(anchor_boxes.height.ravel()).tolist()))
+            ub.dict_hist(anchor_dsizes)
+            np.sqrt(anchor_boxes.area)
+
+        # TODO :
+        # [ ] - annotation weights
+        # [ ] - ignore boxes
+        # [ ] - option to ignore coarser pyramid levels in architecture
+
+        if 0:
+            # Equivalent impl but with 1 fewer lines and no magic numbers
+            anchor_cxywh = kwimage.Boxes(anchor, 'tlbr').to_cxywh()
+            (anchor_ctr_x, anchor_ctr_y,
+             anchor_width, anchor_heights) = anchor_cxywh.data.T
+        else:
+            anchor_widths = anchor[:, 2] - anchor[:, 0]
+            anchor_heights = anchor[:, 3] - anchor[:, 1]
+            anchor_ctr_x = anchor[:, 0] + 0.5 * anchor_widths
+            anchor_ctr_y = anchor[:, 1] + 0.5 * anchor_heights
 
         device = annotations.device
         for j in range(batch_size):
@@ -468,6 +483,11 @@ class FocalLoss(nn.Module):
 
             bbox_annotation = annotations[j, :, :]
             bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
+
+            if ignore_idxs:
+                ignore_flags = torch.zeros_like(bbox_annotation[:, 4], dtype=torch.bool)
+                for idx in ignore_idxs:
+                    ignore_flags |= (bbox_annotation[:, 4] == idx)
 
             if bbox_annotation.view(-1).shape[0] == 0:
                 regression_losses.append(torch.tensor(0.0, requires_grad=True, device=device))
@@ -479,9 +499,10 @@ class FocalLoss(nn.Module):
             classification = torch.clamp(classification, clf_eps, 1.0 - clf_eps)
 
             # num_anchors x num_annotations
-            IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4])
+            IoU = calc_iou(anchor, bbox_annotation[:, :4])
 
             # For each anchor, find its most similar true box
+            # As each anchor is assigned to at most one object box
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)  # num_anchors x 1
 
             #import pdb
@@ -491,25 +512,34 @@ class FocalLoss(nn.Module):
             targets = torch.full(classification.shape, fill_value=-1,
                                  device=device, dtype=torch.float)
 
-            targets[torch.lt(IoU_max, 0.4), :] = 0
+            # anchor_fg_iou_thresh = 0.5  # original
+            # anchor_bg_iou_thresh = 0.4  # original
+            anchor_fg_iou_thresh = 0.1  # 0.1 did work
+            anchor_bg_iou_thresh = 0.01
 
-            # anchor_iou_thresh = 0.5  # 0.5 was original
-            anchor_iou_thresh = 0.1  # 0.1 did work
-            positive_indices = torch.ge(IoU_max, anchor_iou_thresh)
+            # assign anchors that don't overlap well to background
+            # assign anchors that overlap well to foreground
+            # note: anchors between iou thresholds are ignored
+            negative_flags = IoU_max <= anchor_bg_iou_thresh
+            positive_flags = IoU_max > anchor_fg_iou_thresh
 
-            num_positive_anchors = positive_indices.sum()
+            targets[negative_flags, :] = 0
+            # TODO: if there is a background class set that to 1.
+
+            num_positive_anchors = positive_flags.sum()
 
             assigned_annotations = bbox_annotation[IoU_argmax, :]
 
-            targets[positive_indices, :] = 0
-            targets[positive_indices,
-                    assigned_annotations[positive_indices, 4].long()] = 1
+            positive_cidxs = assigned_annotations[positive_flags, 4].long()
+
+            targets[positive_flags, :] = 0
+            targets[positive_flags, positive_cidxs] = 1
 
             alpha_factor = torch.ones(targets.shape).to(device) * alpha
 
-            alpha_factor = torch.where(torch.eq(targets, 1.),
+            alpha_factor = torch.where(targets == 1.,
                                        alpha_factor, 1. - alpha_factor)
-            focal_weight = torch.where(torch.eq(targets, 1.),
+            focal_weight = torch.where(targets == 1.,
                                        1. - classification, classification)
             focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
 
@@ -522,7 +552,7 @@ class FocalLoss(nn.Module):
             # cls_loss = bce
 
             cls_loss = torch.where(
-                torch.ne(targets, -1.0), cls_loss,
+                targets != -1.0, cls_loss,
                 torch.zeros(cls_loss.shape, device=device))
 
             clf_loss_norm = (
@@ -532,23 +562,22 @@ class FocalLoss(nn.Module):
             classification_losses.append(clf_loss_norm)
 
             # compute the loss for regression
-            if positive_indices.sum() > 0:
-                assigned_annotations = assigned_annotations[positive_indices, :]
+            if positive_flags.sum() > 0:
+                assigned_annotations = assigned_annotations[positive_flags, :]
 
-                anchor_widths_pi = anchor_widths[positive_indices]
-                anchor_heights_pi = anchor_heights[positive_indices]
-                anchor_ctr_x_pi = anchor_ctr_x[positive_indices]
-                anchor_ctr_y_pi = anchor_ctr_y[positive_indices]
+                anchor_widths_pi = anchor_widths[positive_flags]
+                anchor_heights_pi = anchor_heights[positive_flags]
+                anchor_ctr_x_pi = anchor_ctr_x[positive_flags]
+                anchor_ctr_y_pi = anchor_ctr_y[positive_flags]
 
                 gt_widths = assigned_annotations[:, 2] - assigned_annotations[:, 0]
                 gt_heights = assigned_annotations[:, 3] - assigned_annotations[:, 1]
                 gt_ctr_x = assigned_annotations[:, 0] + 0.5 * gt_widths
                 gt_ctr_y = assigned_annotations[:, 1] + 0.5 * gt_heights
 
-                if 0:
-                    # clip widths to 1
-                    gt_widths = torch.clamp(gt_widths, min=1)
-                    gt_heights = torch.clamp(gt_heights, min=1)
+                # clip minimum truth size to 1
+                gt_widths = torch.clamp(gt_widths, min=1)
+                gt_heights = torch.clamp(gt_heights, min=1)
 
                 targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
                 targets_dy = (gt_ctr_y - anchor_ctr_y_pi) / anchor_heights_pi
@@ -562,14 +591,20 @@ class FocalLoss(nn.Module):
                 # TODO: must be paramatarized via whatever the BBoxTransform.std / mean is
                 targets = targets / torch.Tensor([[0.1, 0.1, 0.2, 0.2]]).to(device)
 
-                # negative_indices = 1 + (~positive_indices)
+                if 0:
+                    # This is the formulation for the actual box positions
+                    # but it is unused here
+                    tf = BBoxTransform()
+                    tf(anchor[None, :], regression[None, :])
 
-                regression_pi = regression[positive_indices, :]
+                # negative_indices = 1 + (~positive_flags)
+
+                regression_pi = regression[positive_flags, :]
                 regression_diff = torch.abs(targets - regression_pi)
 
                 # This is a smooth L1 loss
                 regression_loss = torch.where(
-                    torch.le(regression_diff, 1.0 / 9.0),
+                    regression_diff < (1.0 / 9.0),
                     0.5 * 9.0 * torch.pow(regression_diff, 2),
                     regression_diff - 0.5 / 9.0
                 )
@@ -1411,21 +1446,21 @@ class BBoxTransform(nn.Module):
         else:
             self.std = std
 
-    def forward(self, boxes, deltas):
+    def forward(self, anchors, regressions):
         """
         boxes = anchors
         deltas = regressions
         """
 
-        widths = boxes[:, :, 2] - boxes[:, :, 0]
-        heights = boxes[:, :, 3] - boxes[:, :, 1]
-        ctr_x = boxes[:, :, 0] + 0.5 * widths
-        ctr_y = boxes[:, :, 1] + 0.5 * heights
+        widths = anchors[:, :, 2] - anchors[:, :, 0]
+        heights = anchors[:, :, 3] - anchors[:, :, 1]
+        ctr_x = anchors[:, :, 0] + 0.5 * widths
+        ctr_y = anchors[:, :, 1] + 0.5 * heights
 
-        dx = deltas[:, :, 0] * self.std[0] + self.mean[0]
-        dy = deltas[:, :, 1] * self.std[1] + self.mean[1]
-        dw = deltas[:, :, 2] * self.std[2] + self.mean[2]
-        dh = deltas[:, :, 3] * self.std[3] + self.mean[3]
+        dx = regressions[:, :, 0] * self.std[0] + self.mean[0]
+        dy = regressions[:, :, 1] * self.std[1] + self.mean[1]
+        dw = regressions[:, :, 2] * self.std[2] + self.mean[2]
+        dh = regressions[:, :, 3] * self.std[3] + self.mean[3]
 
         pred_ctr_x = ctr_x + dx * widths
         pred_ctr_y = ctr_y + dy * heights
@@ -1505,7 +1540,7 @@ class Anchors(nn.Module):
     """
     Example:
         >>> from bioharn.models.efficientdet import *  # NOQA
-        >>> self = Anchors()
+        >>> anchors = Anchors()
         >>> image_shape = (130, 130)
         >>> anchors = self.forward(image_shape)
         >>> anchors = kwimage.Boxes(anchors, 'tlbr')
@@ -1518,6 +1553,8 @@ class Anchors(nn.Module):
 
         if pyramid_levels is None:
             self.pyramid_levels = [3, 4, 5, 6, 7]
+        else:
+            self.pyramid_levels = pyramid_levels
         if strides is None:
             self.strides = [2 ** x for x in self.pyramid_levels]
         if sizes is None:
@@ -1527,6 +1564,8 @@ class Anchors(nn.Module):
         if scales is None:
             self.scales = np.array(
                 [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
+
+        self.num_per_cell = len(self.scales) * len(self.ratios)
 
     def forward(self, image_shape, device=None):
         # image_shape = image.shape[2:]
@@ -1539,9 +1578,14 @@ class Anchors(nn.Module):
 
         for idx, p in enumerate(self.pyramid_levels):
             anchors = generate_anchors(
-                base_size=self.sizes[idx], ratios=self.ratios, scales=self.scales)
+                base_size=self.sizes[idx],
+                ratios=self.ratios,
+                scales=self.scales
+            )
             level_shape = level_shapes[idx]
+            # print('level_shape = {!r}'.format(level_shape))
             shifted_anchors = shift(level_shape, self.strides[idx], anchors)
+            # print('shifted_anchors.shape = {!r}'.format(shifted_anchors.shape))
             all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
 
         all_anchors = np.expand_dims(all_anchors, axis=0)
@@ -1604,13 +1648,23 @@ class EfficientDet(nn.Module):
     Ignore:
         >>> from bioharn.models.efficientdet import *  # NOQA
         >>> from bioharn.models.mm_models import _demo_batch
-        >>> self = EfficientDet(classes=3, channels='rgb')
         >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
         >>> channels = ChannelSpec.coerce('rgb')
-        >>> batch = _demo_batch(bsize=3, channels=channels)
+        >>> self = EfficientDet(classes=classes, channels='rgb')
+        >>> batch = _demo_batch(bsize=3, channels=channels, classes=classes, h=512, w=512)
         >>> outputs = self.forward(batch)
         >>> loss = sum(outputs['loss_parts'].values())
         >>> loss.backward()
+
+        >>> # Test ignore class
+        >>> classes = ['a', 'b', 'c', 'ignore']
+        >>> channels = ChannelSpec.coerce('rgb')
+        >>> self = EfficientDet(classes=classes, channels=channels, n_scales=5)
+        >>> batch = _demo_batch(bsize=3, channels=channels, classes=classes, h=512, w=512)
+        >>> outputs = self.forward(batch)
+        >>> loss = sum(outputs['loss_parts'].values())
+        >>> loss.backward()
+
 
         >>> # Test empty truth case
         >>> from bioharn.models.efficientdet import *  # NOQA
@@ -1640,7 +1694,7 @@ class EfficientDet(nn.Module):
 
     def __init__(self, classes=None, input_stats=None, channels=None,
                  network='efficientdet-d0', D_bifpn=3, W_bifpn=88, D_class=3,
-                 threshold=0.01, iou_threshold=0.5):
+                 threshold=0.01, iou_threshold=0.5, n_scales=5):
         super(EfficientDet, self).__init__()
 
         classes = ndsampler.CategoryTree.coerce(classes)
@@ -1655,16 +1709,31 @@ class EfficientDet(nn.Module):
         # TODO: use channels when input is not RGB
 
         self.backbone = EfficientNet.from_pretrained(MODEL_MAP[network])
-        backbone_levels = self.backbone.get_list_features()[-5:]
-        self.neck = BIFPN(in_channels=backbone_levels,
+
+        self.n_scales = n_scales
+
+        backbone_level_channels = self.backbone.get_list_features()
+        self.neck = BIFPN(in_channels=backbone_level_channels[-n_scales:],
                           out_channels=W_bifpn,
                           stack=D_bifpn,
                           num_outs=5)
 
-        self.bbox_head = RetinaHead(num_classes=num_classes,
-                                    in_channels=W_bifpn)
+        # Note which classes correspond to ignore categories
+        self.ignore_class_idxs = []
+        for idx, cname in enumerate(self.classes.idx_to_node):
+            if cname.lower() == 'ignore':
+                self.ignore_class_idxs.append(idx)
 
-        self.anchors = Anchors()
+        max_level = len(backbone_level_channels)
+        pyramid_levels = list(range(max_level - n_scales + 1, max_level + 1))
+        self.anchors = Anchors(pyramid_levels=pyramid_levels)
+
+        # TODO: need to parametarize based on anchor spec
+        # or not, none of those params are used
+        self.bbox_head = RetinaHead(num_classes=num_classes,
+                                    in_channels=W_bifpn,
+                                    num_anchors=self.anchors.num_per_cell)
+
         self.regressBoxes = BBoxTransform()  # TODO: move to coder
         # self.clipBoxes = ClipBoxes()  # TODO: move to coder
 
@@ -1733,25 +1802,32 @@ class EfficientDet(nn.Module):
         imgs = self.input_norm(imgs)
 
         # x - a tuple of feature pyramid layers
-        x = self.extract_feat(imgs)
+        pyramid_feats = self.extract_feat(imgs)
 
         # get class scores / boxes for each pyramid layer
-        outs = self.bbox_head(x)
+        outs = self.bbox_head(pyramid_feats)
         cls_score, bbox_pred = outs
+
+        if 0:
+            print('pyr = ' + ub.repr2([z.shape for z in pyramid_feats]))
+            print('cls = ' + ub.repr2([z.shape for z in cls_score]))
+            print('box = ' + ub.repr2([z.shape for z in bbox_pred]))
 
         classifications = torch.cat([out for out in cls_score], dim=1)
         regressions = torch.cat([out for out in bbox_pred], dim=1)
 
         # TODO: memoize this
-        anchors = self.anchors(imgs.shape[2:], imgs.device)
+        anchors = self.anchors(imgs.shape[-2:], imgs.device)
 
         # annotations should be B,5,N shaped tensor with cxywh + cidx label
         # cidx of -1 indicates unused
         # annotations = annotations.permute(0, 2, 1)
 
         if annotations is not None:
+            ignore_idxs = self.ignore_class_idxs
             clf_loss, regression_loss = self.criterion(
-                classifications, regressions, anchors, annotations)
+                classifications, regressions, anchors, annotations,
+                ignore_idxs)
             loss_parts = {
                 'clf_loss': clf_loss,
                 'regression_loss': regression_loss,
@@ -1792,10 +1868,13 @@ class EfficientDet(nn.Module):
                 module.train(mode)
         return self
 
-    def extract_feat(self, img):
+    def extract_feat(self, imgs):
         """
             Directly extract features from the backbone+neck
         """
-        x = self.backbone(img)
-        x = self.neck(x[-5:])
-        return x
+        bb_feats = self.backbone(imgs)
+        pyramid_feats = self.neck(bb_feats[-self.n_scales:])
+        if 0:
+            print(ub.repr2([z.shape for z in bb_feats]))
+            print(ub.repr2([z.shape for z in pyramid_feats]))
+        return pyramid_feats

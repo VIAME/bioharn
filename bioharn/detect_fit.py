@@ -1704,11 +1704,11 @@ if __name__ == '__main__':
             --normalize_inputs=True \
             --workers=8 \
             --xpu=auto \
-            --batch_size=4 \
+            --batch_size=7 \
             --sampler_backend=None \
-            --num_batches=2000 \
+            --num_batches=1000 \
             --balance=None \
-            --bstep=8
+            --bstep=3
 
 
 
