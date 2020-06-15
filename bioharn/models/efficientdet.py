@@ -470,8 +470,8 @@ class FocalLoss(nn.Module):
             bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
 
             if bbox_annotation.view(-1).shape[0] == 0:
-                regression_losses.append(torch.tensor(0).float().to(device))
-                classification_losses.append(torch.tensor(0).float().to(device))
+                regression_losses.append(torch.tensor(0.0, requires_grad=True, device=device))
+                classification_losses.append(torch.tensor(0.0, requires_grad=True, device=device))
 
                 continue
 
@@ -622,6 +622,7 @@ def round_filters(filters, global_params):
 
 
 url_map = {
+    # Note: these urls no longer work
     'efficientnet-b0': 'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b0-355c32eb.pth',
     'efficientnet-b1': 'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b1-f1951068.pth',
     'efficientnet-b2': 'http://storage.googleapis.com/public-models/efficientnet/efficientnet-b2-8bb594d6.pth',
@@ -1602,14 +1603,25 @@ class EfficientDet(nn.Module):
     """
     Ignore:
         >>> from bioharn.models.efficientdet import *  # NOQA
-        >>> self = EfficientDet(classes=3)
-
-        >>> from bioharn.models.mm_models import *  # NOQA
         >>> from bioharn.models.mm_models import _demo_batch
+        >>> self = EfficientDet(classes=3, channels='rgb')
         >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
         >>> channels = ChannelSpec.coerce('rgb')
         >>> batch = _demo_batch(bsize=3, channels=channels)
         >>> outputs = self.forward(batch)
+        >>> loss = sum(outputs['loss_parts'].values())
+        >>> loss.backward()
+
+        >>> # Test empty truth case
+        >>> from bioharn.models.efficientdet import *  # NOQA
+        >>> from bioharn.models.mm_models import _demo_batch
+        >>> self = EfficientDet(classes=3, channels='rgb')
+        >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
+        >>> channels = ChannelSpec.coerce('rgb')
+        >>> batch = _demo_batch(bsize=[0, 0], channels=channels)
+        >>> outputs = self.forward(batch)
+        >>> loss = sum(outputs['loss_parts'].values())
+        >>> loss.backward()
 
     Ignore:
         >>> from bioharn.detect_fit import *  # NOQA
@@ -1643,7 +1655,8 @@ class EfficientDet(nn.Module):
         # TODO: use channels when input is not RGB
 
         self.backbone = EfficientNet.from_pretrained(MODEL_MAP[network])
-        self.neck = BIFPN(in_channels=self.backbone.get_list_features()[-5:],
+        backbone_levels = self.backbone.get_list_features()[-5:]
+        self.neck = BIFPN(in_channels=backbone_levels,
                           out_channels=W_bifpn,
                           stack=D_bifpn,
                           num_outs=5)

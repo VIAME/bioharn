@@ -1682,6 +1682,34 @@ if __name__ == '__main__':
             --balance=tfidf \
             --bstep=8
 
+        girder-client --api-url https://data.kitware.com/api/v1 download 5ee6a3ef9014a6d84ec02c36 $HOME/work/bioharn/_cache/checkpoint_VOC_efficientdet-d0_268.pth
+
+        python -m bioharn.detect_fit \
+            --nice=sealion-efficientdet-v1 \
+            --workdir=$HOME/work/sealions \
+            --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7_train.mscoco.json \
+            --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p5-c5 \
+            --max_epoch=400 \
+            --augment=complex \
+            --pretrained=$HOME/work/bioharn/_cache/checkpoint_VOC_efficientdet-d0_268.pth \
+            --arch=efficientdet \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --window_dims=512,512 \
+            --input_dims=window \
+            --window_overlap=0.5 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --workers=8 \
+            --xpu=auto \
+            --batch_size=4 \
+            --sampler_backend=None \
+            --num_batches=2000 \
+            --balance=None \
+            --bstep=8
+
 
 
 # Maybe hard code these for validation tuning?

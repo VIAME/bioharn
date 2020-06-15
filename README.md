@@ -31,3 +31,10 @@ Current supported detection models include
 Currently we are targeting mmdet 1.0 revision
 4c94f10d0ebb566701fb5319f5da6808df0ebf6a but we are working to upgrade to v2.0
 soon. 
+
+
+This repo is a component of the VIAME project: https://github.com/VIAME/VIAME
+
+some of the data for this project can be found here
+
+https://data.kitware.com/#collection/58b747ec8d777f0aef5d0f6a

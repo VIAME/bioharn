@@ -1,3 +1,84 @@
+import numpy as np
+from os.path import join
+import pandas as pd
+import ubelt as ub
+
+
+def drop_2020_06_14():
+    """
+    # Download edits
+    girder-client --api-url https://data.kitware.com/api/v1 download 5ee6a5149014a6d84ec02d66 $HOME/work/bioharn/_cache/sealion_edits
+    ls $HOME/work/bioharn/_cache/sealion_edits
+
+    cd $HOME/work/bioharn/_cache/sealion_edits
+    detections_edits_2011.csv  detections_edits_2015.csv  detections_edits_2016.csv  detections_errors_2011.xlsx
+
+    """
+    dl_root = ub.expandpath('$HOME/work/bioharn/_cache/sealion_edits')
+    csv_fpaths = [
+        join(dl_root, 'detections_edits_2011.csv'),
+        join(dl_root, 'detections_edits_2015.csv'),
+        join(dl_root, 'detections_edits_2016.csv'),
+    ]
+
+    df_lut = {}
+    for csv_fpath in csv_fpaths:
+
+        with open(csv_fpath) as file:
+            print('csv_fpath = {!r}'.format(csv_fpath))
+            lines = file.read().split('\n')
+            rows = []
+            bad_rows = []
+            for rx, line in enumerate(lines, start=0):
+                if line:
+                    nrows = line.count(',')
+                    if nrows < 10:
+                        bad_rows.append(rx)
+                        print('rx = {!r}'.format(rx))
+                        print(line)
+                        print('nrows = {!r}'.format(nrows))
+            print(set(rows))
+
+        columns = ['_aid', 'gname', '_gid', 'tl_x', 'tl_y', 'br_x', 'br_y', '7', '8', 'category', '10']
+        df = pd.read_csv(csv_fpath, header=None, names=columns)
+        if bad_rows:
+            df.iloc[bad_rows]
+            # Drop bad rows
+            df = df[~pd.isnull(df['category'])]
+
+        df_lut[csv_fpath] = df
+    df = pd.concat(list(df_lut.values()))
+
+    df['br_x'] = df['br_x'].astype(np.float)
+    df['br_y'] = df['br_y'].astype(np.float)
+    df['tl_y'] = df['tl_y'].astype(np.float)
+    df['tl_x'] = df['tl_x'].astype(np.float)
+    df['_gid'] = df['_gid'].astype(np.int)
+    df['_aid'] = df['_aid'].astype(np.int)
+
+    base_fpath = '/home/joncrall/remote/namek/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6.mscoco.json'
+    drop_source = 'refinement-2020-06-14'
+
+    out_fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
+    return base_fpath, df, drop_source, out_fpath
+
+
+def drop_2020_03_18():
+    base_fpath = '/home/joncrall/remote/namek/data/US_ALASKA_MML_SEALION/sealions_all_refined_v5.mscoco.json'
+
+    csv_fpath1 = ub.expandpath('/home/joncrall/remote/namek/data/noaa/US_ALASKA_MML_SEALION/edits/detections_2014edit_img217.csv')
+    csv_fpath2 = ub.expandpath('/home/joncrall/remote/namek/data/noaa/US_ALASKA_MML_SEALION/edits/detections_2015edit_img100.csv')
+    csv_fpath3 = ub.expandpath('/home/joncrall/remote/namek/data/noaa/US_ALASKA_MML_SEALION/edits/detections_2016edit_img330.csv')
+
+    columns = ['_aid', 'gname', '_gid', 'tl_x', 'tl_y', 'br_x', 'br_y', '7', '8', 'category', '10']
+    df1 = pd.read_csv(csv_fpath1, header=None, names=columns)
+    df2 = pd.read_csv(csv_fpath2, header=None, names=columns)
+    df3 = pd.read_csv(csv_fpath3, header=None, names=columns)
+    df = pd.concat([df1, df2, df3])
+    drop_source = 'refinement-2020-03-18'
+
+    out_fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6.mscoco.json')
+    return base_fpath, df, drop_source, out_fpath
 
 
 def main():
@@ -14,14 +95,14 @@ def main():
     import kwarray
     import kwimage
     import ndsampler
-    import pandas as pd
     import ubelt as ub
     import numpy as np
     from os.path import basename
 
-    fpath = '/home/joncrall/remote/namek/data/US_ALASKA_MML_SEALION/sealions_all_refined_v5.mscoco.json'
-    print('fpath = {!r}'.format(fpath))
-    orig_coco_dset = ndsampler.CocoDataset(fpath)
+    base_fpath, df, drop_source, out_fpath = drop_2020_06_14()
+
+    print('base_fpath = {!r}'.format(base_fpath))
+    orig_coco_dset = ndsampler.CocoDataset(base_fpath)
     coco_dset = orig_coco_dset.copy()
     coco_dset._resolve_to_cat('Dead Pup')['alias'] = ['DeadPup', 'DeadNP']
     coco_dset.ensure_category('Ignore')
@@ -46,16 +127,6 @@ def main():
     # box_stats = coco_dset.boxsize_stats(anchors=4, verbose=1, clusterkw={'verbose': 0})
     # print('box_stats = {}'.format(ub.repr2(box_stats, nl=4)))
 
-    csv_fpath1 = ub.expandpath('/home/joncrall/remote/namek/data/noaa/US_ALASKA_MML_SEALION/edits/detections_2014edit_img217.csv')
-    csv_fpath2 = ub.expandpath('/home/joncrall/remote/namek/data/noaa/US_ALASKA_MML_SEALION/edits/detections_2015edit_img100.csv')
-    csv_fpath3 = ub.expandpath('/home/joncrall/remote/namek/data/noaa/US_ALASKA_MML_SEALION/edits/detections_2016edit_img330.csv')
-
-    columns = ['_aid', 'gname', '_gid', 'tl_x', 'tl_y', 'br_x', 'br_y', '7', '8', 'category', '10']
-    df1 = pd.read_csv(csv_fpath1, header=None, names=columns)
-    df2 = pd.read_csv(csv_fpath2, header=None, names=columns)
-    df3 = pd.read_csv(csv_fpath3, header=None, names=columns)
-    df = pd.concat([df1, df2, df3])
-
     gid_to_basename = {img['id']: basename(img['file_name'])
                        for img in coco_dset.imgs.values()}
 
@@ -64,11 +135,15 @@ def main():
     assert not has_dups
     basename_to_gid = ub.map_vals(ub.peek, basename_to_gids)
 
-    df = kwarray.DataFrameLight(pd.concat([df1, df2, df3]))
+    # '20150701' in gname_to_subdf
+    # gname_to_subdf['20150701'].pandas()
 
-    gname_to_subdf = dict(df.groupby('gname'))
+    df_light = kwarray.DataFrameLight.from_pandas(df)
+
+    gname_to_subdf = dict(df_light.groupby('gname'))
     gid_to_subdf = ub.map_keys(basename_to_gid, gname_to_subdf)
-    gid_to_subdf.pop(3562, None)
+
+    # gid_to_subdf.pop(3562, None)
 
     gid_to_before = {}
     gid_to_after = {}
@@ -137,7 +212,7 @@ def main():
                 'bbox': sub_xywh.take(add_idxs).data.tolist(),
                 'image_id': [gid] * num_add,
                 'category_id': list(ub.take(sub_cids, add_idxs)),
-                'box_source': ['refinement-2020-03-18'] * num_add,
+                'box_source': [drop_source] * num_add,
                 'changelog': [['created: {}'.format(ub.timestamp())]] * num_add,
             })
             new_anns = [new_ann for _, new_ann in add_sub_anns.iterrows()]
@@ -207,7 +282,6 @@ def main():
             sub_dets.draw(color='green')
             xdev.InteractiveIter.draw()
 
-    out_fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6.mscoco.json')
     if 0:
         coco_dset = ndsampler.CocoDataset(out_fpath)
     coco_dset.dump(out_fpath, newlines=True)
