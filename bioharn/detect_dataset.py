@@ -49,7 +49,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
     def __init__(self, sampler, augment='simple', window_dims=[512, 512],
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
                  factor=32, use_segmentation=True, gravity=0.0,
-                 classes_of_interest=None, channels='rgb'):
+                 classes_of_interest=None, channels='rgb',
+                 blackout_ignore=True):
         super(DetectFitDataset, self).__init__()
 
         self.sampler = sampler
@@ -75,6 +76,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         window_jitter = 0.5 if augment == 'complex' else 0
         window_jitter = 0.1 if augment == 'medium' else 0
         self.window_jitter = window_jitter
+
+        self.blackout_ignore = blackout_ignore
 
         # assert np.all(self.input_dims % self.factor == 0)
         # FIXME: multiscale training is currently not enabled
@@ -413,6 +416,21 @@ class DetectFitDataset(torch.utils.data.Dataset):
             'bg_weights': ItemContainer(bg_weight, stack=False),
         }
         _debug('label = {!r}'.format(label))
+
+        if self.blackout_ignore:
+            # Black out any region marked as ignore
+            norm_classes = [c.lower() for c in classes]
+            ignore_catname = 'ignore'
+            # ignore_catname = 'eff'
+            if ignore_catname in norm_classes:
+                ignore_cidx = norm_classes.index(ignore_catname)
+                ignore_boxes = dets.boxes.compress(dets.class_idxs == ignore_cidx)
+                ignore_tlbr = ignore_boxes.to_tlbr()
+                for tlbr_row in ignore_tlbr.data:
+                    tl_x, tl_y, br_x, br_y  = tlbr_row
+                    slx = slice(int(tl_x), int(br_x))
+                    sly = slice(int(tl_y), int(br_y))
+                    chw01[:, sly, slx] = 0
 
         if 'segmentations' in dets.data and self.use_segmentation:
             # Convert segmentations to masks

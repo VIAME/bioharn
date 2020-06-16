@@ -533,8 +533,13 @@ class DetectHarn(nh.FitHarn):
                 canvas = kwimage.stack_images([hwc01, disparity], axis=1)
 
             canvas = kwimage.ensure_uint255(canvas)
-            canvas = true_dets.draw_on(canvas, color='green')
-            canvas = pred_dets.draw_on(canvas, color='blue')
+            try:
+                canvas = true_dets.draw_on(canvas, color='green')
+                canvas = pred_dets.draw_on(canvas, color='blue')
+            except Exception as ex:
+                harn.warn('ex = {!r}'.format(ex))
+                canvas = kwimage.draw_text_on_image(
+                    canvas, 'drawing-error', org=(0, 0), valign='top')
 
             # canvas = cv2.resize(canvas, (300, 300))
             imgs.append(canvas)
