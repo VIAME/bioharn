@@ -953,9 +953,8 @@ class MM_MaskRCNN(MM_Detector):
 
 def _load_mmcv_weights(filename, map_location=None):
     import os
-    from mmcv.runner.checkpoint import (
-        get_torchvision_models, load_url_dist, open_mmlab_model_urls
-    )
+    from mmcv.runner.checkpoint import (get_torchvision_models, load_url_dist)
+
     # load checkpoint from modelzoo or file or url
     if filename.startswith('modelzoo://'):
         warnings.warn('The URL scheme of "modelzoo://" is deprecated, please '
@@ -969,7 +968,13 @@ def _load_mmcv_weights(filename, map_location=None):
         checkpoint = load_url_dist(model_urls[model_name])
     elif filename.startswith('open-mmlab://'):
         model_name = filename[13:]
-        checkpoint = load_url_dist(open_mmlab_model_urls[model_name])
+        try:
+            from mmcv.runner.checkpoint import open_mmlab_model_urls
+            checkpoint = load_url_dist(open_mmlab_model_urls[model_name])
+        except ImportError:
+            from mmcv.runner.checkpoint import get_external_models
+            mmlab_urls = get_external_models()
+            checkpoint = load_url_dist(mmlab_urls[model_name])
     elif filename.startswith(('http://', 'https://')):
         checkpoint = load_url_dist(filename)
     else:
