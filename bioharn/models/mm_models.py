@@ -423,9 +423,14 @@ class MM_Coder(object):
             batch_results = batch_results.data
 
         # HACK for the way mmdet handles background
-        if 'backround' in self.classes:
-            start = 1
+        if _mmdet_is_version_1x():
+            class_offset = 1
+            if 'backround' in self.classes:
+                start = 1
+            else:
+                start = 0
         else:
+            class_offset = 0
             start = 0
 
         for result in batch_results:
@@ -447,7 +452,7 @@ class MM_Coder(object):
                 # Stack the results into a detections object
                 pred_cidxs = []
                 for cidx, cls_results in enumerate(mm_bbox_results, start=start):
-                    pred_cidxs.extend([cidx + 1] * len(cls_results))
+                    pred_cidxs.extend([cidx + class_offset] * len(cls_results))
                 pred_tlbr = np.vstack([r[:, 0:4] for r in mm_bbox_results])
                 pred_score = np.hstack([r[:, 4] for r in mm_bbox_results])
             else:
@@ -1024,11 +1029,23 @@ class MM_CascadeRCNN(MM_Detector):
     def __init__(self, classes, channels='rgb', input_stats=None):
         import ndsampler
         classes = ndsampler.CategoryTree.coerce(classes)
+
         if 'background' in classes:
-            assert classes.node_to_idx['background'] == 0
-            num_classes = len(classes)
+            # Mmdet changed its "background category" conventions
+            # https://mmdetection.readthedocs.io/en/latest/compatibility.html#codebase-conventions
+            if _mmdet_is_version_1x():
+                if classes.node_to_idx['background'] != 0:
+                    raise AssertionError('mmdet 1.x needs background to be the first class')
+                num_classes = len(classes)
+            else:
+                if classes.node_to_idx['background'] != len(classes) - 1:
+                    raise AssertionError('mmdet 1.x needs background to be the last class')
+                num_classes = len(classes) - 1
         else:
-            num_classes = len(classes) + 1
+            if _mmdet_is_version_1x():
+                num_classes = len(classes) + 1
+            else:
+                num_classes = len(classes)
 
         self.channels = ChannelSpec.coerce(channels)
 
@@ -1138,7 +1155,7 @@ class MM_CascadeRCNN(MM_Detector):
                         in_channels=256,
                         fc_out_channels=1024,
                         roi_feat_size=7,
-                        num_classes=80,
+                        num_classes=num_classes,
                         bbox_coder=dict(
                             type='DeltaXYWHBBoxCoder',
                             target_means=[0., 0., 0., 0.],
@@ -1155,7 +1172,7 @@ class MM_CascadeRCNN(MM_Detector):
                         in_channels=256,
                         fc_out_channels=1024,
                         roi_feat_size=7,
-                        num_classes=80,
+                        num_classes=num_classes,
                         bbox_coder=dict(
                             type='DeltaXYWHBBoxCoder',
                             target_means=[0., 0., 0., 0.],
@@ -1172,7 +1189,7 @@ class MM_CascadeRCNN(MM_Detector):
                         in_channels=256,
                         fc_out_channels=1024,
                         roi_feat_size=7,
-                        num_classes=80,
+                        num_classes=num_classes,
                         bbox_coder=dict(
                             type='DeltaXYWHBBoxCoder',
                             target_means=[0., 0., 0., 0.],
@@ -1185,7 +1202,6 @@ class MM_CascadeRCNN(MM_Detector):
                         loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
                 ])
 
-        num_classes = len(classes)
         mm_config =  dict(
             type='CascadeRCNN',
             # pretrained='open-mmlab://resnext101_32x4d',
@@ -1197,7 +1213,7 @@ class MM_CascadeRCNN(MM_Detector):
                 base_width=4,
                 num_stages=4,
                 out_indices=(0, 1, 2, 3),
-                frozen_stages=-1,
+                frozen_stages=1,
                 style='pytorch',
                 in_channels=in_channels
             ),

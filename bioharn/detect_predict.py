@@ -1,4 +1,26 @@
 """
+
+Notes:
+
+    https://data.kitware.com/#collection/58b747ec8d777f0aef5d0f6a
+
+    source $HOME/internal/secrets
+
+    girder-client --api-url https://data.kitware.com/api/v1 list 58b747ec8d777f0aef5d0f6a
+
+    girder-client --api-url https://data.kitware.com/api/v1 list 58c49f668d777f0aef5d7960
+
+    girder-client --api-url https://data.kitware.com/api/v1 list 5c423a5f8d777f072b0ba58f
+
+    girder-client --api-url https://data.kitware.com/api/v1 list 5dd3181eaf2e2eed3505827c
+
+    girder-client --api-url https://data.kitware.com/api/v1 list 5aac22638d777f068578d53c --columns=id,type,name
+
+    girder-client --api-url https://data.kitware.com/api/v1 list 5dd3eb8eaf2e2eed3508d604
+
+    girder-client --api-url https://data.kitware.com/api/v1 download 5dd3eb8eaf2e2eed3508d604
+
+
 """
 from os.path import exists
 from os.path import isfile
@@ -59,9 +81,9 @@ class DetectPredictor(object):
         >>> from bioharn.detect_predict import *  # NOQA
         >>> deployed_fpath = ub.grabdata(
         >>>     'https://data.kitware.com/api/v1/file/5dd3eb8eaf2e2eed3508d604/download',
-        >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip',
+        >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3_mm2x.zip',
         >>>     appname='viame', hasher='sha512',
-        >>>     hash_prefix='22a1eeb18c9e5706f6578e66abda1e97')
+        >>>     hash_prefix='63b7c3981b3446b079c1d83541a5666c496')
         >>> image_fpath = ub.grabdata(
         >>>     'https://data.kitware.com/api/v1/file/5dcf0d1faf2e2eed35fad5d1/download',
         >>>     fname='scallop.jpg', appname='viame', hasher='sha512',
