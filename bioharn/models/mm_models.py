@@ -14,14 +14,22 @@ import kwarray
 from collections import OrderedDict
 from distutils.version import LooseVersion
 import warnings  # NOQA
-from bioharn.channel_spec import ChannelSpec
-from bioharn import data_containers
+# from bioharn.channel_spec import ChannelSpec
+# from bioharn import data_containers
+from netharn.data.channel_spec import ChannelSpec
+from netharn.data import data_containers
 
 
 @ub.memoize
 def _mmdet_is_version_1x():
     import mmdet
     return LooseVersion(mmdet.__version__) < LooseVersion('2.0.0')
+
+
+@ub.memoize
+def _mmdet_is_pre_1_1():
+    import mmdet
+    return LooseVersion(mmdet.__version__) < LooseVersion('1.1.0')
 
 
 def _hack_mm_backbone_in_channels(backbone_cfg):
@@ -31,7 +39,7 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
     if 'in_channels' not in backbone_cfg:
         return
     import mmdet
-    _NEEDS_CHECK = LooseVersion(mmdet.__version__) < LooseVersion('1.1')
+    _NEEDS_CHECK = _mmdet_is_pre_1_1()
     _NEEDS_CHECK = True
     if _NEEDS_CHECK:
         import inspect
@@ -791,247 +799,6 @@ class MM_RetinaNet(MM_Detector):
                                            input_stats=input_stats)
 
 
-class MM_CascadeRCNN(MM_Detector):
-    """
-    CommandLine:
-        xdoctest -m ~/code/bioharn/bioharn/models/mm_models.py MM_CascadeRCNN
-
-    Example:
-        >>> # xdoctest: +REQUIRES(module:mmdet)
-        >>> from bioharn.models.mm_models import *  # NOQA
-        >>> import torch
-        >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
-        >>> xpu = nh.XPU(0)
-        >>> self = MM_CascadeRCNN(classes).to(xpu.main_device)
-        >>> batch = self.demo_batch(bsize=1, h=256, w=256)
-        >>> batch = xpu.move(batch)
-        >>> outputs = self.forward(batch)
-        >>> batch_dets = self.coder.decode_batch(outputs)
-
-    Example:
-        >>> # xdoctest: +REQUIRES(module:mmdet)
-        >>> # Test multiple channels
-        >>> from bioharn.models.mm_models import *  # NOQA
-        >>> import torch
-        >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
-        >>> xpu = nh.XPU('cpu')
-        >>> self = MM_CascadeRCNN(classes, channels='rgb|d').to(xpu.main_device)
-        >>> batch = self.demo_batch(bsize=1, h=256, w=256)
-        >>> batch = xpu.move(batch)
-        >>> outputs = self.forward(batch)
-        >>> batch_dets = self.coder.decode_batch(outputs)
-    """
-    def __init__(self, classes, channels='rgb', input_stats=None):
-        import ndsampler
-        classes = ndsampler.CategoryTree.coerce(classes)
-        if 'background' in classes:
-            assert classes.node_to_idx['background'] == 0
-            num_classes = len(classes)
-        else:
-            num_classes = len(classes) + 1
-
-        self.channels = ChannelSpec.coerce(channels)
-
-        chann_norm = self.channels.normalize()
-        assert len(chann_norm) == 1
-        in_channels = len(ub.peek(chann_norm.values()))
-        # pretrained = 'open-mmlab://resnext101_32x4d'
-        # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_64x4d_fpn_1x_20181218-e2dc376a.pth'
-        # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_32x4d_fpn_1x_20190501-af628be5.pth'
-
-        self.in_channels = in_channels
-
-        num_classes = len(classes)
-        mm_config =  dict(
-            type='CascadeRCNN',
-            num_stages=3,
-            # pretrained='open-mmlab://resnext101_32x4d',
-            pretrained=None,
-            backbone=dict(
-                type='ResNeXt',
-                depth=101,
-                groups=32,
-                base_width=4,
-                num_stages=4,
-                out_indices=(0, 1, 2, 3),
-                frozen_stages=-1,
-                style='pytorch',
-                in_channels=in_channels
-            ),
-            neck=dict(
-                type='FPN',
-                in_channels=[256, 512, 1024, 2048],
-                out_channels=256,
-                num_outs=5),
-            rpn_head=dict(
-                type='RPNHead',
-                in_channels=256,
-                feat_channels=256,
-                anchor_scales=[8],
-                anchor_ratios=[0.5, 1.0, 2.0],
-                anchor_strides=[4, 8, 16, 32, 64],
-                target_means=[.0, .0, .0, .0],
-                target_stds=[1.0, 1.0, 1.0, 1.0],
-                loss_cls=dict(
-                    type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-                loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)),
-            bbox_roi_extractor=dict(
-                type='SingleRoIExtractor',
-                roi_layer=dict(type='RoIAlign', out_size=7, sample_num=2, use_torchvision=True),
-                out_channels=256,
-                featmap_strides=[4, 8, 16, 32]),
-            bbox_head=[
-                dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.1, 0.1, 0.2, 0.2],
-                    reg_class_agnostic=True,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-                dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.05, 0.05, 0.1, 0.1],
-                    reg_class_agnostic=True,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-                dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.033, 0.033, 0.067, 0.067],
-                    reg_class_agnostic=True,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
-            ])
-
-        train_cfg = dict(
-            rpn=dict(
-                assigner=dict(
-                    type='MaxIoUAssigner',
-                    pos_iou_thr=0.7,
-                    neg_iou_thr=0.3,
-                    min_pos_iou=0.3,
-                    ignore_iof_thr=0.5),
-                sampler=dict(
-                    type='RandomSampler',
-                    num=256,
-                    pos_fraction=0.5,
-                    neg_pos_ub=-1,
-                    add_gt_as_proposals=False),
-                allowed_border=0,
-                pos_weight=-1,
-                debug=False),
-            rpn_proposal=dict(
-                nms_across_levels=False,
-                nms_pre=2000,
-                nms_post=2000,
-                max_num=2000,
-                nms_thr=0.7,
-                min_bbox_size=0),
-            rcnn=[
-                dict(
-                    assigner=dict(
-                        type='MaxIoUAssigner',
-                        pos_iou_thr=0.5,
-                        neg_iou_thr=0.5,
-                        min_pos_iou=0.5,
-                        ignore_iof_thr=0.5),
-                    sampler=dict(
-                        type='RandomSampler',
-                        num=512,
-                        pos_fraction=0.25,
-                        neg_pos_ub=-1,
-                        add_gt_as_proposals=True),
-                    mask_size=28,
-                    pos_weight=-1,
-                    debug=False),
-                dict(
-                    assigner=dict(
-                        type='MaxIoUAssigner',
-                        pos_iou_thr=0.6,
-                        neg_iou_thr=0.6,
-                        min_pos_iou=0.6,
-                        ignore_iof_thr=0.5),
-                    sampler=dict(
-                        type='RandomSampler',
-                        num=512,
-                        pos_fraction=0.25,
-                        neg_pos_ub=-1,
-                        add_gt_as_proposals=True),
-                    mask_size=28,
-                    pos_weight=-1,
-                    debug=False),
-                dict(
-                    assigner=dict(
-                        type='MaxIoUAssigner',
-                        pos_iou_thr=0.7,
-                        neg_iou_thr=0.7,
-                        min_pos_iou=0.7,
-                        ignore_iof_thr=0.5),
-                    sampler=dict(
-                        type='RandomSampler',
-                        num=512,
-                        pos_fraction=0.25,
-                        neg_pos_ub=-1,
-                        add_gt_as_proposals=True),
-                    mask_size=28,
-                    pos_weight=-1,
-                    debug=False)
-            ],
-            stage_loss_weights=[1, 0.5, 0.25])
-
-        test_cfg = dict(
-            rpn=dict(
-                nms_across_levels=False,
-                nms_pre=1000,
-                nms_post=1000,
-                max_num=1000,
-                nms_thr=0.7,
-                min_bbox_size=0),
-            rcnn=dict(
-                score_thr=0.05,
-                nms=dict(type='nms', iou_thr=0.5),
-                max_per_img=100,
-                mask_thr_binary=0.5),
-            keep_all_stages=False)
-
-        backbone_cfg = mm_config['backbone']
-        _hack_mm_backbone_in_channels(backbone_cfg)
-        super(MM_CascadeRCNN, self).__init__(mm_config, train_cfg=train_cfg,
-                                             test_cfg=test_cfg,
-                                             classes=classes,
-                                             input_stats=input_stats)
-
-    def _fix_loss_parts(self, loss_parts):
-        """
-        Hack for data parallel runs where the loss dicts need to have the same
-        exact keys.
-        """
-        for i in range(self.detector.num_stages):
-            for name in ['loss_cls', 'loss_bbox']:
-                key = 's{}.{}'.format(i, name)
-                if key not in loss_parts:
-                    loss_parts[key] = torch.zeros(1, device=self.main_device)
-
-
 class MM_MaskRCNN(MM_Detector):
     """
     Example:
@@ -1218,6 +985,337 @@ def _load_mmcv_weights(filename, map_location=None):
         raise RuntimeError(
             'No state_dict found in checkpoint file {}'.format(filename))
     return state_dict
+
+
+class MM_CascadeRCNN(MM_Detector):
+    """
+    CommandLine:
+        xdoctest -m ~/code/bioharn/bioharn/models/mm_models.py MM_CascadeRCNN
+
+    Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> import torch
+        >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+        >>> xpu = data_containers.ContainerXPU(0)
+        >>> self = MM_CascadeRCNN(classes).to(xpu.main_device)
+        >>> batch = self.demo_batch(bsize=1, h=256, w=256)
+        >>> outputs = self.forward(batch)
+        >>> batch_dets = self.coder.decode_batch(outputs)
+
+    Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
+        >>> # Test multiple channels
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> import torch
+        >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+        >>> xpu = nh.XPU('cpu')
+        >>> self = MM_CascadeRCNN(classes, channels='rgb|d').to(xpu.main_device)
+        >>> batch = self.demo_batch(bsize=1, h=256, w=256)
+        >>> batch = xpu.move(batch)
+        >>> outputs = self.forward(batch)
+        >>> batch_dets = self.coder.decode_batch(outputs)
+    """
+    def __init__(self, classes, channels='rgb', input_stats=None):
+        import ndsampler
+        classes = ndsampler.CategoryTree.coerce(classes)
+        if 'background' in classes:
+            assert classes.node_to_idx['background'] == 0
+            num_classes = len(classes)
+        else:
+            num_classes = len(classes) + 1
+
+        self.channels = ChannelSpec.coerce(channels)
+
+        chann_norm = self.channels.normalize()
+        assert len(chann_norm) == 1
+        in_channels = len(ub.peek(chann_norm.values()))
+        # pretrained = 'open-mmlab://resnext101_32x4d'
+        # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_64x4d_fpn_1x_20181218-e2dc376a.pth'
+        # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/cascade_rcnn_x101_32x4d_fpn_1x_20190501-af628be5.pth'
+
+        self.in_channels = in_channels
+
+        compat_params = {}
+        if _mmdet_is_version_1x():
+            # Compatibility for mmdet 1.x
+            compat_params['num_stages'] = 3
+            compat_params['rpn_head'] = dict(
+                type='RPNHead',
+                in_channels=256,
+                feat_channels=256,
+                anchor_scales=[8],
+                anchor_ratios=[0.5, 1.0, 2.0],
+                anchor_strides=[4, 8, 16, 32, 64],
+                target_means=[.0, .0, .0, .0],
+                target_stds=[1.0, 1.0, 1.0, 1.0],
+                loss_cls=dict(
+                    type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+                loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)
+            )
+            compat_params['bbox_head'] = [
+                dict(
+                    type='SharedFCBBoxHead',
+                    num_fcs=2,
+                    in_channels=256,
+                    fc_out_channels=1024,
+                    roi_feat_size=7,
+                    num_classes=num_classes,
+                    target_means=[0., 0., 0., 0.],
+                    target_stds=[0.1, 0.1, 0.2, 0.2],
+                    reg_class_agnostic=True,
+                    loss_cls=dict(
+                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
+                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
+                dict(
+                    type='SharedFCBBoxHead',
+                    num_fcs=2,
+                    in_channels=256,
+                    fc_out_channels=1024,
+                    roi_feat_size=7,
+                    num_classes=num_classes,
+                    target_means=[0., 0., 0., 0.],
+                    target_stds=[0.05, 0.05, 0.1, 0.1],
+                    reg_class_agnostic=True,
+                    loss_cls=dict(
+                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
+                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
+                dict(
+                    type='SharedFCBBoxHead',
+                    num_fcs=2,
+                    in_channels=256,
+                    fc_out_channels=1024,
+                    roi_feat_size=7,
+                    num_classes=num_classes,
+                    target_means=[0., 0., 0., 0.],
+                    target_stds=[0.033, 0.033, 0.067, 0.067],
+                    reg_class_agnostic=True,
+                    loss_cls=dict(
+                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
+                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
+            ]
+            compat_params['bbox_roi_extractor'] = dict(
+                type='SingleRoIExtractor',
+                roi_layer=dict(type='RoIAlign', out_size=7, sample_num=2, use_torchvision=True),
+                out_channels=256,
+                featmap_strides=[4, 8, 16, 32]),
+        else:
+            # Compatibility for mmdet 2.x
+            compat_params['rpn_head'] = dict(
+                type='RPNHead',
+                in_channels=256,
+                feat_channels=256,
+                anchor_generator=dict(
+                    type='AnchorGenerator',
+                    scales=[8],
+                    ratios=[0.5, 1.0, 2.0],
+                    strides=[4, 8, 16, 32, 64]),
+                bbox_coder=dict(
+                    type='DeltaXYWHBBoxCoder',
+                    target_means=[.0, .0, .0, .0],
+                    target_stds=[1.0, 1.0, 1.0, 1.0]),
+                loss_cls=dict(
+                    type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+                loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0))
+
+            compat_params['roi_head'] = dict(
+                type='CascadeRoIHead',
+                num_stages=3,
+                stage_loss_weights=[1, 0.5, 0.25],
+                bbox_roi_extractor=dict(
+                    type='SingleRoIExtractor',
+                    roi_layer=dict(type='RoIAlign', out_size=7, sample_num=0),
+                    out_channels=256,
+                    featmap_strides=[4, 8, 16, 32]),
+                bbox_head=[
+                    dict(
+                        type='Shared2FCBBoxHead',
+                        in_channels=256,
+                        fc_out_channels=1024,
+                        roi_feat_size=7,
+                        num_classes=80,
+                        bbox_coder=dict(
+                            type='DeltaXYWHBBoxCoder',
+                            target_means=[0., 0., 0., 0.],
+                            target_stds=[0.1, 0.1, 0.2, 0.2]),
+                        reg_class_agnostic=True,
+                        loss_cls=dict(
+                            type='CrossEntropyLoss',
+                            use_sigmoid=False,
+                            loss_weight=1.0),
+                        loss_bbox=dict(type='SmoothL1Loss', beta=1.0,
+                                       loss_weight=1.0)),
+                    dict(
+                        type='Shared2FCBBoxHead',
+                        in_channels=256,
+                        fc_out_channels=1024,
+                        roi_feat_size=7,
+                        num_classes=80,
+                        bbox_coder=dict(
+                            type='DeltaXYWHBBoxCoder',
+                            target_means=[0., 0., 0., 0.],
+                            target_stds=[0.05, 0.05, 0.1, 0.1]),
+                        reg_class_agnostic=True,
+                        loss_cls=dict(
+                            type='CrossEntropyLoss',
+                            use_sigmoid=False,
+                            loss_weight=1.0),
+                        loss_bbox=dict(type='SmoothL1Loss', beta=1.0,
+                                       loss_weight=1.0)),
+                    dict(
+                        type='Shared2FCBBoxHead',
+                        in_channels=256,
+                        fc_out_channels=1024,
+                        roi_feat_size=7,
+                        num_classes=80,
+                        bbox_coder=dict(
+                            type='DeltaXYWHBBoxCoder',
+                            target_means=[0., 0., 0., 0.],
+                            target_stds=[0.033, 0.033, 0.067, 0.067]),
+                        reg_class_agnostic=True,
+                        loss_cls=dict(
+                            type='CrossEntropyLoss',
+                            use_sigmoid=False,
+                            loss_weight=1.0),
+                        loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
+                ])
+
+        num_classes = len(classes)
+        mm_config =  dict(
+            type='CascadeRCNN',
+            # pretrained='open-mmlab://resnext101_32x4d',
+            pretrained=None,
+            backbone=dict(
+                type='ResNeXt',
+                depth=101,
+                groups=32,
+                base_width=4,
+                num_stages=4,
+                out_indices=(0, 1, 2, 3),
+                frozen_stages=-1,
+                style='pytorch',
+                in_channels=in_channels
+            ),
+            neck=dict(
+                type='FPN',
+                in_channels=[256, 512, 1024, 2048],
+                out_channels=256,
+                num_outs=5),
+            **compat_params,
+        )
+
+        train_cfg = dict(
+            rpn=dict(
+                assigner=dict(
+                    type='MaxIoUAssigner',
+                    pos_iou_thr=0.7,
+                    neg_iou_thr=0.3,
+                    min_pos_iou=0.3,
+                    ignore_iof_thr=0.5),
+                sampler=dict(
+                    type='RandomSampler',
+                    num=256,
+                    pos_fraction=0.5,
+                    neg_pos_ub=-1,
+                    add_gt_as_proposals=False),
+                allowed_border=0,
+                pos_weight=-1,
+                debug=False),
+            rpn_proposal=dict(
+                nms_across_levels=False,
+                nms_pre=2000,
+                nms_post=2000,
+                max_num=2000,
+                nms_thr=0.7,
+                min_bbox_size=0),
+            rcnn=[
+                dict(
+                    assigner=dict(
+                        type='MaxIoUAssigner',
+                        pos_iou_thr=0.5,
+                        neg_iou_thr=0.5,
+                        min_pos_iou=0.5,
+                        ignore_iof_thr=0.5),
+                    sampler=dict(
+                        type='RandomSampler',
+                        num=512,
+                        pos_fraction=0.25,
+                        neg_pos_ub=-1,
+                        add_gt_as_proposals=True),
+                    mask_size=28,
+                    pos_weight=-1,
+                    debug=False),
+                dict(
+                    assigner=dict(
+                        type='MaxIoUAssigner',
+                        pos_iou_thr=0.6,
+                        neg_iou_thr=0.6,
+                        min_pos_iou=0.6,
+                        ignore_iof_thr=0.5),
+                    sampler=dict(
+                        type='RandomSampler',
+                        num=512,
+                        pos_fraction=0.25,
+                        neg_pos_ub=-1,
+                        add_gt_as_proposals=True),
+                    mask_size=28,
+                    pos_weight=-1,
+                    debug=False),
+                dict(
+                    assigner=dict(
+                        type='MaxIoUAssigner',
+                        pos_iou_thr=0.7,
+                        neg_iou_thr=0.7,
+                        min_pos_iou=0.7,
+                        ignore_iof_thr=0.5),
+                    sampler=dict(
+                        type='RandomSampler',
+                        num=512,
+                        pos_fraction=0.25,
+                        neg_pos_ub=-1,
+                        add_gt_as_proposals=True),
+                    mask_size=28,
+                    pos_weight=-1,
+                    debug=False)
+            ],
+            stage_loss_weights=[1, 0.5, 0.25])
+
+        test_cfg = dict(
+            rpn=dict(
+                nms_across_levels=False,
+                nms_pre=1000,
+                nms_post=1000,
+                max_num=1000,
+                nms_thr=0.7,
+                min_bbox_size=0),
+            rcnn=dict(
+                score_thr=0.05,
+                nms=dict(type='nms', iou_thr=0.5),
+                max_per_img=100,
+                mask_thr_binary=0.5),
+            keep_all_stages=False)
+
+        backbone_cfg = mm_config['backbone']
+        _hack_mm_backbone_in_channels(backbone_cfg)
+        super(MM_CascadeRCNN, self).__init__(mm_config, train_cfg=train_cfg,
+                                             test_cfg=test_cfg,
+                                             classes=classes,
+                                             input_stats=input_stats)
+
+    def _fix_loss_parts(self, loss_parts):
+        """
+        Hack for data parallel runs where the loss dicts need to have the same
+        exact keys.
+        """
+        if _mmdet_is_version_1x():
+            num_stages = self.detector.num_stages
+        else:
+            num_stages = self.detector.roi_head.num_stages
+        for i in range(num_stages):
+            for name in ['loss_cls', 'loss_bbox']:
+                key = 's{}.{}'.format(i, name)
+                if key not in loss_parts:
+                    loss_parts[key] = torch.zeros(1, device=self.main_device)
 
 
 if __name__ == '__main__':

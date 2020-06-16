@@ -1710,6 +1710,32 @@ if __name__ == '__main__':
             --balance=None \
             --bstep=3
 
+        python -m bioharn.detect_fit \
+            --nice=sealion-cascade-v3 \
+            --workdir=$HOME/work/sealions \
+            --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7_train.mscoco.json \
+            --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7_vali.mscoco.json \
+            --schedule=ReduceLROnPlateau-p5-c5 \
+            --max_epoch=400 \
+            --augment=complex \
+            --init=noop \
+            --arch=cascade \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --window_dims=512,512 \
+            --input_dims=window \
+            --window_overlap=0.5 \
+            --multiscale=False \
+            --normalize_inputs=True \
+            --workers=8 \
+            --xpu=auto \
+            --batch_size=4 \
+            --sampler_backend=None \
+            --num_batches=1000 \
+            --balance=None \
+            --bstep=3
+
 
 
 # Maybe hard code these for validation tuning?
