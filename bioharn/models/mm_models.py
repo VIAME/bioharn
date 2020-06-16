@@ -1098,7 +1098,7 @@ class MM_CascadeRCNN(MM_Detector):
                 type='SingleRoIExtractor',
                 roi_layer=dict(type='RoIAlign', out_size=7, sample_num=2, use_torchvision=True),
                 out_channels=256,
-                featmap_strides=[4, 8, 16, 32]),
+                featmap_strides=[4, 8, 16, 32])
         else:
             # Compatibility for mmdet 2.x
             compat_params['rpn_head'] = dict(
