@@ -70,7 +70,7 @@ python -m bioharn.detect_fit \
     --normalize_inputs=True \
     --workers=8 \
     --xpu=auto \
-    --batch_size=4 \
+    --batch_size=10 \
     --sampler_backend=None \
     --balance=None \
     --num_batches=1000 \

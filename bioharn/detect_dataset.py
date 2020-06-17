@@ -804,11 +804,23 @@ def preselect_regions(sampler, window_overlap, window_dims,
         window_overlap = self.window_overlap
         window_dims = self.window_dims
         classes_of_interest = self.classes_of_interest
+
+        import kwcoco
+        fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_manual_train.mscoco.json')
+        coco_dset = kwcoco.CocoDataset(fpath)
+
+        import ndsampler
+        sampler = ndsampler.CocoSampler(coco_dset)
+        window_overlap = 0.5
+        window_dims = (512, 512)
+
     """
     import netharn as nh
 
     keepbound = True
 
+    # Create a sliding window object for each specific image (because they may
+    # have different sizes, technically we could memoize this)
     gid_to_slider = {}
     dset = sampler.dset
     for img in dset.imgs.values():
@@ -830,6 +842,8 @@ def preselect_regions(sampler, window_overlap, window_dims,
     positives = []
     negatives = []
     for gid, slider in gid_to_slider.items():
+
+        # For each image, create a box for each spatial region in the slider
         boxes = []
         regions = list(slider)
         for region in regions:
@@ -838,12 +852,29 @@ def preselect_regions(sampler, window_overlap, window_dims,
         boxes = kwimage.Boxes(np.array(boxes), 'tlbr')
 
         for region, box in zip(regions, boxes):
+            # Check to see what annotations this window-box overlaps with
             aids = _isect_index.overlapping_aids(gid, box)
 
+            # Look at the categories within this region
+            catnames = [
+                dset.cats[dset.anns[aid]['category_id']]['name'].lower()
+                for aid in aids
+            ]
+
+            ignore_flags = [catname == 'ignore' for catname in catnames]
+            if any(ignore_flags):
+                # If the almost the entire window is marked as ignored then
+                # just skip this window.
+                for aid in aids:
+                    _isect_index.qtrees[gid].aid_to_tlbr[aid]
+                ignore_aids = list(ub.compress(aids, ignore_flags))
+                ignore_boxes = coco_dset.annots(ignore_aids).boxes
+
             if classes_of_interest:
+                # If there are CoIs then only count a region as positive if one
+                # of those is in this region
                 interest_flags = np.array([
-                    dset.cats[dset.anns[aid]['category_id']]['name'].lower() in classes_of_interest
-                    for aid in aids])
+                    catname in classes_of_interest for catname in catnames])
                 pos_aids = list(ub.compress(aids, interest_flags))
             else:
                 pos_aids = aids
