@@ -793,7 +793,7 @@ class MultiScaleBatchSampler2(torch_sampler.BatchSampler):
 
 def preselect_regions(sampler, window_overlap, window_dims,
                       classes_of_interest=None,
-                      ignore_coverage_thresh=0.8,
+                      ignore_coverage_thresh=0.6,
                       negative_classes={'ignore', 'background'}):
     """
     TODO: this might be generalized and added to ndsampler
