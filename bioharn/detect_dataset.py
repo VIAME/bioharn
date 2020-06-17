@@ -912,7 +912,7 @@ def preselect_regions(sampler, window_overlap, window_dims,
             elif negative_classes:
                 # Don't count negative classes as positives
                 nonnegative_flags = np.array([
-                    catname in negative_classes for catname in catnames])
+                    catname not in negative_classes for catname in catnames])
                 pos_aids = list(ub.compress(aids, nonnegative_flags))
             else:
                 pos_aids = aids
