@@ -62,23 +62,26 @@ def drop_2020_06_14():
         df['year'] = year
         df_lut[year] = df
 
-    finalized_image_ranges = {
-        '2011': (1, 530),    # 1-based as reported
-        '2014': (218, 443),  # 1-based as reported
-        '2015': (101, 528),  # 1-based as reported
-        '2016': (331, 413),  # 1-based as reported
-    }
+    if 0:
+        finalized_image_ranges = {
+            '2011': (1, 530),    # 1-based as reported
+            '2014': (218, 443),  # 1-based as reported
+            '2015': (101, 528),  # 1-based as reported
+            '2016': (331, 413),  # 1-based as reported
+        }
 
-    edited_dfs = {}
-    for year, one_based_range in finalized_image_ranges.items():
-        start, stop = np.array(one_based_range) - 1
-        df = df_lut[year]
-        flags = (df['_gid'] >= start) & (df['_gid'] <= stop)
-        subdf = df[flags]
-        edited_dfs[year] = subdf
+        edited_dfs = {}
+        for year, one_based_range in finalized_image_ranges.items():
+            start, stop = np.array(one_based_range) - 1
+            df = df_lut[year]
+            flags = (df['_gid'] >= start) & (df['_gid'] <= stop)
+            subdf = df[flags]
+            edited_dfs[year] = subdf
 
-    df = pd.concat(list(edited_dfs.values()))
-    # df = pd.concat(list(df_lut.values()))
+        df = pd.concat(list(edited_dfs.values()))
+    else:
+        # Just use everything
+        df = pd.concat(list(df_lut.values()))
 
     df['br_x'] = df['br_x'].astype(np.float)
     df['br_y'] = df['br_y'].astype(np.float)
@@ -193,15 +196,14 @@ def main():
     gid_to_subdf = ub.map_keys(basename_to_gid, gname_to_subdf)
 
     # For each image, determine what should be modified
-    gid_to_before = {}
-    gid_to_after = {}
     stats = ub.ddict(list)
 
     toadd_anns = []
     tomodify_anns = []
-    toremove_aids = []
+    toremove_anns = []
 
     apply_timestamp = ub.timestamp()
+    summaries = []
 
     for gid in ub.ProgIter(list(gid_to_subdf.keys()), desc='update images'):
         # Load the original COCO annotations
@@ -234,6 +236,7 @@ def main():
         )
 
         status, info, details = detection_delta(dets1, dets2)
+        summaries.append(info)
         stats[status].append(gid)
 
         # Construct coco deltas that can be applied
@@ -241,27 +244,22 @@ def main():
             add_msg = 'created: {}'.format(apply_timestamp)
             mod_msg = 'modified: {}'.format(apply_timestamp)
 
-            # Handle addition of new boxes
-            add_idxs = details['add_idxs2']
-            add_dsets = dets2.take(add_idxs)
+            # Mark annotations for addition
+            add_dsets = dets2.take(details['add_idxs2'])
             add_anns2 = list(add_dsets.to_coco(
                 style='new', dset=coco_dset, image_id=gid))
             for ann in add_anns2:
                 ann['box_source'] = drop_source
                 ann['changelog'] = [add_msg]
                 toadd_anns.append(ann)
-                coco_dset.add_annotation(**ann)
 
-            # Handle removal
-            remove_idxs = details['remove_idxs1']
-            remove_aids = list(ub.take(orig_aids, remove_idxs))
-            toremove_aids.extend(remove_aids)
+            # Mark annotations for removal
+            remove_anns = list(ub.take(orig_anns, details['remove_idxs1']))
+            toremove_anns.extend(remove_anns)
 
-            # Handle modification
-            modify_idxs1 = details['modify_idxs1']
-            modify_idxs2 = details['modify_idxs2']
-            modified_dets = dets2.take(modify_idxs2)
-            old_anns1 = list(ub.take(orig_anns, modify_idxs1))
+            # Mark annotaitons for modification
+            modified_dets = dets2.take(details['modify_idxs2'])
+            old_anns1 = list(ub.take(orig_anns, details['modify_idxs1']))
             delta_anns2 = list(modified_dets.to_coco(
                 style='new', dset=coco_dset, image_id=gid))
             for old_ann, delta_ann in zip(old_anns1, delta_anns2):
@@ -271,26 +269,7 @@ def main():
                 new_ann['changelog'] = old_ann.get('changelog', []) + [mod_msg]
                 tomodify_anns.append(new_ann)
 
-    # apply all changes
-    coco_dset.remove_annotations(toremove_aids)
-    for ann in toadd_anns:
-        coco_dset.add_annotations(ann)
-
-    gid_to_before[gid] = orig_dets
-    gid_to_after[gid] = modified_dets
-
-    print('Modification summary: {}'.format(ub.map_vals(len, stats)))
-    # partial: {'diff': 1152, 'adjust': 115}
-
     if 1:
-        print('Details')
-        summaries = []
-        for gid in ub.ProgIter(gid_to_before.keys(), desc='summarize'):
-            det_before = gid_to_before[gid]
-            det_after = gid_to_after[gid]
-            info = detection_delta(det_before, det_after)
-            summaries.append(info)
-
         basic_sum = sum([pd.Series(info['basic']) for info in summaries])
         print('basic_sum =\n{!r}'.format(basic_sum))
 
@@ -322,6 +301,27 @@ def main():
         coarsemodified_accum = ub.sorted_vals(coarsemodified_accum)
         print('coarsemodified_accum = {}'.format(ub.repr2(coarsemodified_accum, nl=1)))
 
+    if __debug__:
+        x = [ann['id'] for ann in toremove_anns]
+        y = [ann['id'] for ann in tomodify_anns]
+        assert not (set(x) & set(y))
+        assert all('id' not in ann for ann in toadd_anns)
+
+    # apply all changes
+    toremove_aids = [ann['id'] for ann in toremove_anns]
+    coco_dset.remove_annotations(toremove_aids)
+
+    for new_ann in tomodify_anns:
+        # Override all new properties, but leave old ones in tact
+        old_ann = coco_dset.anns[new_ann['id']]
+        old_ann.update(new_ann)
+
+    for ann in toadd_anns:
+        coco_dset.add_annotation(**ann)
+
+    print('Modification summary: {}'.format(ub.map_vals(len, stats)))
+    # partial: {'diff': 1152, 'adjust': 115}
+
     # full: {'diff': 1152, 'adjust': 190, 'same': 567, 'diffcats': 5}
 
     if False:
@@ -332,11 +332,11 @@ def main():
         # gid = 2404
         # gid = 2434
         # gids = kwarray.shuffle(list(gid_to_subdf.keys()))
-        gids = sorted(stats['diff'])
+        gids = sorted(stats['same'])
 
         gid = gids[0]
-        det_before = gid_to_before[gid]
-        det_after = gid_to_after[gid]
+        det_before = orig_coco_dset.annots(gid=gid).detections
+        det_after = coco_dset.annots(gid=gid).detections
 
         canvas = coco_dset.load_image(gid)
         det_before.draw_on(canvas, color='blue')
@@ -388,13 +388,17 @@ def detection_delta(dets1, dets2):
     cxywh1 = dets1.boxes.to_cxywh().data
     cxywh2 = dets2.boxes.to_cxywh().data
 
+    pxl_thresh = 2
+    match_iou_thresh = 0.1
+    # match_iou_thresh = 0.4
+
     status = None
     info = {}
     details = {}
 
     if len(dets1) == len(dets2):
         # check if everything is the same.
-        same_boxes = np.all(cxywh1 - cxywh2) < 2
+        same_boxes = np.all(cxywh1 - cxywh2) < pxl_thresh
         same_classes = np.all(dets1.class_idxs == dets2.class_idxs)
         if same_boxes and same_classes:
             status = 'same'
@@ -421,7 +425,6 @@ def detection_delta(dets1, dets2):
         # Only modify annotations that dont have drastic spatial differences If
         # for some reason an annotation changes spatial position by a large
         # amoumt it will be removed and readded.
-        match_iou_thresh = 0.4
         valid_match = (ious > match_iou_thresh).astype(np.float)
         class_affinity = (sameclass * eps)
         affinity = (ious + class_affinity) * valid_match
@@ -437,8 +440,8 @@ def detection_delta(dets1, dets2):
 
         assert all_idxs1.issuperset(idxs1)
         assert all_idxs2.issuperset(idxs2)
-        unassigned_idxs1 = all_idxs1 - set(idxs2)  # removed
-        unassigned_idxs2 = all_idxs2 - set(idxs1)  # added
+        unassigned_idxs1 = all_idxs1 - set(idxs1)  # removed
+        unassigned_idxs2 = all_idxs2 - set(idxs2)  # added
 
         details = {
             'modify_idxs1': idxs1,
@@ -464,7 +467,7 @@ def detection_delta(dets1, dets2):
             box2 = cxywh2[idx2]
             box_delta = box1 - box2
 
-            if np.any(box_delta > 2):
+            if np.any(box_delta > pxl_thresh):
                 # characterize box change
                 area1 = np.prod(box1[2:])
                 area2 = np.prod(box2[2:])
@@ -487,7 +490,15 @@ def detection_delta(dets1, dets2):
             if modification:
                 modifications.append(tuple(modification))
 
-    modified_catfreq = ub.dict_hist(modifications)
+        modified_catfreq = ub.dict_hist(modifications)
+    else:
+        unassigned_idxs1 = []
+        unassigned_idxs2 = []
+        modifications = []
+        modified_catfreq = {}
+        removed_catfreq = {}
+        added_catfreq = {}
+
     basic_info = {
         'num_removed': len(unassigned_idxs1),
         'num_added': len(unassigned_idxs2),
@@ -527,14 +538,25 @@ def take_manually_edited_subsets():
     modified_gids = []
     for ann in coco_dset.anns.values():
         changelog = ann.get('changelog', [])
+        if ann['box_source'] == 'refinement-2020-06-17':
+           gid = ann['image_id']
+           modified_gids.append(gid)
+
         for log in changelog:
             if 'modified' in log:
                gid = ann['image_id']
                modified_gids.append(gid)
 
-    modified_gids = set(modified_gids)
+    modified_gids = sorted(set(modified_gids))
+
+    out_fpath = ub.augpath(in_fpath, suffix='_manual', multidot=True)
+    coco_dset = coco_dset.subset(modified_gids)
+    coco_dset.fpath = out_fpath
+    coco_dset.dump(coco_dset.fpath)
     print('modified_gids = {}'.format(ub.repr2(len(modified_gids), nl=1)))
     print('coco_dset = {!r}'.format(coco_dset))
+
+    {img['year_code'] for img in coco_dset.imgs.values()}
 
 
 if __name__ == '__main__':

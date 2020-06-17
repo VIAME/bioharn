@@ -10,6 +10,9 @@ Sealion Dataset:
     /home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json
     /home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json
 
+    $HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_manual_train.mscoco.json
+    $HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_manual_vali.mscoco.json
+
 
 Trained Sealion Models:
 
@@ -48,14 +51,14 @@ python -m bioharn.detect_fit \
 
 
 python -m bioharn.detect_fit \
-    --nice=sealion-cascade-v4 \
+    --nice=sealion-cascade-v5 \
     --workdir=$HOME/work/sealions \
-    --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json \
-    --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
+    --train_dataset=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_manual_train.mscoco.json \
+    --vali_dataset=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_manual_vali.mscoco.json \
     --schedule=ReduceLROnPlateau-p5-c5 \
     --max_epoch=400 \
     --augment=complex \
-    --init=$HOME/remote/namek/work/sealions/fit/runs/sealion-cascade-v4/erhbywip/explit_checkpoints/_epoch_00000003_2020-06-17T134405+5.pt \
+    --init=/home/joncrall/work/sealions/fit/runs/sealion-cascade-v4/gwtmiznw/explit_checkpoints/_epoch_00000010_2020-06-17T171239+5.pt \
     --arch=cascade \
     --channels="rgb" \
     --optim=sgd \
@@ -69,8 +72,8 @@ python -m bioharn.detect_fit \
     --xpu=auto \
     --batch_size=4 \
     --sampler_backend=None \
-    --num_batches=1000 \
     --balance=None \
+    --num_batches=1000 \
     --bstep=3
 
 
