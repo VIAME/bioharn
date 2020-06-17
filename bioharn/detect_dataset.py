@@ -889,13 +889,19 @@ def preselect_regions(sampler, window_overlap, window_dims,
                             continue
                         elif len(ignore_boxes) > 1:
                             # We have to test the complex case
-                            from shapely.ops import cascaded_union
-                            ignore_shape = cascaded_union(ignore_boxes.to_shapley())
-                            region_shape = box[None, :].to_shapley()[0]
-                            coverage_shape = ignore_shape.intersection(region_shape)
-                            real_coverage = coverage_shape.area / box_area
-                            if real_coverage > ignore_coverage_thresh:
-                                continue
+                            try:
+                                from shapely.ops import cascaded_union
+                                ignore_shape = cascaded_union(ignore_boxes.to_shapley())
+                                region_shape = box[None, :].to_shapley()[0]
+                                coverage_shape = ignore_shape.intersection(region_shape)
+                                real_coverage = coverage_shape.area / box_area
+                                if real_coverage > ignore_coverage_thresh:
+                                    continue
+                            except Exception as ex:
+                                import warnings
+                                warnings.warn(
+                                    'ignore region select had non-critical '
+                                    'issue ex = {!r}'.format(ex))
 
             if classes_of_interest:
                 # If there are CoIs then only count a region as positive if one
