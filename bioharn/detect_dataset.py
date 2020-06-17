@@ -792,9 +792,17 @@ class MultiScaleBatchSampler2(torch_sampler.BatchSampler):
 
 
 def preselect_regions(sampler, window_overlap, window_dims,
-                      classes_of_interest=None):
+                      classes_of_interest=None,
+                      ignore_coverage_thresh=0.8,
+                      negative_classes={'ignore', 'background'}):
     """
     TODO: this might be generalized and added to ndsampler
+
+    Args:
+        ignore_coverage_thresh : if specified any window covered by an ignore
+            box greater than this percent is not returned.
+
+        negative_classes : classes to consider as negative
 
     window_overlap = 0.5
     window_dims = (512, 512)
@@ -813,6 +821,8 @@ def preselect_regions(sampler, window_overlap, window_dims,
         sampler = ndsampler.CocoSampler(coco_dset)
         window_overlap = 0.5
         window_dims = (512, 512)
+        ignore_coverage_thresh = 0.8
+        negative_classes={'ignore', 'background'}
 
     """
     import netharn as nh
@@ -861,14 +871,31 @@ def preselect_regions(sampler, window_overlap, window_dims,
                 for aid in aids
             ]
 
-            ignore_flags = [catname == 'ignore' for catname in catnames]
-            if any(ignore_flags):
-                # If the almost the entire window is marked as ignored then
-                # just skip this window.
-                for aid in aids:
-                    _isect_index.qtrees[gid].aid_to_tlbr[aid]
-                ignore_aids = list(ub.compress(aids, ignore_flags))
-                ignore_boxes = coco_dset.annots(ignore_aids).boxes
+            if ignore_coverage_thresh:
+                ignore_flags = [catname == 'ignore' for catname in catnames]
+                if any(ignore_flags):
+                    # If the almost the entire window is marked as ignored then
+                    # just skip this window.
+                    ignore_aids = list(ub.compress(aids, ignore_flags))
+                    ignore_boxes = sampler.dset.annots(ignore_aids).boxes
+
+                    # Get an upper bound on coverage to short circuit extra
+                    # computation in simple cases.
+                    box_area = box.area.sum()
+                    coverage_ub = ignore_boxes.area.sum() / box_area
+                    if coverage_ub  > ignore_coverage_thresh:
+                        max_coverage = ignore_boxes.iooas(box).max()
+                        if max_coverage > ignore_coverage_thresh:
+                            continue
+                        elif len(ignore_boxes) > 1:
+                            # We have to test the complex case
+                            from shapely.ops import cascaded_union
+                            ignore_shape = cascaded_union(ignore_boxes.to_shapley())
+                            region_shape = box[None, :].to_shapley()[0]
+                            coverage_shape = ignore_shape.intersection(region_shape)
+                            real_coverage = coverage_shape.area / box_area
+                            if real_coverage > ignore_coverage_thresh:
+                                continue
 
             if classes_of_interest:
                 # If there are CoIs then only count a region as positive if one
@@ -876,6 +903,11 @@ def preselect_regions(sampler, window_overlap, window_dims,
                 interest_flags = np.array([
                     catname in classes_of_interest for catname in catnames])
                 pos_aids = list(ub.compress(aids, interest_flags))
+            elif negative_classes:
+                # Don't count negative classes as positives
+                nonnegative_flags = np.array([
+                    catname in negative_classes for catname in catnames])
+                pos_aids = list(ub.compress(aids, nonnegative_flags))
             else:
                 pos_aids = aids
 
