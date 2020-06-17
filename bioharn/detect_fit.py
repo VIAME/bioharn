@@ -687,7 +687,6 @@ def setup_harn(cmdline=True, **kw):
     # Load ndsampler.CocoDataset objects from info in the config
     subsets = coerce_data.coerce_datasets(config)
 
-    # HACK: ENSURE BACKGROUND IS CLASS IDX 0 for mmdet
     classes = subsets['train'].object_categories()
     for k, subset in subsets.items():
         # TODO: better handling
@@ -715,6 +714,7 @@ def setup_harn(cmdline=True, **kw):
 
     classes = subsets['train'].object_categories()
     if config['ensure_background_class']:
+        # HACK: ENSURE BACKGROUND IS CLASS IDX 0 for mmdet 1.x
         print('classes = {!r}'.format(classes))
         if 'background' not in classes:
             for k, subset in subsets.items():

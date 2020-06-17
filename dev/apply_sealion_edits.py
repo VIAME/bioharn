@@ -1,3 +1,4 @@
+from os.path import basename
 import numpy as np
 from os.path import join
 import pandas as pd
@@ -7,6 +8,14 @@ import ubelt as ub
 def drop_2020_06_14():
     """
     # Download edits
+
+
+    girder-client --api-url https://data.kitware.com/api/v1 list 5ee6a5149014a6d84ec02d66
+    girder-client --api-url https://data.kitware.com/api/v1 download 5eea3dea9014a6d84ec78d09 $HOME/work/bioharn/_cache/sealion_edits/detections_edits_2011_v2.csv
+    girder-client --api-url https://data.kitware.com/api/v1 download 5eea3de79014a6d84ec78d01 $HOME/work/bioharn/_cache/sealion_edits/detections_edits_2015_v2.csv
+    girder-client --api-url https://data.kitware.com/api/v1 download 5eea41a29014a6d84ec78f1b $HOME/work/bioharn/_cache/sealion_edits/detections_edits_2014.csv
+
+
     girder-client --api-url https://data.kitware.com/api/v1 download 5ee6a5149014a6d84ec02d66 $HOME/work/bioharn/_cache/sealion_edits
     ls $HOME/work/bioharn/_cache/sealion_edits
 
@@ -16,8 +25,9 @@ def drop_2020_06_14():
     """
     dl_root = ub.expandpath('$HOME/work/bioharn/_cache/sealion_edits')
     csv_fpaths = [
-        join(dl_root, 'detections_edits_2011.csv'),
-        join(dl_root, 'detections_edits_2015.csv'),
+        join(dl_root, 'detections_edits_2011_v2.csv'),
+        join(dl_root, 'detections_edits_2014.csv'),
+        join(dl_root, 'detections_edits_2015_v2.csv'),
         join(dl_root, 'detections_edits_2016.csv'),
     ]
 
@@ -27,27 +37,48 @@ def drop_2020_06_14():
         with open(csv_fpath) as file:
             print('csv_fpath = {!r}'.format(csv_fpath))
             lines = file.read().split('\n')
-            rows = []
+            nrows_set = set()
             bad_rows = []
             for rx, line in enumerate(lines, start=0):
                 if line:
                     nrows = line.count(',')
+                    nrows_set.add(nrows)
                     if nrows < 10:
                         bad_rows.append(rx)
                         print('rx = {!r}'.format(rx))
                         print(line)
                         print('nrows = {!r}'.format(nrows))
-            print(set(rows))
+            print(nrows_set)
 
         columns = ['_aid', 'gname', '_gid', 'tl_x', 'tl_y', 'br_x', 'br_y', '7', '8', 'category', '10']
         df = pd.read_csv(csv_fpath, header=None, names=columns)
+        assert not bad_rows
         if bad_rows:
             df.iloc[bad_rows]
             # Drop bad rows
             df = df[~pd.isnull(df['category'])]
 
-        df_lut[csv_fpath] = df
-    df = pd.concat(list(df_lut.values()))
+        year = basename(csv_fpath).split('_')[2].split('.')[0]
+        df['year'] = year
+        df_lut[year] = df
+
+    finalized_image_ranges = {
+        '2011': (1, 530),    # 1-based as reported
+        '2014': (218, 443),  # 1-based as reported
+        '2015': (101, 528),  # 1-based as reported
+        '2016': (331, 413),  # 1-based as reported
+    }
+
+    edited_dfs = {}
+    for year, one_based_range in finalized_image_ranges.items():
+        start, stop = np.array(one_based_range) - 1
+        df = df_lut[year]
+        flags = (df['_gid'] >= start) & (df['_gid'] <= stop)
+        subdf = df[flags]
+        edited_dfs[year] = subdf
+
+    df = pd.concat(list(edited_dfs.values()))
+    # df = pd.concat(list(df_lut.values()))
 
     df['br_x'] = df['br_x'].astype(np.float)
     df['br_y'] = df['br_y'].astype(np.float)
@@ -55,12 +86,21 @@ def drop_2020_06_14():
     df['tl_x'] = df['tl_x'].astype(np.float)
     df['_gid'] = df['_gid'].astype(np.int)
     df['_aid'] = df['_aid'].astype(np.int)
+    df_drop2 = df
 
+    df = df_drop2
     base_fpath = '/home/joncrall/remote/namek/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6.mscoco.json'
-    drop_source = 'refinement-2020-06-14'
+    drop_source = 'refinement-2020-06-17'
 
-    out_fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
+    out_fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8.mscoco.json')
     return base_fpath, df, drop_source, out_fpath
+
+def _s():
+    if 0:
+        a = df_drop1[df_drop1['year'] == '2014']
+        b = df_drop2[df_drop2['year'] == '2014']
+        set(a['gname']) | set(b['gname'])
+        set(a['_gid']) | set(b['_gid'])
 
 
 def drop_2020_03_18():
@@ -72,10 +112,15 @@ def drop_2020_03_18():
 
     columns = ['_aid', 'gname', '_gid', 'tl_x', 'tl_y', 'br_x', 'br_y', '7', '8', 'category', '10']
     df1 = pd.read_csv(csv_fpath1, header=None, names=columns)
+    df1['year'] = '2014'
     df2 = pd.read_csv(csv_fpath2, header=None, names=columns)
+    df2['year'] = '2015'
     df3 = pd.read_csv(csv_fpath3, header=None, names=columns)
-    df = pd.concat([df1, df2, df3])
+    df3['year'] = '2016'
+    df_drop1 = pd.concat([df1, df2, df3])
+
     drop_source = 'refinement-2020-03-18'
+    df = df_drop1
 
     out_fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6.mscoco.json')
     return base_fpath, df, drop_source, out_fpath
@@ -99,8 +144,10 @@ def main():
     import numpy as np
     from os.path import basename
 
+    # Load the edits we are going to apply
     base_fpath, df, drop_source, out_fpath = drop_2020_06_14()
 
+    # Load the COCO dataset we are goint to modify
     print('base_fpath = {!r}'.format(base_fpath))
     orig_coco_dset = ndsampler.CocoDataset(base_fpath)
     coco_dset = orig_coco_dset.copy()
@@ -124,12 +171,13 @@ def main():
         coco_dset._build_index()
     print('coco_dset = {!r}'.format(coco_dset))
 
-    # box_stats = coco_dset.boxsize_stats(anchors=4, verbose=1, clusterkw={'verbose': 0})
-    # print('box_stats = {}'.format(ub.repr2(box_stats, nl=4)))
+    if 0:
+        box_stats = coco_dset.boxsize_stats(anchors=4, verbose=1, clusterkw={'verbose': 0})
+        print('box_stats = {}'.format(ub.repr2(box_stats, nl=4)))
 
+    # Use image names to associate annotations between CSV and COCO files
     gid_to_basename = {img['id']: basename(img['file_name'])
                        for img in coco_dset.imgs.values()}
-
     basename_to_gids = ub.invert_dict(gid_to_basename, unique_vals=False)
     has_dups = max(map(len, basename_to_gids.values())) > 1
     assert not has_dups
@@ -137,33 +185,37 @@ def main():
 
     # '20150701' in gname_to_subdf
     # gname_to_subdf['20150701'].pandas()
+    # gid_to_subdf.pop(3562, None)
 
     df_light = kwarray.DataFrameLight.from_pandas(df)
 
     gname_to_subdf = dict(df_light.groupby('gname'))
     gid_to_subdf = ub.map_keys(basename_to_gid, gname_to_subdf)
 
-    # gid_to_subdf.pop(3562, None)
-
+    # For each image, determine what should be modified
     gid_to_before = {}
     gid_to_after = {}
-
     stats = ub.ddict(list)
+
+    toadd_anns = []
+    tomodify_anns = []
+    toremove_aids = []
+
+    apply_timestamp = ub.timestamp()
+
     for gid in ub.ProgIter(list(gid_to_subdf.keys()), desc='update images'):
-        subdf = gid_to_subdf[gid]
+        # Load the original COCO annotations
         orig_aids = sorted(coco_dset.gid_to_aids[gid])
         orig_anns = list(ub.take(coco_dset.anns, orig_aids))
         orig_annots = coco_dset.annots(orig_aids)
-
         orig_catnames = orig_annots.cnames
         orig_xywh = kwimage.Boxes(orig_annots.lookup('bbox'), 'xywh')
-        # orig_dets = orig_annots.detections.copy()
-
         self = orig_annots
         anns = [self._id_to_obj[aid] for aid in self.aids]
         orig_dets = kwimage.Detections.from_coco_annots(anns, dset=self._dset)
 
-        sub_aids = subdf._getcol('_aid')
+        # Load the edited CSV annotations
+        subdf = gid_to_subdf[gid]
         sub_tlbr = subdf._getcols(['tl_x', 'tl_y', 'br_x', 'br_y'])
         sub_xywh = kwimage.Boxes(sub_tlbr, 'tlbr').to_xywh()
         sub_catnames = subdf['category']
@@ -172,77 +224,108 @@ def main():
         sub_cats = [coco_dset._alias_to_cat(n) for n in sub_catnames]
         sub_catnames = [cat['name'] for cat in sub_cats]
         sub_cids = [cat['id'] for cat in sub_cats]
+        sub_cidxs = list(ub.take(orig_dets.classes.id_to_idx, sub_cids))
 
-        case = None
-        if len(sub_xywh) != len(orig_xywh):
-            # print('assignment = {!r}'.format(assignment))
-            case = 'diff'
-        else:
-            maxdiff = np.abs(sub_xywh.data - orig_xywh.data).max()
-            if maxdiff < 2:
-                if orig_catnames != sub_catnames:
-                    np.array(orig_catnames) != np.array(sub_catnames)
-                    case = 'diffcats'
-                else:
-                    case = 'same'
-            else:
-                case = 'adjust'
+        dets1 = orig_dets
+        dets2 = kwimage.Detections(
+            boxes=sub_xywh,
+            class_idxs=sub_cidxs,
+            classes=orig_dets.classes,
+        )
 
-        stats[case].append(gid)
-        if case in {'diff', 'adjust', 'diffcats'}:
-            ious = orig_xywh.ious(sub_xywh)
-            assignment, _  = kwarray.maxvalue_assignment(ious)
-            if len(assignment):
-                orig_idxs, sub_idxs = map(list, zip(*assignment))
-            else:
-                orig_idxs, sub_idxs = [], []
+        status, info, details = detection_delta(dets1, dets2)
+        stats[status].append(gid)
 
-            all_orig_idxs = ub.oset(range(len(orig_aids)))
-            all_sub_idxs = ub.oset(range(len(sub_aids)))
+        # Construct coco deltas that can be applied
+        if status != 'same':
+            add_msg = 'created: {}'.format(apply_timestamp)
+            mod_msg = 'modified: {}'.format(apply_timestamp)
 
-            assert all_orig_idxs.issuperset(orig_idxs)
-            assert all_sub_idxs.issuperset(sub_idxs)
-            unassigned_orig_idxs = all_orig_idxs - set(orig_idxs)
-            unassigned_sub_idxs = all_sub_idxs - sub_idxs
-
-            # Handle addition
-            add_idxs = unassigned_sub_idxs
-            num_add = len(add_idxs)
-            add_sub_anns = kwarray.DataFrameLight({
-                'bbox': sub_xywh.take(add_idxs).data.tolist(),
-                'image_id': [gid] * num_add,
-                'category_id': list(ub.take(sub_cids, add_idxs)),
-                'box_source': [drop_source] * num_add,
-                'changelog': [['created: {}'.format(ub.timestamp())]] * num_add,
-            })
-            new_anns = [new_ann for _, new_ann in add_sub_anns.iterrows()]
-            new_aids = [coco_dset.add_annotation(**ann) for ann in new_anns]
+            # Handle addition of new boxes
+            add_idxs = details['add_idxs2']
+            add_dsets = dets2.take(add_idxs)
+            add_anns2 = list(add_dsets.to_coco(
+                style='new', dset=coco_dset, image_id=gid))
+            for ann in add_anns2:
+                ann['box_source'] = drop_source
+                ann['changelog'] = [add_msg]
+                toadd_anns.append(ann)
+                coco_dset.add_annotation(**ann)
 
             # Handle removal
-            remove_idxs = unassigned_orig_idxs
-            remove_aids = orig_annots.take(remove_idxs).aids
-            coco_dset.remove_annotations(remove_aids)
+            remove_idxs = details['remove_idxs1']
+            remove_aids = list(ub.take(orig_aids, remove_idxs))
+            toremove_aids.extend(remove_aids)
 
             # Handle modification
-            orig_match_annots = orig_annots.take(orig_idxs)
-            orig_match_annots.cnames = ub.take(sub_catnames, sub_idxs)
-            orig_match_annots.boxes = sub_xywh.take(sub_idxs)
-            changelogs = orig_match_annots.get('changelog', default=None)
-            changelogs = [list() if c is None else c for c in changelogs]
-            for c in changelogs:
-                c.append('modified: {}'.format(ub.timestamp()))
+            modify_idxs1 = details['modify_idxs1']
+            modify_idxs2 = details['modify_idxs2']
+            modified_dets = dets2.take(modify_idxs2)
+            old_anns1 = list(ub.take(orig_anns, modify_idxs1))
+            delta_anns2 = list(modified_dets.to_coco(
+                style='new', dset=coco_dset, image_id=gid))
+            for old_ann, delta_ann in zip(old_anns1, delta_anns2):
+                new_ann = old_ann.copy()
+                new_ann.update(delta_ann)
+                new_ann['box_source'] = drop_source
+                new_ann['changelog'] = old_ann.get('changelog', []) + [mod_msg]
+                tomodify_anns.append(new_ann)
 
-            modified_aids = sorted(coco_dset.gid_to_aids[gid])
-            modified_dets = coco_dset.annots(modified_aids).detections.copy()
-            gid_to_before[gid] = orig_dets
-            gid_to_after[gid] = modified_dets
+    # apply all changes
+    coco_dset.remove_annotations(toremove_aids)
+    for ann in toadd_anns:
+        coco_dset.add_annotations(ann)
 
-        elif case == 'same':
-            pass
-        else:
-            raise Exception('case = {!r}'.format(case))
+    gid_to_before[gid] = orig_dets
+    gid_to_after[gid] = modified_dets
+
+    print('Modification summary: {}'.format(ub.map_vals(len, stats)))
+    # partial: {'diff': 1152, 'adjust': 115}
+
+    if 1:
+        print('Details')
+        summaries = []
+        for gid in ub.ProgIter(gid_to_before.keys(), desc='summarize'):
+            det_before = gid_to_before[gid]
+            det_after = gid_to_after[gid]
+            info = detection_delta(det_before, det_after)
+            summaries.append(info)
+
+        basic_sum = sum([pd.Series(info['basic']) for info in summaries])
+        print('basic_sum =\n{!r}'.format(basic_sum))
+
+        add_accum = ub.ddict(lambda: 0)
+        for info in summaries:
+            for k, v in info['added_catfreq'].items():
+                add_accum[k] += v
+        add_accum = ub.sorted_vals(add_accum)
+        print('add_accum = {}'.format(ub.repr2(add_accum, nl=1)))
+
+        remove_accum = ub.ddict(lambda: 0)
+        for info in summaries:
+            for k, v in info['removed_catfreq'].items():
+                remove_accum[k] += v
+        remove_accum = ub.sorted_vals(remove_accum)
+        print('remove_accum = {}'.format(ub.repr2(remove_accum, nl=1)))
+
+        modified_accum = ub.ddict(lambda: 0)
+        for info in summaries:
+            for k, v in info['modified_catfreq'].items():
+                modified_accum[k] += v
+        modified_accum = ub.sorted_vals(modified_accum)
+        print('modified_accum = {}'.format(ub.repr2(modified_accum, nl=1)))
+
+        coarsemodified_accum = ub.ddict(lambda: 0)
+        for info in summaries:
+            for k, v in info['modified_catfreq'].items():
+                coarsemodified_accum[k[0]] += v
+        coarsemodified_accum = ub.sorted_vals(coarsemodified_accum)
+        print('coarsemodified_accum = {}'.format(ub.repr2(coarsemodified_accum, nl=1)))
+
+    # full: {'diff': 1152, 'adjust': 190, 'same': 567, 'diffcats': 5}
 
     if False:
+        # Debugging visualizations
         import kwplot
         kwplot.autompl()
         # gid = 2544
@@ -290,6 +373,136 @@ def main():
     sealon_holdout_sets(coco_dset)
 
 
+def detection_delta(dets1, dets2):
+    """
+    Charactarize the modification between two set of detections
+    """
+    # Determine what has changed if anything. We use the following codes:
+    # diff - the number of boxes has changed
+    # diffcats - the boxes are the same (up to 1 pixel) but categories are different
+    # same - both boxes and categories are unmodified
+    # adjust - boxes have been adjusted by more than 1 pixel. Categories might be different.
+    import kwarray
+
+    assert dets1.classes is dets2.classes
+    cxywh1 = dets1.boxes.to_cxywh().data
+    cxywh2 = dets2.boxes.to_cxywh().data
+
+    status = None
+    info = {}
+    details = {}
+
+    if len(dets1) == len(dets2):
+        # check if everything is the same.
+        same_boxes = np.all(cxywh1 - cxywh2) < 2
+        same_classes = np.all(dets1.class_idxs == dets2.class_idxs)
+        if same_boxes and same_classes:
+            status = 'same'
+        elif not same_boxes:
+            status = 'adjust'
+        elif not same_classes:
+            status = 'diffcats'
+        else:
+            raise AssertionError
+    else:
+        status = 'diff'
+
+    if status != 'same':
+        # dets1 = det_before
+        # dets2 = det_after
+
+        # Solve an assignment problem between old and new boxes
+        ious = dets1.boxes.ious(dets2.boxes)
+        sameclass = dets1.class_idxs[:, None] == dets2.class_idxs[None, :]
+
+        # Break ties between ious using classes
+        eps = 1e-8
+
+        # Only modify annotations that dont have drastic spatial differences If
+        # for some reason an annotation changes spatial position by a large
+        # amoumt it will be removed and readded.
+        match_iou_thresh = 0.4
+        valid_match = (ious > match_iou_thresh).astype(np.float)
+        class_affinity = (sameclass * eps)
+        affinity = (ious + class_affinity) * valid_match
+
+        assignment, _  = kwarray.maxvalue_assignment(affinity)
+        if len(assignment):
+            idxs1, idxs2 = map(list, zip(*assignment))
+        else:
+            idxs1, idxs2 = [], []
+
+        all_idxs1 = ub.oset(range(len(dets1)))
+        all_idxs2 = ub.oset(range(len(dets2)))
+
+        assert all_idxs1.issuperset(idxs1)
+        assert all_idxs2.issuperset(idxs2)
+        unassigned_idxs1 = all_idxs1 - set(idxs2)  # removed
+        unassigned_idxs2 = all_idxs2 - set(idxs1)  # added
+
+        details = {
+            'modify_idxs1': idxs1,
+            'modify_idxs2': idxs2,
+            'remove_idxs1': unassigned_idxs1,
+            'add_idxs2': unassigned_idxs2,
+        }
+
+        removed_catfreq = ub.dict_hist(
+            ub.take(dets1.classes, dets1.class_idxs[unassigned_idxs1]))
+        added_catfreq = ub.dict_hist(
+            ub.take(dets2.classes, dets2.class_idxs[unassigned_idxs2]))
+
+        modifications = []
+        for idx1, idx2 in zip(idxs1, idxs2):
+            modification = []
+            catname1 = dets1.classes[dets1.class_idxs[idx1]]
+            catname2 = dets2.classes[dets2.class_idxs[idx2]]
+            if catname1 != catname2:
+                modification.append('{} -> {}'.format(catname1, catname2))
+
+            box1 = cxywh1[idx1]
+            box2 = cxywh2[idx2]
+            box_delta = box1 - box2
+
+            if np.any(box_delta > 2):
+                # characterize box change
+                area1 = np.prod(box1[2:])
+                area2 = np.prod(box2[2:])
+                cxy1 = box1[0:2]
+                cxy2 = box2[0:2]
+
+                shift_dist = np.linalg.norm(cxy1 - cxy2)
+                shift_ratio = shift_dist / np.sqrt(area2)
+                area_ratio = area2 / area1
+                box_mod = 'coords'
+                # If there is a significant change in area or position mark that
+                if area_ratio < 0.9:
+                    box_mod = box_mod + '-shrink'
+                elif area_ratio < 1.1:
+                    box_mod = box_mod + '-grow'
+                if shift_ratio > 0.5:
+                    box_mod = box_mod + '-shift'
+                modification.append(box_mod)
+
+            if modification:
+                modifications.append(tuple(modification))
+
+    modified_catfreq = ub.dict_hist(modifications)
+    basic_info = {
+        'num_removed': len(unassigned_idxs1),
+        'num_added': len(unassigned_idxs2),
+        'num_modified': len(modifications),
+    }
+    info.update({
+        'basic': basic_info,
+        'modified_catfreq': modified_catfreq,
+        'removed_catfreq': removed_catfreq,
+        'added_catfreq': added_catfreq,
+    })
+    # print('info = {}'.format(ub.repr2(info, nl=2)))
+    return status, info, details
+
+
 def sealon_holdout_sets(coco_dset):
     import ubelt as ub
     year_to_imgs = ub.group_items(coco_dset.imgs.values(), lambda x: x['year_code'])
@@ -304,6 +517,24 @@ def sealon_holdout_sets(coco_dset):
         print('subset.fpath = {!r}'.format(subset.fpath))
         print('len(gids) = {}'.format(len(gids)))
         subset.dump(subset.fpath, newlines=True)
+
+
+def take_manually_edited_subsets():
+    import kwcoco
+    in_fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8.mscoco.json')
+    coco_dset = kwcoco.CocoDataset(in_fpath)
+
+    modified_gids = []
+    for ann in coco_dset.anns.values():
+        changelog = ann.get('changelog', [])
+        for log in changelog:
+            if 'modified' in log:
+               gid = ann['image_id']
+               modified_gids.append(gid)
+
+    modified_gids = set(modified_gids)
+    print('modified_gids = {}'.format(ub.repr2(len(modified_gids), nl=1)))
+    print('coco_dset = {!r}'.format(coco_dset))
 
 
 if __name__ == '__main__':
