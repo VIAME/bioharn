@@ -98,7 +98,8 @@ class DetectFitConfig(scfg.Config):
         'classes_of_interest': scfg.Value([], help='if specified only these classes are given weight'),
 
         'collapse_classes': scfg.Value(False, help='force one-class detector'),
-        'ensure_background_class': scfg.Value(True, help='ensure a background category exists'),
+
+        'ensure_background_class': scfg.Value(False, help='ensure a background category exists'),
         'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
         'test_on_finish': False,
     }
@@ -717,6 +718,7 @@ def setup_harn(cmdline=True, **kw):
         print('classes = {!r}'.format(classes))
         if 'background' not in classes:
             for k, subset in subsets.items():
+                # mmdet 1.x wants id=0, but 2.x wants id=len(classes)
                 subset.add_category('background', id=0)
 
     classes = subsets['train'].object_categories()

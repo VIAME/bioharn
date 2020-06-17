@@ -1039,7 +1039,7 @@ class MM_CascadeRCNN(MM_Detector):
                 num_classes = len(classes)
             else:
                 if classes.node_to_idx['background'] != len(classes) - 1:
-                    raise AssertionError('mmdet 1.x needs background to be the last class')
+                    raise AssertionError('mmdet 2.x needs background to be the last class')
                 num_classes = len(classes) - 1
         else:
             if _mmdet_is_version_1x():

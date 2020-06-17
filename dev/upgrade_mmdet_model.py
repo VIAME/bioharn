@@ -1,8 +1,14 @@
-from os.path import exists
 from os.path import join
+import scriptconfig as scfg
 
 
-def upgrade_deployed_mmdet_model():
+class UpgradeMMDetConfig(scfg.Config):
+    default = {
+        'deployed': scfg.Path(None, help='path to torch_liberator zipfile to convert'),
+    }
+
+
+def upgrade_deployed_mmdet_model(config):
     """
     5dd3181eaf2e2eed3505827c
     girder-client --api-url https://data.kitware.com/api/v1 list 5dd3eb8eaf2e2eed3508d604
@@ -14,8 +20,15 @@ def upgrade_deployed_mmdet_model():
     girder-client --api-url https://data.kitware.com/api/v1 download 5dd3eb8eaf2e2eed3508d604 $HOME/tmp/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip
     """
     import ubelt as ub
-    deploy_fpath = ub.expandpath('$HOME/tmp/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip')
+    deploy_fpath = config['deployed']
+
+    # Grab the mmdetection upgrade script
+    upgrade_fpath = ub.expandpath('~/code/mmdetection/tools/upgrade_model_version.py')
+    upgrade_module = ub.import_module_from_path(upgrade_fpath)
+
+    # deploy_fpath = ub.expandpath('$HOME/tmp/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip')
     # deploy_fpath = ub.expandpath('$HOME/tmp/deploy_MM_CascadeRCNN_rgb-fine-coi-v40_ntjzrxlb_007_FVMWBU.zip')
+
     from torch_liberator import deployer
     deployed = deployer.DeployedModel(deploy_fpath)
 
@@ -97,9 +110,6 @@ def upgrade_deployed_mmdet_model():
 
     # checkpoint = torch.load(in_file)
 
-    upgrade_fpath = ub.expandpath('~/code/mmdetection/tools/upgrade_model_version.py')
-    upgrade_module = ub.import_module_from_path(upgrade_fpath)
-
     out_file = ub.augpath(temp_fpath, suffix='_upgrade2x')
     upgrade_module.convert(in_file, out_file, num_classes_old + 1)
 
@@ -117,14 +127,17 @@ def upgrade_deployed_mmdet_model():
 
     _ = new_model.detector.load_state_dict(new_model_state['state_dict'])
 
-    batch = {
-        'inputs': {
-            'rgb': torch.rand(1, 3, 256, 256),
+    TEST_FORWARD = True
+    if TEST_FORWARD:
+        batch = {
+            'inputs': {
+                'rgb': torch.rand(1, 3, 256, 256),
+            }
         }
-    }
-    outputs = new_model.forward(batch, return_loss=False)
-    batch_dets = new_model.coder.decode_batch(outputs)
-    dets = batch_dets[0]
+        outputs = new_model.forward(batch, return_loss=False)
+        batch_dets = new_model.coder.decode_batch(outputs)
+        dets = batch_dets[0]
+        print('dets = {!r}'.format(dets))
 
     import copy
     new_train_info = copy.deepcopy(deployed.train_info())
@@ -140,6 +153,7 @@ def upgrade_deployed_mmdet_model():
         'model_state_dict': new_model.state_dict(),
         # {'detector.' + k: v for k, v in new_model_state['state_dict'].items()},
         'epoch': old_snapshot['epoch'],
+        '__mmdet_conversion__': '1x_to_2x',
     }
     torch.save(new_snapshot, new_snap_fpath)
 
@@ -150,3 +164,19 @@ def upgrade_deployed_mmdet_model():
     new_name = ub.augpath(deploy_fpath, dpath='', suffix='_mm2x')
     fpath = new_deployed.package(dpath=extract_dpath, name=new_name)
     print('fpath = {!r}'.format(fpath))
+    return fpath
+
+
+def main():
+    config = UpgradeMMDetConfig(cmdline=True)
+    upgrade_deployed_mmdet_model(config)
+
+
+if __name__ == '__main__':
+    """
+    CommandLine:
+        python ~/code/bioharn/dev/upgrade_mmdet_model.py
+    """
+    main()
+    import xdoctest
+    xdoctest.doctest_module(__file__)
