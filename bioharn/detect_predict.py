@@ -460,6 +460,8 @@ class DetectPredictor(object):
 
         import xdev
         with xdev.embed_on_exception_context:
+            outputs = None
+
             if predictor._compat_hack is None:
                 # All GPU work happens in this line
                 if hasattr(predictor.model.module, 'detector'):
@@ -492,18 +494,19 @@ class DetectPredictor(object):
                             raise Exception('Unsure about expected model inputs')
                     # raise NotImplementedError('only works on mmdet models')
 
-            # HACKS FOR BACKWARDS COMPATIBILITY
-            if predictor._compat_hack == 'old_mmdet_im_model':
-                batch['im'] = batch.pop('inputs')['rgb']
-                outputs = predictor.model.forward(batch, return_loss=False)
-            if predictor._compat_hack == 'fixup_mm_inputs':
-                from bioharn.models.mm_models import _batch_to_mm_inputs
-                mm_inputs = _batch_to_mm_inputs(batch)
-                outputs = predictor.model.forward(mm_inputs, return_loss=False)
-            if predictor._compat_hack == 'efficientdet_hack':
-                from netharn.data.data_containers import BatchContainer
-                batch['inputs']['rgb'] = BatchContainer([batch['inputs']['rgb']])
-                outputs = predictor.model.forward(batch)
+            if outputs is None:
+                # HACKS FOR BACKWARDS COMPATIBILITY
+                if predictor._compat_hack == 'old_mmdet_im_model':
+                    batch['im'] = batch.pop('inputs')['rgb']
+                    outputs = predictor.model.forward(batch, return_loss=False)
+                if predictor._compat_hack == 'fixup_mm_inputs':
+                    from bioharn.models.mm_models import _batch_to_mm_inputs
+                    mm_inputs = _batch_to_mm_inputs(batch)
+                    outputs = predictor.model.forward(mm_inputs, return_loss=False)
+                if predictor._compat_hack == 'efficientdet_hack':
+                    from netharn.data.data_containers import BatchContainer
+                    batch['inputs']['rgb'] = BatchContainer([batch['inputs']['rgb']])
+                    outputs = predictor.model.forward(batch)
 
             # Postprocess GPU outputs
             if 'Container' in str(type(outputs)):
