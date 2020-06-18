@@ -465,7 +465,6 @@ class DetectPredictor(object):
                 if hasattr(predictor.model.module, 'detector'):
                     # HACK FOR MMDET MODELS
                     # TODO: hack for old detectors that require "im" inputs
-
                     try:
                         outputs = predictor.model.forward(batch, return_loss=False)
                     except KeyError:
@@ -478,8 +477,19 @@ class DetectPredictor(object):
                             'Attempting to find backwards compatible solution')
                 else:
                     assert len(batch['inputs']) == 1
-                    im = ub.peek(batch['inputs'].values())
-                    outputs = predictor.model.forward(batch['inputs'])
+                    try:
+                        im = ub.peek(batch['inputs'].values())
+                        outputs = predictor.model.forward(batch['inputs'])
+                    except Exception:
+                        try:
+                            # Hack for old efficientdet models with bad input checking
+                            from netharn.data.data_containers import BatchContainer
+                            if isinstance(batch['inputs']['rgb'], torch.Tensor):
+                                batch['inputs']['rgb'] = BatchContainer([batch['inputs']['rgb']])
+                            outputs = predictor.model.forward(batch)
+                            predictor._compat_hack = 'efficientdet_hack'
+                        except Exception:
+                            raise Exception('Unsure about expected model inputs')
                     # raise NotImplementedError('only works on mmdet models')
 
             # HACKS FOR BACKWARDS COMPATIBILITY
@@ -490,6 +500,10 @@ class DetectPredictor(object):
                 from bioharn.models.mm_models import _batch_to_mm_inputs
                 mm_inputs = _batch_to_mm_inputs(batch)
                 outputs = predictor.model.forward(mm_inputs, return_loss=False)
+            if predictor._compat_hack == 'efficientdet_hack':
+                from netharn.data.data_containers import BatchContainer
+                batch['inputs']['rgb'] = BatchContainer([batch['inputs']['rgb']])
+                outputs = predictor.model.forward(batch)
 
             # Postprocess GPU outputs
             if 'Container' in str(type(outputs)):
