@@ -558,8 +558,8 @@ class DetectEvaluator(object):
             'out_dpath': metrics_dpath,
             'expt_title': expt_title,
         })
-        coco_eval_config['pred_dataset'] = gid_to_pred
         print('coco_eval_config = {}'.format(ub.repr2(coco_eval_config, nl=1)))
+        coco_eval_config['pred_dataset'] = gid_to_pred
         coco_eval = coco_evaluator.CocoEvaluator(coco_eval_config)
         coco_eval._init()
         results = coco_eval.evaluate()
