@@ -88,6 +88,7 @@ python -m bioharn.detect_fit \
 python ~/code/bioharn/bioharn/detect_eval.py \
     --dataset=$HOME/remote/namek/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7_vali.mscoco.json \
     "--deployed=[\
-        $HOME/remote/namek/work/sealions/fit/runs/sealion-cascade-v3/hpjbgxjn/deploy_MM_CascadeRCNN_hpjbgxjn_045_JTZMSY.zip,\
+        $HOME/remote/namek/work/sealions/fit/runs/sealion-cascade-v5/bzmjrthj/deploy_MM_CascadeRCNN_bzmjrthj_037_CYEOPQ.zip,\
     ]" \
-    --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.8 --xpu=auto --window_overlap=0.5
+    --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.5 --xpu=auto --window_overlap=0.5
+

@@ -590,9 +590,12 @@ class DetectEvaluator(object):
             metrics, normalize_containers=True, verbose=0)
 
         metrics_fpath = join(metrics_dpath, 'metrics.json')
-        print('dumping metrics_fpath = {!r}'.format(metrics_fpath))
-        with open(metrics_fpath, 'w') as file:
-            json.dump(metrics, file, indent='    ')
+        try:
+            print('dumping metrics_fpath = {!r}'.format(metrics_fpath))
+            with open(metrics_fpath, 'w') as file:
+                json.dump(metrics, file, indent='    ')
+        except Exception as ex:
+            print('failed to dump metrics: ex={!r}'.format(ex))
 
         if True:
             print('Choosing representative truth images')
