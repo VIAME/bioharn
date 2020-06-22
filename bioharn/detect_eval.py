@@ -80,6 +80,13 @@ def evaluate_models(cmdline=True, **kw):
         from bioharn.detect_eval import *  # NOQA
         kw = {}
 
+        >>> from bioharn.detect_eval import *  # NOQA
+        >>> config = DetectEvaluator.demo_config()
+        >>> kw = dict(config)
+        >>> deployed = kw.pop('deployed')
+        >>> kw['deployed'] = [deployed, deployed]
+        >>> evaluate_models(**kw)
+
         kw = {
             'deployed': '~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/manual-snapshots/_epoch_00000006.pt',
             'workers': 4,
@@ -527,7 +534,6 @@ class DetectEvaluator(object):
         truth_sampler = evaluator.sampler
 
         # TODO: decouple this (predictor + evaluator) with CocoEvaluator (evaluator)
-
         classes_of_interest = evaluator.config['classes_of_interest']
 
         if 0:
@@ -564,11 +570,13 @@ class DetectEvaluator(object):
         coco_eval._init()
         results = coco_eval.evaluate()
 
+        results['measures']
+
         # TODO: cache detections to a file on disk.
         # Give the DetectionMetrics code an entry point that just takes two
         # coco files and scores them.
         import json
-        metrics = {
+        meta = {
             'dset_tag': evaluator.dset_tag,
             'model_tag': evaluator.model_tag,
             'predcfg_tag': evaluator.predcfg_tag,
@@ -578,16 +586,39 @@ class DetectEvaluator(object):
             'eval_config': evaluator.config.asdict(),
             'train_info': evaluator.train_info,
         }
+        results.meta = meta
 
-        metrics.update(results)
+        cfsn_ves = results['cfsn_vecs']
+        cfsn_json = results['cfsn_vecs'].__json__()
 
-        # Not sure why using only one doesnt work.
-        metrics = nh.hyperparams._ensure_json_serializable(
-            metrics, normalize_containers=True, verbose=0)
-        metrics = nh.hyperparams._ensure_json_serializable(
-            metrics, normalize_containers=False, verbose=0)
-        metrics = nh.hyperparams._ensure_json_serializable(
-            metrics, normalize_containers=True, verbose=0)
+        def _ensure_json(x):
+            return nh.hyperparams._ensure_json_serializable(
+                    x, normalize_containers=True, verbose=0)
+
+        measures_json = _ensure_json(results['measures'].to_dict())
+        ovr_measures_json = {
+            k: _ensure_json(v.to_dict())
+            for k, v in results['ovr_measures'].items()
+        }
+
+        metrics['results'] = {
+            'cfsn_json': cfsn_json,
+            'measures': measures_json,
+            'ovr_measures': ovr_measures_json,
+        }
+
+        small_results = {
+            'measures': results['measures'].summary(),
+            'ovr_measures': results['ovr_measures'].summary(),
+        }
+
+        # # Not sure why using only one doesnt work.
+        # metrics = nh.hyperparams._ensure_json_serializable(
+        #     metrics, normalize_containers=True, verbose=0)
+        # metrics = nh.hyperparams._ensure_json_serializable(
+        #     metrics, normalize_containers=False, verbose=0)
+        # metrics = nh.hyperparams._ensure_json_serializable(
+        #     metrics, normalize_containers=True, verbose=0)
 
         metrics_fpath = join(metrics_dpath, 'metrics.json')
         try:
