@@ -151,9 +151,22 @@ def evaluate_models(cmdline=True, **kw):
             print('_init')
             evaluator._init()
             print('evaluate')
-            metrics_fpath = evaluator.evaluate()
-            print('metrics_fpath = {!r}'.format(metrics_fpath))
-            metric_fpaths.append(metrics_fpath)
+
+            results = evaluator.evaluate()
+
+            small_results = {
+                'measures': results.measures.summary(),
+                'ovr_measures': results.ovr_measures.summary(),
+                'meta': results.meta,
+            }
+            from kwcoco.util.util_json import ensure_json_serializable
+            small_results = ensure_json_serializable(small_results, normalize_containers=True)
+            small_metrics_fpath = join(evaluator.paths['metrics'], 'small_metrics.json')
+            print('small_metrics_fpath = {!r}'.format(small_metrics_fpath))
+            import json
+            with open(small_metrics_fpath, 'w') as file:
+                json.dump(small_results, file, indent='    ')
+            metric_fpaths.append(small_metrics_fpath)
 
             # Save loaded predictor/sampler for the next run of this model/dataset
             predictor = evaluator.predictor
@@ -166,14 +179,14 @@ def evaluate_models(cmdline=True, **kw):
     for fpath in ub.ProgIter(metric_fpaths, desc='gather summary'):
         metrics = json.load(open(fpath, 'r'))
         row = {}
-        row['model_tag'] = metrics['model_tag']
-        row['predcfg_tag'] = metrics['predcfg_tag']
-        row['ap'] = metrics['pr_result']['ap']
-        row['auc'] = metrics['roc_result']['auc']
+        row['model_tag'] = metrics['meta']['model_tag']
+        row['predcfg_tag'] = metrics['meta']['predcfg_tag']
+        row['ap'] = metrics['measures']['ap']
+        row['auc'] = metrics['measures']['auc']
 
         # Hack to get train config params
         # train_config = ast.literal_eval(metrics['train_info']['extra']['config'])
-        train_config = eval(metrics['train_info']['extra']['config'],
+        train_config = eval(metrics['meta']['train_info']['extra']['config'],
                             {'inf': float('inf')}, {})
         train_config_rows.append(train_config)
         rows.append(row)
@@ -517,13 +530,14 @@ class DetectEvaluator(object):
     def evaluate(evaluator):
         """
         Ignore:
-            config = dict(
-                dataset=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json'),
-                deployed=ub.expandpath('$HOME/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/_epoch_00000018.pt'),
-                sampler_backend='cog', batch_size=256,
-                conf_thresh=0.2, nms_thresh=0.5
-            )
-            evaluator = DetectEvaluator(config)
+            >>> config = dict(
+            >>>     dataset=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v6_test.mscoco.json'),
+            >>>     deployed=ub.expandpath('$HOME/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/_epoch_00000018.pt'),
+            >>>     sampler_backend='cog', batch_size=256,
+            >>>     conf_thresh=0.2, nms_thresh=0.5
+            >>> )
+            >>> evaluator = DetectEvaluator(config)
+            >>> evaluator.evaluate()
         """
         if evaluator.predictor is None or evaluator.sampler is None:
             evaluator._init()
@@ -563,6 +577,7 @@ class DetectEvaluator(object):
             'ignore_classes': ignore_classes,
             'out_dpath': metrics_dpath,
             'expt_title': expt_title,
+            'draw': False,  # hack while this still exists
         })
         print('coco_eval_config = {}'.format(ub.repr2(coco_eval_config, nl=1)))
         coco_eval_config['pred_dataset'] = gid_to_pred
@@ -570,13 +585,7 @@ class DetectEvaluator(object):
         coco_eval._init()
         results = coco_eval.evaluate()
 
-        results['measures']
-
-        # TODO: cache detections to a file on disk.
-        # Give the DetectionMetrics code an entry point that just takes two
-        # coco files and scores them.
-        import json
-        meta = {
+        extra_meta = {
             'dset_tag': evaluator.dset_tag,
             'model_tag': evaluator.model_tag,
             'predcfg_tag': evaluator.predcfg_tag,
@@ -586,47 +595,19 @@ class DetectEvaluator(object):
             'eval_config': evaluator.config.asdict(),
             'train_info': evaluator.train_info,
         }
-        results.meta = meta
+        results.meta.update(extra_meta)
 
-        cfsn_ves = results['cfsn_vecs']
-        cfsn_json = results['cfsn_vecs'].__json__()
+        # small_results = {
+        #     'measures': results['measures'].summary(),
+        #     'ovr_measures': results['ovr_measures'].summary(),
+        # }
 
-        def _ensure_json(x):
-            return nh.hyperparams._ensure_json_serializable(
-                    x, normalize_containers=True, verbose=0)
-
-        measures_json = _ensure_json(results['measures'].to_dict())
-        ovr_measures_json = {
-            k: _ensure_json(v.to_dict())
-            for k, v in results['ovr_measures'].items()
-        }
-
-        metrics['results'] = {
-            'cfsn_json': cfsn_json,
-            'measures': measures_json,
-            'ovr_measures': ovr_measures_json,
-        }
-
-        small_results = {
-            'measures': results['measures'].summary(),
-            'ovr_measures': results['ovr_measures'].summary(),
-        }
-
-        # # Not sure why using only one doesnt work.
-        # metrics = nh.hyperparams._ensure_json_serializable(
-        #     metrics, normalize_containers=True, verbose=0)
-        # metrics = nh.hyperparams._ensure_json_serializable(
-        #     metrics, normalize_containers=False, verbose=0)
-        # metrics = nh.hyperparams._ensure_json_serializable(
-        #     metrics, normalize_containers=True, verbose=0)
-
+        # TODO: we should likely not be dumping the results here
+        # It should be the caller responsibility.
         metrics_fpath = join(metrics_dpath, 'metrics.json')
-        try:
-            print('dumping metrics_fpath = {!r}'.format(metrics_fpath))
-            with open(metrics_fpath, 'w') as file:
-                json.dump(metrics, file, indent='    ')
-        except Exception as ex:
-            print('failed to dump metrics: ex={!r}'.format(ex))
+        print('dumping metrics_fpath = {!r}'.format(metrics_fpath))
+        results.dump(metrics_fpath, indent='    ')
+        results.dump_figures(metrics_dpath)
 
         if True:
             print('Choosing representative truth images')
@@ -667,7 +648,7 @@ class DetectEvaluator(object):
                 fig_fpath = join(dpath, 'eval-gid={}.jpg'.format(gid))
                 kwimage.imwrite(fig_fpath, canvas)
 
-        return metrics_fpath
+        return results
 
 
 if __name__ == '__main__':
