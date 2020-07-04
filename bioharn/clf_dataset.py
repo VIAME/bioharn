@@ -55,32 +55,12 @@ class ClfDataset(torch_data.Dataset):
     @ub.memoize_property
     def input_id(self):
         # TODO: reset memoize dict if augment / other param is changed
-        def imgaug_json_id(aug):
-            import imgaug
-            if isinstance(aug, tuple):
-                return [imgaug_json_id(item) for item in aug]
-            elif isinstance(aug, imgaug.parameters.StochasticParameter):
-                return str(aug)
-            else:
-                try:
-                    info = ub.odict()
-                    info['__class__'] = aug.__class__.__name__
-                    params = aug.get_parameters()
-                    if params:
-                        info['params'] = [imgaug_json_id(p) for p in params]
-                    if isinstance(aug, list):
-                        children = aug[:]
-                        children = [imgaug_json_id(c) for c in children]
-                        info['children'] = children
-                    return info
-                except Exception:
-                    # imgaug is weird and buggy
-                    return str(aug)
+        import netharn as nh
         depends = [
             self.sampler._depends(),
             self.min_dim,
             self.input_dims,
-            self.augmenter and imgaug_json_id(self.augmenter),
+            self.augmenter and nh.data.transforms.imgaug_json_id(self.augmenter),
         ]
         _input_id = ub.hash_data(depends, hasher='sha512', base='abc')[0:40]
         return _input_id
