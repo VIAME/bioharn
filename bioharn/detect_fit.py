@@ -750,7 +750,7 @@ def setup_harn(cmdline=True, **kw):
         for tag, sampler in samplers.items()
     }
 
-    from bioharn.data_containers import ContainerXPU
+    from netharn.data_containers import ContainerXPU
     xpu = ContainerXPU.coerce(config['xpu'])
     print('xpu = {!r}'.format(xpu))
 
@@ -769,7 +769,7 @@ def setup_harn(cmdline=True, **kw):
         for tag, dset in torch_datasets.items()
     }
 
-    from bioharn.channel_spec import ChannelSpec
+    from netharn.data.channel_spec import ChannelSpec
     channels = ChannelSpec.coerce(config['channels'])
     print('channels = {!r}'.format(channels))
 

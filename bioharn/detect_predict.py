@@ -36,6 +36,7 @@ import scriptconfig as scfg
 import kwimage
 import warnings
 from bioharn.channel_spec import ChannelSpec
+from netharn.data_containers import ContainerXPU
 
 try:
     from xdev import profile
@@ -172,7 +173,10 @@ class DetectPredictor(object):
     def _ensure_model(predictor):
         # Just make sure the model is in memory (it might not be on the XPU yet)
         if predictor.model is None:
-            xpu = nh.XPU.coerce(predictor.config['xpu'])
+            # TODO: we want to use ContainerXPU when dealing with an mmdet
+            # model but we probably want regular XPU otherwise. Not sure what
+            # the best way to do this is yet.
+            xpu = ContainerXPU.coerce(predictor.config['xpu'])
             deployed = nh.export.DeployedModel.coerce(predictor.config['deployed'])
             model = deployed.load_model()
             model.train(False)
@@ -188,7 +192,7 @@ class DetectPredictor(object):
         _ensured_mount = getattr(model, '_ensured_mount', False)
         if not _ensured_mount:
             xpu = predictor.xpu
-            if xpu != nh.XPU.from_data(model):
+            if xpu != ContainerXPU.from_data(model):
                 predictor.info('Mount model on {}'.format(xpu))
                 model = xpu.mount(model)
                 predictor.model = model
@@ -468,7 +472,8 @@ class DetectPredictor(object):
                     # HACK FOR MMDET MODELS
                     # TODO: hack for old detectors that require "im" inputs
                     try:
-                        outputs = predictor.model.forward(batch, return_loss=False)
+                        outputs = predictor.model.forward(batch,
+                                return_loss=False, return_result=True)
                     except KeyError:
                         predictor._compat_hack = 'old_mmdet_im_model'
                     except NotImplementedError:
@@ -512,6 +517,15 @@ class DetectPredictor(object):
             if 'Container' in str(type(outputs)):
                 # HACK
                 outputs = outputs.data
+
+            if False:
+                # WIP: Hack for data parallel
+                if isinstance(outputs, dict):
+                    if 'batch_results' in outputs:
+                        z = outputs['batch_results']
+                        y = list(z.data)
+                        w = [list(x.data) for x in y]
+
             batch_dets = predictor.coder.decode_batch(outputs)
 
         for idx, det in enumerate(batch_dets):

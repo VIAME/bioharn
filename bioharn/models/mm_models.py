@@ -443,6 +443,8 @@ class MM_Coder(object):
                 mm_bbox_results = result
                 mm_sseg_results = None
             else:
+                # TODO: when using data parallel, we have
+                # type(result) = <class 'netharn.data.data_containers.BatchContainer'>
                 raise NotImplementedError(
                     'unknown mmdet result format. '
                     'type(result) = {}'.format(type(result))
