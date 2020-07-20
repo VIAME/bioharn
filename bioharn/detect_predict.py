@@ -35,8 +35,8 @@ import six
 import scriptconfig as scfg
 import kwimage
 import warnings
-from bioharn.channel_spec import ChannelSpec
-from netharn.data_containers import ContainerXPU
+from netharn.data.channel_spec import ChannelSpec
+from netharn.data.data_containers import ContainerXPU
 
 try:
     from xdev import profile
