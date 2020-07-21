@@ -68,13 +68,17 @@ def get_func_sourcecode(func, strip_def=False):
 def upgrade_deployed_mmdet_model(config):
     """
 
+    CLI:
+        python -m bioharn.compat.upgrade_mmdet_model \
+            --deployed=/home/joncrall/.cache/bioharn/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip
+
     Example:
         >>> from bioharn.compat.upgrade_mmdet_model import *  # NOQA
         >>> from bioharn.util.util_girder import grabdata_girder
         >>> api_url = 'https://data.kitware.com/api/v1'
         >>> file_id = '5dd3eb8eaf2e2eed3508d604'
-        >>> fpath = grabdata_girder(api_url, file_id)
-        >>> config = {'deployed': fpath}
+        >>> old_fpath = grabdata_girder(api_url, file_id)
+        >>> config = {'deployed': old_fpath}
         >>> new_fpath = upgrade_deployed_mmdet_model(config)
         >>> print('new_fpath = {!r}'.format(new_fpath))
 
