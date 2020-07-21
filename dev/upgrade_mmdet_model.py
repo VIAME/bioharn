@@ -1,3 +1,5 @@
+# GENERALIZED VERSION MODED TO: ~/code/bioharn/bioharn/compat/upgrade_mmdet_model.py
+
 from os.path import join
 import scriptconfig as scfg
 

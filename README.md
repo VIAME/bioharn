@@ -38,3 +38,13 @@ This repo is a component of the VIAME project: https://github.com/VIAME/VIAME
 some of the data for this project can be found here
 
 https://data.kitware.com/#collection/58b747ec8d777f0aef5d0f6a
+
+
+Notes for mmcv install on cuda 10.1 with torch 1.5:
+
+See: https://github.com/open-mmlab/mmcv
+
+```python
+ pip install mmcv-full==latest+torch1.5.0+cu101 -f https://openmmlab.oss-accelerate.aliyuncs.com/mmcv/dist/index.html
+```
+

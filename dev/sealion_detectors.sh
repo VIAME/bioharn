@@ -33,8 +33,8 @@ Dataset Prep:
 Sealion Dataset:
     $HOME/remote/namek/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7_vali.mscoco.json 
 
-    /home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json
-    /home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json
+    $HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json
+    $HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json
 
     $HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_manual_train.mscoco.json
     $HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_manual_vali.mscoco.json

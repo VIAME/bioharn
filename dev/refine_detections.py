@@ -41,8 +41,22 @@ def run_cascade_detector():
     """
     notes:
 
+    mkdir -p $HOME/work/models
+    girder-client --api-url https://data.kitware.com/api/v1 download --parent-type file 5f0cbabc9014a6d84e1c5650 $HOME/work/models/deploy_MM_CascadeRCNN_bzmjrthj_037_CYEOPQ.zip
+
+    python -m bioharn.detect_predict \
+        --dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8.mscoco.json \
+        --deployed=$HOME/work/models/deploy_MM_CascadeRCNN_bzmjrthj_037_CYEOPQ.zip \
+        --out_dpath=$HOME/data/US_ALASKA_MML_SEALION/detections/cascade_v8 \
+        --draw=0 \
+        --workers=4 \
+        --workdir=$HOME/work/sealions \
+        --xpu=0 --batch_size=128
+
     --deployed=$HOME/remote/viame/work/sealions/fit/runs/detect-singleclass-cascade-v3/neumtmpw/deploy_MM_CascadeRCNN_neumtmpw_031_FYQJLH \
         --deployed=$HOME/remote/viame/work/sealions/fit/runs/detect-singleclass-cascade-v3/neumtmpw/torch_snapshots/_epoch_00000028.pt \
+
+    $HOME/remote/namek/work/sealions/fit/name/sealion-cascade-manual-coarse-v6/deploy_MM_CascadeRCNN_igyhuonn_060_QWZMNS.zip
 
     python -m bioharn.detect_predict \
         --dataset=~/data/US_ALASKA_MML_SEALION/sealions_all_v3.mscoco.json \
