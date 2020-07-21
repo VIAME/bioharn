@@ -7,12 +7,62 @@ from collections import OrderedDict
 import ubelt as ub
 import copy
 import json
+import inspect
+import six
+import textwrap
 
 
 class UpgradeMMDetConfig(scfg.Config):
     default = {
         'deployed': scfg.Path(None, help='path to torch_liberator zipfile to convert'),
     }
+
+
+def get_func_sourcecode(func, strip_def=False):
+    """
+    wrapper around inspect.getsource but takes into account utool decorators
+    strip flags are very hacky as of now
+
+    Example:
+        >>> # build test data
+        >>> func = get_func_sourcecode
+        >>> strip_def = True
+        >>> sourcecode = get_func_sourcecode(func, strip_def)
+        >>> print('sourcecode = {}'.format(sourcecode))
+    """
+    inspect.linecache.clearcache()  # HACK: fix inspect bug
+    sourcefile = inspect.getsourcefile(func)
+    if sourcefile is not None and (sourcefile != '<string>'):
+        try_limit = 2
+        for num_tries in range(try_limit):
+            try:
+                sourcecode = inspect.getsource(func)
+                if not isinstance(sourcecode, six.text_type):
+                    sourcecode = sourcecode.decode('utf-8')
+            except (IndexError, OSError, SyntaxError):
+                print('WARNING: Error getting source')
+                inspect.linecache.clearcache()
+                if num_tries + 1 != try_limit:
+                    tries_left = try_limit - num_tries - 1
+                    print('Attempting %d more time(s)' % (tries_left))
+                else:
+                    raise
+    else:
+        sourcecode = None
+    if strip_def:
+        # hacky
+        # TODO: use redbaron or something like that for a more robust appraoch
+        REGEX_NONGREEDY = '*?'
+        sourcecode = textwrap.dedent(sourcecode)
+        regex_decor = '^@.' + REGEX_NONGREEDY
+        regex_defline = '^def [^:]*\\):\n'
+        patern = '(' + regex_decor + ')?' + regex_defline
+        RE_FLAGS = re.MULTILINE | re.DOTALL
+        RE_KWARGS = {'flags': RE_FLAGS}
+        nodef_source = re.sub(patern, '', sourcecode, **RE_KWARGS)
+        sourcecode = textwrap.dedent(nodef_source)
+        pass
+    return sourcecode
 
 
 def upgrade_deployed_mmdet_model(config):
@@ -29,6 +79,16 @@ def upgrade_deployed_mmdet_model(config):
         >>> print('new_fpath = {!r}'.format(new_fpath))
 
     Ignore:
+        import xinspect
+
+        # Close xinspect so we dont need to depend on it
+        import liberator
+        closer = liberator.Closer()
+        closer.add_dynamic(xinspect.dynamic_kwargs.get_func_sourcecode)
+        print(closer.current_sourcecode())
+
+
+    Ignore:
         5dd3181eaf2e2eed3505827c
         girder-client --api-url https://data.kitware.com/api/v1 list 5dd3eb8eaf2e2eed3508d604
         girder-client --api-url https://data.kitware.com/api/v1 list 5dd3181eaf2e2eed3505827c
@@ -40,7 +100,6 @@ def upgrade_deployed_mmdet_model(config):
     """
     from torch_liberator import deployer
     import ndsampler
-    import xinspect
     import netharn as nh
     from bioharn.models import mm_models
 
@@ -68,7 +127,9 @@ def upgrade_deployed_mmdet_model(config):
         new_classes = old_classes
 
     # model_src = print(inspect.getsource(model_cls.__init__))
-    model_src = xinspect.dynamic_kwargs.get_func_sourcecode(model_cls.__init__, strip_def=True)
+    # import xinspect
+    # model_src = xinspect.dynamic_kwargs.get_func_sourcecode(model_cls.__init__, strip_def=True)
+    model_src = get_func_sourcecode(model_cls.__init__, strip_def=True)
 
     xpu = nh.XPU.coerce('cpu')
     old_snapshot = xpu.load(temp_fpath)
