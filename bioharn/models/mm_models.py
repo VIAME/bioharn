@@ -444,6 +444,8 @@ class MM_Coder(object):
                 mm_sseg_results = None
             else:
                 # TODO: when using data parallel, we have
+                # Note: this actually only happened when we failed to use
+                # netharn.data.data_containers.ContainerXPU
                 # type(result) = <class 'netharn.data.data_containers.BatchContainer'>
                 raise NotImplementedError(
                     'unknown mmdet result format. '

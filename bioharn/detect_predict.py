@@ -176,6 +176,8 @@ class DetectPredictor(object):
             # TODO: we want to use ContainerXPU when dealing with an mmdet
             # model but we probably want regular XPU otherwise. Not sure what
             # the best way to do this is yet.
+            # NOTE: ContainerXPU might actually work with non-container returns
+            # need to test this.
             xpu = ContainerXPU.coerce(predictor.config['xpu'])
             deployed = nh.export.DeployedModel.coerce(predictor.config['deployed'])
             model = deployed.load_model()
@@ -472,8 +474,8 @@ class DetectPredictor(object):
                     # HACK FOR MMDET MODELS
                     # TODO: hack for old detectors that require "im" inputs
                     try:
-                        outputs = predictor.model.forward(batch,
-                                return_loss=False, return_result=True)
+                        outputs = predictor.model.forward(
+                            batch, return_loss=False, return_result=True)
                     except KeyError:
                         predictor._compat_hack = 'old_mmdet_im_model'
                     except NotImplementedError:
@@ -517,14 +519,6 @@ class DetectPredictor(object):
             if 'Container' in str(type(outputs)):
                 # HACK
                 outputs = outputs.data
-
-            if False:
-                # WIP: Hack for data parallel
-                if isinstance(outputs, dict):
-                    if 'batch_results' in outputs:
-                        z = outputs['batch_results']
-                        y = list(z.data)
-                        w = [list(x.data) for x in y]
 
             batch_dets = predictor.coder.decode_batch(outputs)
 
@@ -721,12 +715,6 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             >>> import kwplot
             >>> kwplot.autompl()
             >>> kwplot.imshow(item['inputs']['rgb'])
-
-        Ignore:
-            import netharn as nh
-            nh.data.collate.padded_collate([self[0], self[1], self[2]])
-            self = WindowedSamplerDataset.demo(window_dims='full', input_dims=(512, 512))
-            kwplot.imshow(self[19]['inputs']['rgb'])
         """
         outer, inner = self.subindex.unravel(index)
         gid = self._gids[outer]
