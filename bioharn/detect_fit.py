@@ -222,7 +222,7 @@ class DetectHarn(nh.FitHarn):
 
             batch = batch.copy()
             batch.pop('tr')
-            from bioharn.data_containers import BatchContainer
+            from netharn.data.data_containers import BatchContainer
 
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', 'indexing with dtype')
@@ -750,7 +750,7 @@ def setup_harn(cmdline=True, **kw):
         for tag, sampler in samplers.items()
     }
 
-    from netharn.data_containers import ContainerXPU
+    from netharn.data.data_containers import ContainerXPU
     xpu = ContainerXPU.coerce(config['xpu'])
     print('xpu = {!r}'.format(xpu))
 

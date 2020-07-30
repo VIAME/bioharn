@@ -277,7 +277,7 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
         >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> from bioharn.models.mm_models import _demo_batch, _batch_to_mm_inputs
-        >>> globals().update(**xdev.get_func_kwargs(_demo_batch))
+        >>> #globals().update(**xdev.get_func_kwargs(_demo_batch))
         >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
         >>> channels = ChannelSpec.coerce('rgb|d')
         >>> batch = _demo_batch(with_mask=False, channels=channels)
@@ -523,7 +523,7 @@ class MM_Detector(nh.layers.Module):
             >>> # xdoctest: +REQUIRES(module:mmdet)
             >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
             >>> self = MM_RetinaNet(classes).mm_detector
-            >>> globals().update(**xdev.get_func_kwargs(MM_Detector.demo_batch))
+            >>> #globals().update(**xdev.get_func_kwargs(MM_Detector.demo_batch))
             >>> self.demo_batch()
         """
         if with_mask is None:

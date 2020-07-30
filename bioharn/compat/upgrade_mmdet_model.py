@@ -109,6 +109,8 @@ def upgrade_deployed_mmdet_model(config):
     import netharn as nh
     from bioharn.models import mm_models
 
+    config = UpgradeMMDetConfig(config)
+
     deploy_fpath = config['deployed']
 
     extract_dpath = ub.ensure_app_cache_dir('torch_liberator/extracted')
