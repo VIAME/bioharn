@@ -21,6 +21,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
     object detection.
 
     Example:
+        >>> # xdoc: +REQUIRES(module:gdal)
         >>> import sys, ubelt
         >>> sys.path.append(ubelt.expandpath('~/code/bioharn'))
         >>> from bioharn.detect_dataset import *  # NOQA
