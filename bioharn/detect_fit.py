@@ -227,8 +227,6 @@ class DetectHarn(nh.FitHarn):
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', 'indexing with dtype')
                 # warnings.filterwarnings('ignore', 'asked to gather along dimension 0')
-                # import xdev
-                # with xdev.embed_on_exception_context:
                 outputs = harn.model.forward(batch, return_loss=True,
                                              return_result=return_result)
 

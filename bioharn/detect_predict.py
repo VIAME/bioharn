@@ -37,11 +37,6 @@ import warnings
 from netharn.data.channel_spec import ChannelSpec
 from netharn.data.data_containers import ContainerXPU
 
-try:
-    from xdev import profile
-except Exception:
-    profile = ub.identity
-
 
 class DetectPredictConfig(scfg.Config):
     default = {
@@ -334,7 +329,6 @@ class DetectPredictor(object):
         predictor.info('Finished prediction')
         return final_dets
 
-    @profile
     def predict_sampler(predictor, sampler, gids=None):
         """
         Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
@@ -421,7 +415,6 @@ class DetectPredictor(object):
             for gid, dets in predictor._finalize_dets(ready_dets, ready_gids):
                 yield gid, dets
 
-    @profile
     def _finalize_dets(predictor, ready_dets, ready_gids):
         """ Helper for predict_sampler """
         gid_to_ready_dets = ub.group_items(ready_dets, ready_gids)
@@ -438,7 +431,6 @@ class DetectPredictor(object):
                 dets = dets.take(keep)
             yield (gid, dets)
 
-    @profile
     def _prepare_image(predictor, full_rgb):
         full_dims = tuple(full_rgb.shape[0:2])
 
@@ -493,7 +485,6 @@ class DetectPredictor(object):
         slider_dataset = SingleImageDataset(full_rgb, slider, input_dims)
         return slider_dataset
 
-    @profile
     def _predict_batch(predictor, batch):
         """
         Runs the torch network on a single batch and postprocesses the outputs
@@ -512,63 +503,61 @@ class DetectPredictor(object):
         else:
             shift_xy_ = shift_xy
 
-        import xdev
-        with xdev.embed_on_exception_context:
-            outputs = None
+        outputs = None
 
-            if predictor._compat_hack is None:
-                # All GPU work happens in this line
-                if hasattr(predictor.model.module, 'detector'):
-                    # HACK FOR MMDET MODELS
-                    # TODO: hack for old detectors that require "im" inputs
+        if predictor._compat_hack is None:
+            # All GPU work happens in this line
+            if hasattr(predictor.model.module, 'detector'):
+                # HACK FOR MMDET MODELS
+                # TODO: hack for old detectors that require "im" inputs
+                try:
+                    outputs = predictor.model.forward(
+                        batch, return_loss=False, return_result=True)
+                except KeyError:
+                    predictor._compat_hack = 'old_mmdet_im_model'
+                except NotImplementedError:
+                    predictor._compat_hack = 'fixup_mm_inputs'
+                if predictor._compat_hack:
+                    warnings.warn(
+                        'Normal mm-detection input failed. '
+                        'Attempting to find backwards compatible solution')
+            else:
+                assert len(batch['inputs']) == 1
+                try:
+                    im = ub.peek(batch['inputs'].values())
+                    outputs = predictor.model.forward(batch['inputs'])
+                except Exception:
                     try:
-                        outputs = predictor.model.forward(
-                            batch, return_loss=False, return_result=True)
-                    except KeyError:
-                        predictor._compat_hack = 'old_mmdet_im_model'
-                    except NotImplementedError:
-                        predictor._compat_hack = 'fixup_mm_inputs'
-                    if predictor._compat_hack:
-                        warnings.warn(
-                            'Normal mm-detection input failed. '
-                            'Attempting to find backwards compatible solution')
-                else:
-                    assert len(batch['inputs']) == 1
-                    try:
-                        im = ub.peek(batch['inputs'].values())
-                        outputs = predictor.model.forward(batch['inputs'])
+                        # Hack for old efficientdet models with bad input checking
+                        from netharn.data.data_containers import BatchContainer
+                        if isinstance(batch['inputs']['rgb'], torch.Tensor):
+                            batch['inputs']['rgb'] = BatchContainer([batch['inputs']['rgb']])
+                        outputs = predictor.model.forward(batch)
+                        predictor._compat_hack = 'efficientdet_hack'
                     except Exception:
-                        try:
-                            # Hack for old efficientdet models with bad input checking
-                            from netharn.data.data_containers import BatchContainer
-                            if isinstance(batch['inputs']['rgb'], torch.Tensor):
-                                batch['inputs']['rgb'] = BatchContainer([batch['inputs']['rgb']])
-                            outputs = predictor.model.forward(batch)
-                            predictor._compat_hack = 'efficientdet_hack'
-                        except Exception:
-                            raise Exception('Unsure about expected model inputs')
-                    # raise NotImplementedError('only works on mmdet models')
+                        raise Exception('Unsure about expected model inputs')
+                # raise NotImplementedError('only works on mmdet models')
 
-            if outputs is None:
-                # HACKS FOR BACKWARDS COMPATIBILITY
-                if predictor._compat_hack == 'old_mmdet_im_model':
-                    batch['im'] = batch.pop('inputs')['rgb']
-                    outputs = predictor.model.forward(batch, return_loss=False)
-                if predictor._compat_hack == 'fixup_mm_inputs':
-                    from bioharn.models.mm_models import _batch_to_mm_inputs
-                    mm_inputs = _batch_to_mm_inputs(batch)
-                    outputs = predictor.model.forward(mm_inputs, return_loss=False)
-                if predictor._compat_hack == 'efficientdet_hack':
-                    from netharn.data.data_containers import BatchContainer
-                    batch['inputs']['rgb'] = BatchContainer([batch['inputs']['rgb']])
-                    outputs = predictor.model.forward(batch)
+        if outputs is None:
+            # HACKS FOR BACKWARDS COMPATIBILITY
+            if predictor._compat_hack == 'old_mmdet_im_model':
+                batch['im'] = batch.pop('inputs')['rgb']
+                outputs = predictor.model.forward(batch, return_loss=False)
+            if predictor._compat_hack == 'fixup_mm_inputs':
+                from bioharn.models.mm_models import _batch_to_mm_inputs
+                mm_inputs = _batch_to_mm_inputs(batch)
+                outputs = predictor.model.forward(mm_inputs, return_loss=False)
+            if predictor._compat_hack == 'efficientdet_hack':
+                from netharn.data.data_containers import BatchContainer
+                batch['inputs']['rgb'] = BatchContainer([batch['inputs']['rgb']])
+                outputs = predictor.model.forward(batch)
 
-            # Postprocess GPU outputs
-            if 'Container' in str(type(outputs)):
-                # HACK
-                outputs = outputs.data
+        # Postprocess GPU outputs
+        if 'Container' in str(type(outputs)):
+            # HACK
+            outputs = outputs.data
 
-            batch_dets = predictor.coder.decode_batch(outputs)
+        batch_dets = predictor.coder.decode_batch(outputs)
 
         for idx, det in enumerate(batch_dets):
             item_scale_xy = scale_xy[idx].numpy()
@@ -751,7 +740,6 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
     def __len__(self):
         return len(self.subindex)
 
-    @profile
     def __getitem__(self, index):
         """
         Example:
@@ -918,7 +906,6 @@ def _coerce_sampler(config):
     return sampler
 
 
-@profile
 def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
                     draw=False, enable_cache=True, async_buffer=False,
                     verbose=1, draw_truth=True):

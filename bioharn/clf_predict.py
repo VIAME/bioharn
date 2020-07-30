@@ -514,8 +514,6 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
         >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
         >>>                                 backend=None)
         >>> _cached_clf_predict(predictor, sampler, out_dpath)
-
-        globals().update(xdev.get_func_kwargs(_cached_clf_predict))
     """
     # import kwarray
     # import ndsampler
