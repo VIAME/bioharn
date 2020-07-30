@@ -74,18 +74,19 @@ class DetectPredictConfig(scfg.Config):
 def _ensure_upgraded_model(deployed_fpath):
     """
     Example:
+        >>> from bioharn.detect_predict import _ensure_upgraded_model
         >>> deployed_fpath = deployed_fpath1 = ub.grabdata(
         >>>     'https://data.kitware.com/api/v1/file/5dd3eb8eaf2e2eed3508d604/download',
         >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip',
         >>>     appname='viame', hasher='sha512',
-        >>>     hash_prefix='22a1eeb18c9e5706f6578e66abda1e97a88eee5')
+        >>>     hash_prefix='22a1eeb18c9e5706f6578e66abda1e97a88eee5', verbose=0)
         >>> ensured_fpath1 = _ensure_upgraded_model(deployed_fpath1)
         >>> #
         >>> deployed_fpath = deployed_fpath2 = ub.grabdata(
         >>>     'https://data.kitware.com/api/v1/file/5ee93f639014a6d84ec52b7f/download',
         >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3_mm2x.zip',
         >>>     appname='viame', hasher='sha512',
-        >>>     hash_prefix='63b7c3981b3446b079c1d83541a5666c496f6148', verbose=3)
+        >>>     hash_prefix='63b7c3981b3446b079c1d83541a5666c496f6148', verbose=0)
         >>> ensured_fpath2 = _ensure_upgraded_model(deployed_fpath2)
 
     """
