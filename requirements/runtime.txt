@@ -6,6 +6,7 @@ opencv_python
 kwarray >= 0.5.8
 kwplot
 kwimage 
+seaborn
 ndsampler 
 netharn 
 scriptconfig
