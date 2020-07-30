@@ -31,7 +31,6 @@ import torch.utils.data as torch_data
 import netharn as nh
 import numpy as np
 import torch
-import six
 import scriptconfig as scfg
 import kwimage
 import warnings
@@ -72,6 +71,45 @@ class DetectPredictConfig(scfg.Config):
     }
 
 
+def _ensure_upgraded_model(deployed_fpath):
+    """
+    Example:
+        >>> deployed_fpath = deployed_fpath1 = ub.grabdata(
+        >>>     'https://data.kitware.com/api/v1/file/5dd3eb8eaf2e2eed3508d604/download',
+        >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip',
+        >>>     appname='viame', hasher='sha512',
+        >>>     hash_prefix='22a1eeb18c9e5706f6578e66abda1e97a88eee5')
+        >>> ensured_fpath1 = _ensure_upgraded_model(deployed_fpath1)
+        >>> #
+        >>> deployed_fpath = deployed_fpath2 = ub.grabdata(
+        >>>     'https://data.kitware.com/api/v1/file/5ee93f639014a6d84ec52b7f/download',
+        >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3_mm2x.zip',
+        >>>     appname='viame', hasher='sha512',
+        >>>     hash_prefix='63b7c3981b3446b079c1d83541a5666c496f6148', verbose=3)
+        >>> ensured_fpath2 = _ensure_upgraded_model(deployed_fpath2)
+
+    """
+    from netharn.util import zopen
+    deployed = nh.export.DeployedModel.coerce(deployed_fpath)
+
+    # Hueristic to determine if the model needs update or not
+    needs_update = False
+    if 'model_fpath' in deployed.info:
+        with zopen(deployed.info['model_fpath'], 'r') as file:
+            topology_text = file.read()
+            if 'MM_Detector' in topology_text:
+                if '_mmdet_is_version_1x' not in topology_text:
+                    needs_update = True
+
+    if needs_update:
+        from bioharn.compat.upgrade_mmdet_model import upgrade_deployed_mmdet_model
+        ensured_fpath = upgrade_deployed_mmdet_model({
+            'deployed': deployed_fpath, 'use_cache': True})
+    else:
+        ensured_fpath = deployed_fpath
+    return ensured_fpath
+
+
 class DetectPredictor(object):
     """
     A detector API for bioharn trained models
@@ -82,9 +120,9 @@ class DetectPredictor(object):
         >>> from bioharn.detect_predict import *  # NOQA
         >>> deployed_fpath = ub.grabdata(
         >>>     'https://data.kitware.com/api/v1/file/5dd3eb8eaf2e2eed3508d604/download',
-        >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3_mm2x.zip',
+        >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip',
         >>>     appname='viame', hasher='sha512',
-        >>>     hash_prefix='63b7c3981b3446b079c1d83541a5666c496')
+        >>>     hash_prefix='22a1eeb18c9e5706f6578e66abda1e97a88eee5')
         >>> image_fpath = ub.grabdata(
         >>>     'https://data.kitware.com/api/v1/file/5dcf0d1faf2e2eed35fad5d1/download',
         >>>     fname='scallop.jpg', appname='viame', hasher='sha512',
@@ -101,6 +139,12 @@ class DetectPredictor(object):
         >>> kwplot.imshow(full_rgb, doclf=True)
         >>> final2 = final.compress(final.scores > .0)
         >>> final2.draw()
+
+        >>> deployed_fpath = ub.grabdata(
+        >>>     'https://data.kitware.com/api/v1/file/5ee93f639014a6d84ec52b7f/download',
+        >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3_mm2x.zip',
+        >>>     appname='viame', hasher='sha512',
+        >>>     hash_prefix='63b7c3981b3446b079c1d83541a5666c496f6148', verbose=3)
     """
     def __init__(predictor, config):
         predictor.config = DetectPredictConfig(config)
@@ -179,7 +223,10 @@ class DetectPredictor(object):
             # NOTE: ContainerXPU might actually work with non-container returns
             # need to test this.
             xpu = ContainerXPU.coerce(predictor.config['xpu'])
-            deployed = nh.export.DeployedModel.coerce(predictor.config['deployed'])
+            deployed = predictor.config['deployed']
+            if isinstance(predictor.config['deployed'], str):
+                deployed = _ensure_upgraded_model(deployed)
+            deployed = nh.export.DeployedModel.coerce(deployed)
             model = deployed.load_model()
             model.train(False)
             predictor.xpu = xpu
@@ -205,7 +252,7 @@ class DetectPredictor(object):
             predictor.model._ensured_mount = True
 
     def _rectify_image(predictor, path_or_image):
-        if isinstance(path_or_image, six.string_types):
+        if isinstance(path_or_image, str):
             predictor.info('Reading {!r}'.format(path_or_image))
             full_rgb = kwimage.imread(path_or_image, space='rgb')
         else:
@@ -814,7 +861,6 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
 
 def _coerce_sampler(config):
-    import six
     import ndsampler
     from bioharn import util
     from os.path import isdir
@@ -822,7 +868,7 @@ def _coerce_sampler(config):
     # Running prediction is much faster if you can build a sampler.
     sampler_backend = config['sampler_backend']
 
-    if isinstance(config['dataset'], six.string_types):
+    if isinstance(config['dataset'], str):
         if config['dataset'].endswith('.json'):
             dataset_fpath = ub.expandpath(config['dataset'])
             coco_dset = ndsampler.CocoDataset(dataset_fpath)

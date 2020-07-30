@@ -5,9 +5,9 @@ import ubelt as ub
 import kwarray
 import kwimage
 import torch.utils.data.sampler as torch_sampler
-from bioharn.channel_spec import ChannelSpec
-from bioharn.data_containers import ItemContainer
-from bioharn.data_containers import container_collate
+from netharn.data.channel_spec import ChannelSpec
+from netharn.data.data_containers import ItemContainer
+from netharn.data.data_containers import container_collate
 from functools import partial
 import numbers
 

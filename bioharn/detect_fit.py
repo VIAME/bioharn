@@ -784,7 +784,7 @@ def setup_harn(cmdline=True, **kw):
         input_stats = cacher.tryload()
         if input_stats is None:
             # Use parallel workers to load data faster
-            from bioharn.data_containers import container_collate
+            from netharn.data_containers import container_collate
             # collate_fn = container_collate
             from functools import partial
             collate_fn = partial(container_collate, num_devices=1)

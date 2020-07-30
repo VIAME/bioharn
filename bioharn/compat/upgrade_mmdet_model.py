@@ -1,3 +1,4 @@
+from os.path import exists
 from os.path import join
 import scriptconfig as scfg
 import re
@@ -15,6 +16,7 @@ import textwrap
 class UpgradeMMDetConfig(scfg.Config):
     default = {
         'deployed': scfg.Path(None, help='path to torch_liberator zipfile to convert'),
+        'use_cache': scfg.Path(False, help='do nothing if we already converted'),
     }
 
 
@@ -107,12 +109,21 @@ def upgrade_deployed_mmdet_model(config):
     import netharn as nh
     from bioharn.models import mm_models
 
-    print('Upgrade deployed model config: config = {!r}'.format(config))
     deploy_fpath = config['deployed']
 
-    deployed = deployer.DeployedModel(deploy_fpath)
-
     extract_dpath = ub.ensure_app_cache_dir('torch_liberator/extracted')
+
+    new_name = ub.augpath(deploy_fpath, dpath='', suffix='_mm2x')
+    new_fpath = join(extract_dpath, new_name)
+
+    print('Upgrade deployed model config: config = {!r}'.format(config))
+
+    if config['use_cache']:
+        if exists(new_fpath):
+            print('Returning cached new_fpath = {!r}'.format(new_fpath))
+            return new_fpath
+
+    deployed = deployer.DeployedModel(deploy_fpath)
 
     print('Extracting old snapshot to: {}'.format(extract_dpath))
     temp_fpath = deployed.extract_snapshot(extract_dpath)

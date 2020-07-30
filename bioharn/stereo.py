@@ -480,6 +480,110 @@ class StereoCalibration():
         cali.cameras = {}
         cali.extrinsics = {}
 
+    def triangulate(cali, pts1, pts2):
+        """
+        Given two calibrated cameras, and points in each triangulate them
+
+        Example:
+            >>> from bioharn.stereo import *  # NOQA
+            >>> cali = StereoCalibration.demo()
+            >>> img1 = cali.img1
+            >>> img2 = cali.img2
+            >>> #
+            >>> # xdoctest: +REQUIRES(--show)
+            >>> import kwplot
+            >>> kwplot.autompl()
+            >>> kwplot.figure(fnum=1, doclf=True)
+            >>> nrows = 1
+            >>> _, ax1 = kwplot.imshow(img1, pnum=(nrows, 2, 1), title='raw')
+            >>> _, ax2 = kwplot.imshow(img2, pnum=(nrows, 2, 2))
+
+        pts1 = np.array([
+            (245.5, 97.0),
+            (246.5, 98.0),
+            (179.5, 323.0),
+            (226.0, 391.0),
+            (516.0, 90.0),
+        ])
+        pts2 = np.array([
+            (128., 113.),
+            (129., 114.),
+            (124., 334.),
+            (166., 406.),
+            (382., 96.),
+        ])
+
+        pts1 = cali.corners1
+        pts2 = cali.corners2
+        """
+        # Move into opencv point format (num x 1 x dim=2)
+        pts1_cv = pts1[:, None, :]
+        pts2_cv = pts2[:, None, :]
+
+        # Grab camera parameters
+        K1 = cali.cameras[1]['K']
+        kc1 = cali.cameras[1]['D']
+
+        kc2 = cali.cameras[2]['D']
+        K2 = cali.cameras[2]['K']
+
+        # Make extrincic matrices
+        rvec1 = np.zeros((3, 1))
+        R1 = cv2.Rodrigues(rvec1)[0]
+        T1 = np.zeros((3, 1))
+        tvec1 = T1
+
+        R2 = cali.extrinsics['R']
+        rvec2 = cv2.Rodrigues(R2)[0]
+        T2 = cali.extrinsics['T']
+        tvec2 = T2
+
+        RT1 = np.hstack([R1, T1])
+        RT2 = np.hstack([R2, T2])
+
+        # Undistort points (num x 1 x dim=2)
+        # This puts points in "normalized camera coordinates" making them
+        # independent of the intrinsic parameters. Moving to world coordinates
+        # can now be done using only the RT transform.
+        unpts1_cv = cv2.undistortPoints(pts1_cv, K1, kc1)
+        unpts2_cv = cv2.undistortPoints(pts2_cv, K2, kc2)
+
+        # note: trinagulatePoints docs say that it wants a 3x4 projection
+        # matrix (ie K.dot(RT)), but we only need to use the RT extrinsic
+        # matrix because the undistorted points already account for the K
+        # intrinsic matrix.
+        #
+        # Input 2d-points should be (dim=2 x num)
+        unpts1_T = unpts1_cv[:, 0, :].T
+        unpts2_T = unpts2_cv[:, 0, :].T
+        # homog points returned as (dim=4 x num)
+        world_pts_homogT = cv2.triangulatePoints(RT1, RT2, unpts1_T, unpts2_T)
+
+        # Remove homogenous coordinate
+        # Returns (num x dim=3) world coordinates
+        world_pts = kwimage.remove_homog(world_pts_homogT.T)
+
+        # Reproject points
+        world_pts_cv = world_pts[:, None, :]
+        proj_pts1_cv = cv2.projectPoints(world_pts_cv, rvec1, tvec1, K1, kc1)[0]
+        proj_pts2_cv = cv2.projectPoints(world_pts_cv, rvec2, tvec2, K2, kc2)[0]
+
+        # Check error
+        err1 = ((proj_pts1_cv - pts1_cv)[:, 0, :] ** 2).sum(axis=1)
+        err2 = ((proj_pts2_cv - pts2_cv)[:, 0, :] ** 2).sum(axis=1)
+        errors = np.hstack([err1, err2])
+
+        # Get 3d points in each camera's reference frame
+        # Note RT1 is the identity and RT are 3x4, so no need for `from_homog`
+        # Return points in with shape (N,3)
+        pts1_3d = RT1.dot(kwimage.add_homog(world_pts).T).T
+        pts2_3d = RT2.dot(kwimage.add_homog(world_pts).T).T
+
+        if False:
+            kwplot.plot_points3d(*world_pts.T)
+            kwplot.plot_points3d(*pts1_3d.T)
+            kwplot.plot_points3d(*pts2_3d.T)
+
     @classmethod
     def demo(StereoCalibration):
         """
