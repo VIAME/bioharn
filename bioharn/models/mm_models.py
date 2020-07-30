@@ -466,7 +466,8 @@ class MM_Coder(object):
                 pred_ssegs = []
                 for cidx, cls_ssegs in enumerate(mm_sseg_results, start=start):
                     pred_ssegs.extend([
-                        kwimage.Mask(sseg, 'bytes_rle') for sseg in cls_ssegs])
+                        kwimage.Mask.coerce(sseg) for sseg in cls_ssegs])
+                    # kwimage.Mask(sseg, 'bytes_rle') for sseg in cls_ssegs])
                 pred_ssegs = kwimage.MaskList(pred_ssegs)
             else:
                 pred_ssegs = kwimage.MaskList([None] * len(pred_cidxs))
@@ -860,9 +861,16 @@ class MM_MaskRCNN(MM_Detector):
         >>> xpu = nh.XPU(0)
         >>> self = MM_MaskRCNN(classes, channels='rgb|d').to(xpu.main_device)
         >>> batch = self.demo_batch(bsize=1, h=256, w=256)
+        >>> self.detector.test_cfg['rcnn']['score_thr'] = 1e-9
+        >>> self.detector.test_cfg['rcnn']['mask_thr_binary'] = 1e-9
         >>> outputs = self.forward(batch)
         >>> batch_dets = self.coder.decode_batch(outputs)
-        >>> batch_dets[0].data['segmentations'][0]
+        >>> sseg = batch_dets[0].data['segmentations'][0]
+        >>> # xdoctest: +REQUIRES(--show)
+        >>> import kwplot
+        >>> kwplot.autompl()
+        >>> mask = sseg.data
+        >>> mask.draw()
     """
     def __init__(self, classes, channels='rgb', input_stats=None):
         import ndsampler
