@@ -522,7 +522,7 @@ class MM_Detector(nh.layers.Module):
         Example:
             >>> # xdoctest: +REQUIRES(module:mmdet)
             >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
-            >>> self = MM_RetinaNet(classes).mm_detector
+            >>> self = MM_RetinaNet(classes)
             >>> #globals().update(**xdev.get_func_kwargs(MM_Detector.demo_batch))
             >>> self.demo_batch()
         """
@@ -605,7 +605,11 @@ class MM_Detector(nh.layers.Module):
             gt_bboxes_ignore = mm_inputs.get('gt_bboxes_ignore', None)
 
             trainkw = {}
-            if self.detector.with_mask:
+            try:
+                with_mask = self.detector.with_mask
+            except AttributeError:
+                with_mask = False
+            if with_mask:
                 if 'gt_masks' in mm_inputs:
                     # mmdet only allows numpy inputs
                     if _mmdet_is_version_1x():
@@ -749,26 +753,9 @@ class MM_RetinaNet(MM_Detector):
         assert len(chann_norm) == 1
         in_channels = len(ub.peek(chann_norm.values()))
 
-        # model settings
-        mm_config = dict(
-            type='RetinaNet',
-            pretrained=None,
-            backbone=dict(
-                type='ResNet',
-                depth=50,
-                in_channels=in_channels,
-                num_stages=4,
-                out_indices=(0, 1, 2, 3),
-                frozen_stages=-1,
-                style='pytorch'),
-            neck=dict(
-                type='FPN',
-                in_channels=[256, 512, 1024, 2048],
-                out_channels=256,
-                start_level=1,
-                add_extra_convs=True,
-                num_outs=5),
-            bbox_head=dict(
+        compat_params = {}
+        if _mmdet_is_version_1x():
+            compat_params['bbox_head'] = dict(
                 type='RetinaHead',
                 num_classes=num_classes,
                 in_channels=256,
@@ -791,7 +778,52 @@ class MM_RetinaNet(MM_Detector):
                     gamma=2.0,
                     alpha=0.25,
                     loss_weight=1.0),
-                loss_bbox=dict(type='SmoothL1Loss', beta=0.11, loss_weight=1.0)))
+                loss_bbox=dict(type='SmoothL1Loss', beta=0.11, loss_weight=1.0))
+        else:
+            compat_params['bbox_head'] = dict(
+                type='RetinaHead',
+                num_classes=80,
+                in_channels=256,
+                stacked_convs=4,
+                feat_channels=256,
+                anchor_generator=dict(
+                    type='AnchorGenerator',
+                    octave_base_scale=4,
+                    scales_per_octave=3,
+                    ratios=[0.5, 1.0, 2.0],
+                    strides=[8, 16, 32, 64, 128]),
+                bbox_coder=dict(
+                    type='DeltaXYWHBBoxCoder',
+                    target_means=[.0, .0, .0, .0],
+                    target_stds=[1.0, 1.0, 1.0, 1.0]),
+                loss_cls=dict(
+                    type='FocalLoss',
+                    use_sigmoid=True,
+                    gamma=2.0,
+                    alpha=0.25,
+                    loss_weight=1.0),
+                loss_bbox=dict(type='L1Loss', loss_weight=1.0))
+
+        # model settings
+        mm_config = dict(
+            type='RetinaNet',
+            pretrained=None,
+            backbone=dict(
+                type='ResNet',
+                depth=50,
+                in_channels=in_channels,
+                num_stages=4,
+                out_indices=(0, 1, 2, 3),
+                frozen_stages=-1,
+                style='pytorch'),
+            neck=dict(
+                type='FPN',
+                in_channels=[256, 512, 1024, 2048],
+                out_channels=256,
+                start_level=1,
+                add_extra_convs=True,
+                num_outs=5),
+            **compat_params)
         # training and testing settings
         train_cfg = dict(
             assigner=dict(
@@ -1089,7 +1121,7 @@ class MM_CascadeRCNN(MM_Detector):
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> import torch
         >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
-        >>> xpu = nh.XPU('cpu')
+        >>> xpu = data_containers.ContainerXPU('cpu')
         >>> self = MM_CascadeRCNN(classes, channels='rgb|d').to(xpu.main_device)
         >>> batch = self.demo_batch(bsize=1, h=256, w=256)
         >>> batch = xpu.move(batch)
