@@ -34,6 +34,30 @@ class _AsyncConsumerThread(Thread):
         self._queue.put(ub.NoParam)
 
 
+def _consume_background_cpu_resources():
+    """
+    Developer helper so AsyncBufferedGenerator can be tested on a local machine
+    where the number of background resources being used is controllable.
+
+    CommandLine:
+        xdoctest -m bioharn.util.util_parallel _consume_background_cpu_resources --workers=256
+        xdoctest -m bioharn.util.util_parallel AsyncBufferedGenerator
+    """
+    import multiprocessing as mp
+    workers = int(ub.argval('--workers', default=1))
+    n = workers
+    with mp.Pool(n) as p:
+        p.map(_worker, range(n))
+
+
+def _worker(x):
+    import numpy as np
+    y = np.round(np.random.rand(2048) * 100000)
+    while True:
+        # Collatz_conjecture
+        y = (y / 2 * (1 - (y % 2))) + ((3 * y + 1) * (y % 2))
+
+
 class AsyncBufferedGenerator(object):
     r"""
     Buffers content of an iterator polling the contents of the given
@@ -48,30 +72,46 @@ class AsyncBufferedGenerator(object):
     References:
         http://code.activestate.com/recipes/576999-concurrent-buffer-for-generators/
 
+    CommandLine:
+        xdoctest -m /home/joncrall/code/bioharn/bioharn/util/util_parallel.py AsyncBufferedGenerator
+
     Example:
         >>> # Running this example will show items being produced
         >>> # well before they are consumed. Removing the AsyncBuffer will
         >>> # put the producer and consumer in lock step.
+        >>> from bioharn.util.util_parallel import *  # NOQA
         >>> import time
-        >>> num = 100
-        >>> factor = 0.0001  # speed up for unit tests
+        >>> num = 40
+        >>> factor = 1e-2  # speed up for unit tests
+        >>> producer_speed = 0.1  # producer should be faster than consumer
+        >>> consumer_speed = 1.0  # consumer should be slower than producer
         >>> logs = []
         >>> _print = logs.append
         >>> def producer(n):
         >>>     for i in range(n):
-        >>>         time.sleep(0.1 * factor)
+        >>>         time.sleep(producer_speed * factor)
         >>>         _print(ub.color_text('Produce item {}'.format(i), 'blue'))
         >>>         yield i
         >>> buf = producer(num)
         >>> buf = AsyncBufferedGenerator(buf, size=num)
         >>> for i in buf:
         >>>     _print(ub.color_text('Consume item {}'.format(i), 'green'))
-        >>>     time.sleep(0.5 * factor)
+        >>>     time.sleep(consumer_speed * factor)
         >>> print('\n'.join(logs))
         >>> # check the first half produces more often than it consumes
+        >>> # This should be true because the producer should be running more
+        >>> # frequently than the consumer.
+        >>> # NOTE: this can fail if the CPU is very busy with other things
         >>> n_consume = sum('Consume' in line for line in logs[0:num // 2])
         >>> n_produce = sum('Produce' in line for line in logs[0:num // 2])
-        >>> assert n_produce > n_consume
+        >>> print('n_consume = {!r}'.format(n_consume))
+        >>> print('n_produce = {!r}'.format(n_produce))
+        >>> if n_produce == n_consume:
+        >>>    import warnings
+        >>>    warnings.warn('expected n_produce > n_consume. cpu must be busy')
+        >>>    assert n_produce >= n_consume
+        >>> else:
+        >>>    assert n_produce > n_consume
     """
     def __init__(self, source, size=100):
         self._queue = queue.Queue(size)

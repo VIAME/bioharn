@@ -150,30 +150,30 @@
 
         # Export plaintext gpg public keys, private keys, and trust info
         mkdir -p dev
-        gpg --armor --export-secret-keys $GPG_KEYID > dev/ci_secret_gpg_key.pgp
-        gpg --armor --export $GPG_KEYID > dev/ci_public_gpg_key.pgp
-        gpg --export-ownertrust > dev/gpg_owner_trust
+        gpg --armor --export-secret-keys $GPG_KEYID > dev/gpg/ci_secret_gpg_key.pgp
+        gpg --armor --export $GPG_KEYID > dev/gpg/ci_public_gpg_key.pgp
+        gpg --export-ownertrust > dev/gpg/gpg_owner_trust
 
         # Encrypt gpg keys and trust with CI secret
-        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -e -a -in dev/ci_public_gpg_key.pgp > dev/ci_public_gpg_key.pgp.enc
-        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -e -a -in dev/ci_secret_gpg_key.pgp > dev/ci_secret_gpg_key.pgp.enc
-        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -e -a -in dev/gpg_owner_trust > dev/gpg_owner_trust.enc
-        echo $GPG_KEYID > dev/public_gpg_key
+        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -e -a -in dev/gpg/ci_public_gpg_key.pgp > dev/gpg/ci_public_gpg_key.pgp.enc
+        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -e -a -in dev/gpg/ci_secret_gpg_key.pgp > dev/gpg/ci_secret_gpg_key.pgp.enc
+        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -e -a -in dev/gpg/gpg_owner_trust > dev/gpg/gpg_owner_trust.enc
+        echo $GPG_KEYID > dev/gpg/public_gpg_key
 
         # Test decrpyt
-        cat dev/public_gpg_key
-        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/ci_public_gpg_key.pgp.enc 
-        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg_owner_trust.enc 
-        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/ci_secret_gpg_key.pgp.enc 
+        cat dev/gpg/public_gpg_key
+        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg/ci_public_gpg_key.pgp.enc 
+        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg/gpg_owner_trust.enc 
+        GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg/ci_secret_gpg_key.pgp.enc 
 
         source $(secret_unloader.sh)
 
         # Look at what we did, clean up, and add it to git
         ls dev/*.enc
-        rm dev/gpg_owner_trust dev/*.pgp
+        rm dev/gpg/gpg_owner_trust dev/*.pgp
         git status
         git add dev/*.enc
-        git add dev/public_gpg_key
+        git add dev/gpg/public_gpg_key
         ```
 
 
@@ -301,7 +301,7 @@ stages:
 
     script: 
         - export GPG_EXECUTABLE=gpg
-        - export GPG_KEYID=$(cat dev/public_gpg_key)
+        - export GPG_KEYID=$(cat dev/gpg/public_gpg_key)
         - echo "GPG_KEYID = $GPG_KEYID"
         - $GPG_EXECUTABLE --version
         - openssl version
@@ -309,9 +309,9 @@ stages:
         - $GPG_EXECUTABLE --list-keys
         # Decrypt and import GPG Keys / trust
         # note CI_KITWARE_SECRET is a protected variables only available on master and release branch
-        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/ci_public_gpg_key.pgp.enc | $GPG_EXECUTABLE --import 
-        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg_owner_trust.enc | $GPG_EXECUTABLE --import-ownertrust
-        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/ci_secret_gpg_key.pgp.enc | $GPG_EXECUTABLE --import 
+        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg/ci_public_gpg_key.pgp.enc | $GPG_EXECUTABLE --import 
+        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg/gpg_owner_trust.enc | $GPG_EXECUTABLE --import-ownertrust
+        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg/ci_secret_gpg_key.pgp.enc | $GPG_EXECUTABLE --import 
         - $GPG_EXECUTABLE --list-keys  || echo "first one fails for some reason"
         - $GPG_EXECUTABLE --list-keys  
         # The publish script only builds wheels and does gpg signing if TAG_AND_UPLOAD is False
@@ -341,7 +341,7 @@ stages:
 
     script: 
         - export GPG_EXECUTABLE=gpg
-        - export GPG_KEYID=$(cat dev/public_gpg_key)
+        - export GPG_KEYID=$(cat dev/gpg/public_gpg_key)
         - echo "GPG_KEYID = $GPG_KEYID"
         - $GPG_EXECUTABLE --version
         - openssl version
@@ -349,9 +349,9 @@ stages:
         - $GPG_EXECUTABLE --list-keys
         # Decrypt and import GPG Keys / trust
         # note CI_KITWARE_SECRET is a protected variables only available on master and release branch
-        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/ci_public_gpg_key.pgp.enc | $GPG_EXECUTABLE --import 
-        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg_owner_trust.enc | $GPG_EXECUTABLE --import-ownertrust
-        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/ci_secret_gpg_key.pgp.enc | $GPG_EXECUTABLE --import 
+        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg/ci_public_gpg_key.pgp.enc | $GPG_EXECUTABLE --import 
+        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg/gpg_owner_trust.enc | $GPG_EXECUTABLE --import-ownertrust
+        - GLKWS=$CI_KITWARE_SECRET openssl enc -aes-256-cbc -pbkdf2 -md SHA512 -pass env:GLKWS -d -a -in dev/gpg/ci_secret_gpg_key.pgp.enc | $GPG_EXECUTABLE --import 
         - $GPG_EXECUTABLE --list-keys  || echo "first one fails for some reason"
         - $GPG_EXECUTABLE --list-keys  
         # Install twine
