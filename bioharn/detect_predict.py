@@ -69,6 +69,7 @@ class DetectPredictConfig(scfg.Config):
 def _ensure_upgraded_model(deployed_fpath):
     """
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> from bioharn.detect_predict import _ensure_upgraded_model
         >>> deployed_fpath = deployed_fpath1 = ub.grabdata(
         >>>     'https://data.kitware.com/api/v1/file/5dd3eb8eaf2e2eed3508d604/download',

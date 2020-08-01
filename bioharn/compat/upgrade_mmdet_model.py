@@ -75,6 +75,7 @@ def upgrade_deployed_mmdet_model(config):
             --deployed=/home/joncrall/.cache/bioharn/deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3.zip
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> from bioharn.compat.upgrade_mmdet_model import *  # NOQA
         >>> from bioharn.util.util_girder import grabdata_girder
         >>> api_url = 'https://data.kitware.com/api/v1'
