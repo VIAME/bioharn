@@ -413,7 +413,8 @@ def refine_detections(true_dset, pred_dsets, viz_dpath=None):
 
             after_canvas = image.copy()
             refined_dets = refined_dset.annots(gid=true_img['id']).detections
-            after_canvas = refined_dets.draw_on(after_canvas, color='green')
+            refined_dets.data.pop('score', None)
+            after_canvas = refined_dets.draw_on(after_canvas, color='green', labels=False)
             after_canvas = assigned_pred.draw_on(after_canvas, color='blue', labels=False)
 
             after_fpath = join(beforeafter_dpath, 'temp_{:04d}_after.jpg'.format(true_img['id']))
@@ -421,7 +422,7 @@ def refine_detections(true_dset, pred_dsets, viz_dpath=None):
 
             before_canvas = image.copy()
             before_fpath = join(beforeafter_dpath, 'temp_{:04d}_before.jpg'.format(true_img['id']))
-            before_canvas = true_dets.draw_on(before_canvas, color='green')
+            before_canvas = true_dets.draw_on(before_canvas, color='green', labels=False)
             before_canvas = assigned_true.draw_on(before_canvas, color='blue', labels=True)
             kwimage.imwrite(before_fpath, before_canvas)
 
