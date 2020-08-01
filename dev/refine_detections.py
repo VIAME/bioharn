@@ -411,19 +411,17 @@ def refine_detections(true_dset, pred_dsets, viz_dpath=None):
 
             beforeafter_dpath = ub.ensuredir((viz_dpath, 'beforeafter'))
 
+            after_canvas = image.copy()
+            refined_dets = refined_dset.annots(gid=true_img['id']).detections
+            after_canvas = refined_dets.draw_on(after_canvas, color='orange')
+            after_fpath = join(beforeafter_dpath, 'temp_{:04d}_after.jpg'.format(true_img['id']))
+            kwimage.imwrite(after_fpath, after_canvas)
+
             before_canvas = image.copy()
             before_fpath = join(beforeafter_dpath, 'temp_{:04d}_before.jpg'.format(true_img['id']))
             before_canvas = true_dets.draw_on(before_canvas, color='green')
             kwimage.imwrite(before_fpath, before_canvas)
 
-            after_canvas = image.copy()
-            refined_dets = refined_dset.annots(gid=true_img['id']).detections
-            after_canvas = refined_dets.draw_on(before_canvas, color='orange')
-            after_fpath = join(beforeafter_dpath, 'temp_{:04d}_after.jpg'.format(true_img['id']))
-            kwimage.imwrite(after_fpath, after_canvas)
-
-            canvas = assigned_true.draw_on(canvas, color='blue', labels=True)
-            canvas = assigned_pred.draw_on(canvas, color='purple', labels=False)
             if 0:
                 kwplot.autompl()
                 kwplot.imshow(canvas, doclf=1)
