@@ -400,11 +400,11 @@ def refine_detections(true_dset, pred_dsets, viz_dpath=None):
             assign_dpath = ub.ensuredir((viz_dpath, 'assign'))
             assign_fpath = join(assign_dpath, 'temp_{:04d}.jpg'.format(true_img['id']))
 
-            legimg = kwplot.make_legend_img({
+            legimg = kwplot.make_legend_img(ub.invert_dict({
                 'green': 'unassigned truth (to keep)',
                 'blue': 'assigned truth (to remove)',
                 'purple': 'assigned pred (to add)',
-            })
+            }))
             canvas[0:legimg.shape[0], 0:legimg.shape[1], ...] = legimg
 
             kwimage.imwrite(assign_fpath, canvas)
