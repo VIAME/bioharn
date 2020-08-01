@@ -11,4 +11,4 @@ ndsampler
 netharn 
 scriptconfig
 ubelt
-torch_liberator >= 0.0.3
+torch_liberator >= 0.0.4

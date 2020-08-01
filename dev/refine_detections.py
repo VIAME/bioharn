@@ -6,6 +6,7 @@ Associates detected boxes with dots, and uses several hueristics to refine
 existing boxes.
 """
 from os.path import join
+import scriptconfig as scfg
 import ubelt as ub
 import numpy as np
 import kwimage
@@ -42,7 +43,9 @@ def run_cascade_detector():
     notes:
 
     mkdir -p $HOME/work/models
-    girder-client --api-url https://data.kitware.com/api/v1 download --parent-type file 5f0cbabc9014a6d84e1c5650 $HOME/work/models/deploy_MM_CascadeRCNN_bzmjrthj_037_CYEOPQ.zip
+    girder-client --api-url https://data.kitware.com/api/v1 download \
+        --parent-type file 5f0cbabc9014a6d84e1c5650 \
+        $HOME/work/models/deploy_MM_CascadeRCNN_bzmjrthj_037_CYEOPQ.zip
 
     python -m bioharn.detect_predict \
         --dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8.mscoco.json \
@@ -90,75 +93,53 @@ def run_cascade_detector():
     """
 
 
-def load_candidate_detections():
+class RefineConfig(scfg.Config):
     """
-    Hard coded paths to candidate detections
+    This script assumes that:
+        (1) all objects are covered by the truth boxes
+        (2) the shape / size of the truth boxes might be incorrect
+        (3) the predicted boxes are have better shapes / sizes
+        (4) the predicted boxes might have false positives / negatives
+        (5) "golden" manual boxes have a field bbox_source: "refinement-..."
     """
+    default = {
+        'true_fpath': scfg.Value(None, help='path to the coco truth file to refine'),
+        'pred_fpaths': scfg.Value(None, help='One or more prediction datasets that will be used to refine truth decision'),
+        'out_fpath': scfg.Value(None, help='path to dump the refined dataset'),
 
-    truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
-    print('load true')
-    true_dset = ndsampler.CocoDataset(truth_fpath)
-    print('true_dset = {!r}'.format(true_dset))
-
-    fpaths = {
-        'cascade_v7': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v7/pred/detections.mscoco.json'),
-        # 'cascade_v6': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v6/pred/detections.mscoco.json'),
-        # 'cascade': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v2/pred/detections.mscoco.json'),
-        # 'generic': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_generic.json'),
-        # 'swfsc': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_swfsc.json'),
+        'viz_dpath': scfg.Value(None, help='Output path for visualizations'),
     }
+
+
+def main():
+    """
+    python dev/refine_detections.py \
+        --true_fpath=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8.mscoco.json \
+        --pred_fpaths=[$HOME/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v8/pred/detections.mscoco.json,] \
+        --out_fpath=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json \
+        --viz_dpath=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/detections/refine9
+    """
+    import kwcoco
+
+    config = RefineConfig(cmdline=True)
+    print('config = {}'.format(ub.repr2(dict(config), nl=1)))
+    print('load true')
+    true_dset = kwcoco.CocoDataset.coerce(config['true_fpath'])
+    print('true_dset = {!r}'.format(true_dset))
+    fpaths = {ub.augpath(p, base='', ext='', multidot=True): p for p in config['pred_fpaths']}
     pred_dsets = {}
     for key, fpath in fpaths.items():
         print('load key = {!r}'.format(key))
-        pred_dsets[key] = ndsampler.CocoDataset(fpath)
+        pred_dsets[key] = kwcoco.CocoDataset(fpath)
 
-    # Use everything read so far
-    # if 'cascade' not in pred_dsets:
-    #     import glob
-    #     patial_fpaths = list(glob.glob(ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v2/pred/single_image/*.json')))
-    #     partial_dsets = []
-    #     for fpath in ub.ProgIter(patial_fpaths):
-    #         dset = ndsampler.CocoDataset(fpath)
-    #         partial_dsets.append(dset)
-    #     combo_dset = ndsampler.CocoDataset.union(*partial_dsets)
-    #     pred_dsets['cascade'] = combo_dset
+    out_fpath = config['out_fpath']
+    viz_dpath = config['viz_dpath']
 
-    return true_dset, pred_dsets
+    refined_dset = refine_detections(true_dset, pred_dsets, viz_dpath=viz_dpath)
+    refined_dset.fpath = out_fpath
+    refined_dset.dump(refined_dset.fpath, newlines=True)
 
-
-def _true_devcheck():
-    truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
-    print('load true')
-    true_dset = ndsampler.CocoDataset(truth_fpath)
-
-    allkeys = set()
-    for ann in true_dset.anns.values():
-        allkeys.update(set(ann.keys()))
-
-    allkeys = set()
-    for img in true_dset.imgs.values():
-        allkeys.update(img)
-
-    # find fully manual annotation
-    manual_gids = set()
-    for ann in true_dset.anns.values():
-        if ann['box_source'] == 'refinement-2020-03-18':
-            manual_gids.add(ann['image_id'])
-
-    manual_dset = true_dset.subset(manual_gids)
-
-    # vali_years = ['2010', '2016']
-    # split_gids = {}
-
-    other_gids = sorted(set(true_dset.imgs.keys()) - manual_gids)
-    # other_gids = kwarray.shuffle(other_gids, rng=432)[0:len(manual_dset.imgs)]
-
-    other_dset = true_dset.subset(other_gids)
-
-    manual_dset.fpath = true_dset.fpath.replace('_refined', '_manual')
-    other_dset.fpath = true_dset.fpath.replace('_refined', '_auto')
-    manual_dset.dump(manual_dset.fpath, newlines=True)
-    other_dset.dump(other_dset.fpath, newlines=True)
+    sealon_holdout_sets(refined_dset)
 
 
 def assign(true_dset, true_annots, stacked_dets):
@@ -287,7 +268,7 @@ def assign(true_dset, true_annots, stacked_dets):
     return assignment
 
 
-def associate_detections(true_dset, pred_dsets):
+def refine_detections(true_dset, pred_dsets, viz_dpath=None):
     """
     Given a set of known detections compute an association score between the true "dots" and the predicted boxes.
     Then find the max value assignment, and refine the truth annotations to use the assigned boxes over the heuristic truth ones.
@@ -305,7 +286,11 @@ def associate_detections(true_dset, pred_dsets):
     gids_with_manual_annotations = set()
     for ann in true_dset.anns.values():
         if 'box_source' in ann:
-            if ann['box_source'] == 'refinement-2020-03-18':
+            # if ann['box_source'] == 'refinement-2020-03-18':
+            # This is currently a hueristic which indicates which boxes
+            # were manually refined and which were the results of previous
+            # detectors.
+            if ann['box_source'].startswith('refinement-'):
                 gids_with_manual_annotations.add(ann['image_id'])
     gids_with_heuristic_annotations = sorted(
             set(true_dset.imgs.keys()) - gids_with_manual_annotations)
@@ -313,8 +298,11 @@ def associate_detections(true_dset, pred_dsets):
     print('len(gids_with_manual_annotations) = {!r}'.format(len(gids_with_manual_annotations)))
     print('len(ids_with_heuristic_annotations) = {!r}'.format(len(gids_with_heuristic_annotations)))
 
-    gid = gids_with_heuristic_annotations[15]
+    # gid = gids_with_heuristic_annotations[15]
+
     VIZ = 60
+    if viz_dpath is not None:
+        viz_dpath = ub.ensuredir(viz_dpath)
 
     modified_time = ub.timestamp()
 
@@ -364,7 +352,7 @@ def associate_detections(true_dset, pred_dsets):
                 ann['changelog'].append('modified: {}'.format(modified_time))
                 ann['score'] = stacked_dets.scores[pred_idx]
 
-        if VIZ and gx < VIZ:
+        if viz_dpath and VIZ and gx < VIZ:
             import kwplot
             # drawkw = {
             #     'cascade_v6': dict(color='blue', thickness=6),
@@ -409,8 +397,6 @@ def associate_detections(true_dset, pred_dsets):
             canvas = assigned_true.draw_on(canvas, color='blue', labels=True)
             canvas = assigned_pred.draw_on(canvas, color='purple', labels=False)
             canvas = kwimage.draw_line_segments_on_image(canvas, pt1, pt2)
-            viz_dpath = ub.ensuredir(
-                    '/home/joncrall/remote/viame/data/US_ALASKA_MML_SEALION/detections/refine7')
             assign_dpath = ub.ensuredir((viz_dpath, 'assign'))
             assign_fpath = join(assign_dpath, 'temp_{:04d}.jpg'.format(true_img['id']))
             kwimage.imwrite(assign_fpath, canvas)
@@ -421,10 +407,7 @@ def associate_detections(true_dset, pred_dsets):
     for ann in refined_dset.anns.values():
         key = ann.pop('key', 'true')
 
-    refined_dset.fpath = true_dset.fpath.replace('_v7', '_v8')
-    assert 'refined' in refined_dset.fpath
-    refined_dset.dump(refined_dset.fpath, newlines=True)
-    sealon_holdout_sets(refined_dset)
+    return refined_dset
 
 
 def sealon_holdout_sets(coco_dset):
@@ -443,9 +426,80 @@ def sealon_holdout_sets(coco_dset):
         subset.dump(subset.fpath, newlines=True)
 
 
-def main():
-    true_dset, pred_dsets = load_candidate_detections()
-    associate_detections(true_dset, pred_dsets)
+#### --- old code
+
+def load_hardcoded_candidate_detections():
+    """
+    Hard coded paths to candidate detections
+    """
+
+    truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
+    print('load true')
+    true_dset = ndsampler.CocoDataset(truth_fpath)
+    print('load true')
+    print('true_dset = {!r}'.format(true_dset))
+
+    fpaths = {
+        'cascade_v8': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v8/pred/detections.mscoco.json'),
+        # 'cascade_v7': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v7/pred/detections.mscoco.json'),
+        # 'cascade_v6': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v6/pred/detections.mscoco.json'),
+        # 'cascade': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v2/pred/detections.mscoco.json'),
+        # 'generic': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_generic.json'),
+        # 'swfsc': ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/detections_swfsc.json'),
+    }
+    pred_dsets = {}
+    for key, fpath in fpaths.items():
+        print('load key = {!r}'.format(key))
+        pred_dsets[key] = ndsampler.CocoDataset(fpath)
+
+    # Use everything read so far
+    # if 'cascade' not in pred_dsets:
+    #     import glob
+    #     patial_fpaths = list(glob.glob(ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v2/pred/single_image/*.json')))
+    #     partial_dsets = []
+    #     for fpath in ub.ProgIter(patial_fpaths):
+    #         dset = ndsampler.CocoDataset(fpath)
+    #         partial_dsets.append(dset)
+    #     combo_dset = ndsampler.CocoDataset.union(*partial_dsets)
+    #     pred_dsets['cascade'] = combo_dset
+
+    return true_dset, pred_dsets
+
+
+def _true_devcheck():
+    # UNUSED, devcode
+    truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
+    print('load true')
+    true_dset = ndsampler.CocoDataset(truth_fpath)
+
+    allkeys = set()
+    for ann in true_dset.anns.values():
+        allkeys.update(set(ann.keys()))
+
+    allkeys = set()
+    for img in true_dset.imgs.values():
+        allkeys.update(img)
+
+    # find fully manual annotation
+    manual_gids = set()
+    for ann in true_dset.anns.values():
+        if ann['box_source'] == 'refinement-2020-03-18':
+            manual_gids.add(ann['image_id'])
+
+    manual_dset = true_dset.subset(manual_gids)
+
+    # vali_years = ['2010', '2016']
+    # split_gids = {}
+
+    other_gids = sorted(set(true_dset.imgs.keys()) - manual_gids)
+    # other_gids = kwarray.shuffle(other_gids, rng=432)[0:len(manual_dset.imgs)]
+
+    other_dset = true_dset.subset(other_gids)
+
+    manual_dset.fpath = true_dset.fpath.replace('_refined', '_manual')
+    other_dset.fpath = true_dset.fpath.replace('_refined', '_auto')
+    manual_dset.dump(manual_dset.fpath, newlines=True)
+    other_dset.dump(other_dset.fpath, newlines=True)
 
 
 if __name__ == '__main__':
