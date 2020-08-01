@@ -399,7 +399,31 @@ def refine_detections(true_dset, pred_dsets, viz_dpath=None):
             canvas = kwimage.draw_line_segments_on_image(canvas, pt1, pt2)
             assign_dpath = ub.ensuredir((viz_dpath, 'assign'))
             assign_fpath = join(assign_dpath, 'temp_{:04d}.jpg'.format(true_img['id']))
+
+            legimg = kwplot.make_legend_img({
+                'green': 'unassigned truth (to keep)',
+                'blue': 'assigned truth (to remove)',
+                'purple': 'assigned pred (to add)',
+            })
+            canvas[0:legimg.shape[0], 0:legimg.shape[1], ...] = legimg
+
             kwimage.imwrite(assign_fpath, canvas)
+
+            beforeafter_dpath = ub.ensuredir((viz_dpath, 'beforeafter'))
+
+            before_canvas = image.copy()
+            before_fpath = join(beforeafter_dpath, 'temp_{:04d}_before.jpg'.format(true_img['id']))
+            before_canvas = true_dets.draw_on(before_canvas, color='green')
+            kwimage.imwrite(before_fpath, before_canvas)
+
+            after_canvas = image.copy()
+            refined_dets = refined_dset.annots(gid=true_img['id']).detections
+            after_canvas = refined_dets.draw_on(before_canvas, color='orange')
+            after_fpath = join(beforeafter_dpath, 'temp_{:04d}_after.jpg'.format(true_img['id']))
+            kwimage.imwrite(after_fpath, after_canvas)
+
+            canvas = assigned_true.draw_on(canvas, color='blue', labels=True)
+            canvas = assigned_pred.draw_on(canvas, color='purple', labels=False)
             if 0:
                 kwplot.autompl()
                 kwplot.imshow(canvas, doclf=1)
