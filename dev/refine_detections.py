@@ -116,7 +116,7 @@ class RefineConfig(scfg.Config):
 
 def main():
     """
-    python $HOME/bioharn/dev/refine_detections.py \
+    python $HOME/code/bioharn/dev/refine_detections.py \
         --true_fpath=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8.mscoco.json \
         --pred_fpaths=[$HOME/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v8/pred/detections.mscoco.json,] \
         --out_fpath=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json \

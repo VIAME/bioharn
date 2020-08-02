@@ -23,6 +23,17 @@ rsync -avrP $HOME/data/private/US_NE_2019_CFARM_HABCAM/raws/./_dev viame:data/pr
 rsync -avrLP $HOME/data/./noaa_habcam viame:data
 
 
+# TODO: can we use $HOME/data/ as the dest and not have it overwrite the symlink that lives there.
+rsync -avrPRLK --exclude detections viame:data/./US_ALASKA_MML_SEALION $HOME/data
+
+/media/joncrall/raid/home/joncrall/data/noaa/
+rsync -avrPRLK --exclude detections viame:data/./US_ALASKA_MML_SEALION /media/joncrall/raid/home/joncrall/data/noaa/
+
+$HOME/data/
+
+]$HOME/data/./noaa_habcam viame:data
+
+
 kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_test.mscoco.json
 kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_vali.mscoco.json
 kwcoco stats --src /home/joncrall/data/private/_combo_cfarm/cfarm_train.mscoco.json
