@@ -105,6 +105,9 @@ class RefineConfig(scfg.Config):
     default = {
         'true_fpath': scfg.Value(None, help='path to the coco truth file to refine'),
         'pred_fpaths': scfg.Value(None, help='One or more prediction datasets that will be used to refine truth decision'),
+
+        'score_thresh': scfg.Value(0.4, help='Only assign predictions with a high enough score'),
+
         'out_fpath': scfg.Value(None, help='path to dump the refined dataset'),
 
         'viz_dpath': scfg.Value(None, help='Output path for visualizations'),
@@ -135,14 +138,17 @@ def main():
     out_fpath = config['out_fpath']
     viz_dpath = config['viz_dpath']
 
-    refined_dset = refine_detections(true_dset, pred_dsets, viz_dpath=viz_dpath)
+    refined_dset = refine_detections(
+        true_dset, pred_dsets, viz_dpath=viz_dpath,
+        score_thresh=config['score_thresh'])
+
     refined_dset.fpath = out_fpath
     refined_dset.dump(refined_dset.fpath, newlines=True)
 
     sealon_holdout_sets(refined_dset)
 
 
-def assign(true_dset, true_annots, stacked_dets):
+def assign(true_dset, true_annots, stacked_dets, score_thresh=0.4):
     """
     Heuristic assignment function
 
@@ -256,7 +262,6 @@ def assign(true_dset, true_annots, stacked_dets):
     values[~pred_boxes.contains(true_xys).T] = -np.inf
 
     # Only assign predictions with a high enough score
-    score_thresh = 0.4
     values[:, pred_scores < score_thresh] = -np.inf
 
     # flags = (ious > 0).astype(dists.dtype)
@@ -268,7 +273,7 @@ def assign(true_dset, true_annots, stacked_dets):
     return assignment
 
 
-def refine_detections(true_dset, pred_dsets, viz_dpath=None):
+def refine_detections(true_dset, pred_dsets, viz_dpath=None, **kwargs):
     """
     Given a set of known detections compute an association score between the true "dots" and the predicted boxes.
     Then find the max value assignment, and refine the truth annotations to use the assigned boxes over the heuristic truth ones.
@@ -321,7 +326,7 @@ def refine_detections(true_dset, pred_dsets, viz_dpath=None):
         if key_to_dets and len(true_annots):
             # Concat all candidates and assign to true annotations
             stacked_dets = kwimage.Detections.concatenate(list(key_to_dets.values()))
-            assignment = assign(true_dset, true_annots, stacked_dets)
+            assignment = assign(true_dset, true_annots, stacked_dets, **kwargs)
         else:
             assignment = []
 
