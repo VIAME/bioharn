@@ -191,4 +191,11 @@ python ~/code/bioharn/bioharn/detect_eval.py \
     ]" \
     --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.5 --xpu=0,1 --window_overlap=0.5
 
+
+python ~/code/bioharn/bioharn/detect_eval.py \
+    --dataset=$HOME/remote/namek/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9_vali.mscoco.json \
+    "--deployed=[\
+        $HOME/remote/namek/work/sealions/fit/nice/untitled/deploy_MM_CascadeRCNN_jpwjmhhp_023_THXFTS.zip,\
+    ]" \
+    --batch_size=16 --conf_thresh=0.1 --nms_thresh=0.5 --xpu=auto --window_overlap=0.5
 # todo: ignore unknown

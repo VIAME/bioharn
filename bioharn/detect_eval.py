@@ -16,6 +16,8 @@ import numpy as np
 import ubelt as ub
 import scriptconfig as scfg
 from bioharn import detect_predict
+from netharn.data import channel_spec  # NOQA
+from netharn.data import data_containers  # NOQA
 
 
 class DetectEvaluateConfig(scfg.Config):
