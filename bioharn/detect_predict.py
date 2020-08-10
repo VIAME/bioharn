@@ -1124,8 +1124,7 @@ def detect_cli(config={}):
     print('Ensure model')
     predictor._ensure_model()
 
-    # async_buffer = not ub.argval('--serial') and config['workers'] > 0
-    async_buffer = ub.argval('--async-buffer')
+    async_buffer = config['async_buffer']
 
     gid_to_pred, gid_to_pred_fpath = _cached_predict(
         predictor, sampler, out_dpath=out_dpath, gids=None,

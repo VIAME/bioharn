@@ -72,6 +72,8 @@ class DetectEvaluateConfig(scfg.Config):
         'demo': scfg.Value(False, help='debug helper'),
 
         'classes_of_interest': scfg.Value([], help='if specified only these classes are given weight'),
+
+        'async_buffer': scfg.Value(False, help="I've seen this increase prediction rate but it also increases instability, unsure of the reason"),
     }
 
 
@@ -521,8 +523,7 @@ class DetectEvaluator(object):
 
         draw = evaluator.config['draw']
         enable_cache = evaluator.config['enable_cache']
-        # async_buffer = False
-        async_buffer = ub.argval('--async-buffer')  # hack
+        async_buffer = evaluator.config['async_buffer']
 
         gid_to_pred, gid_to_pred_fpath = detect_predict._cached_predict(
             predictor, sampler, out_dpath, gids=gids,
