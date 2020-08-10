@@ -1,4 +1,7 @@
 """
+Logic for detecting on a truth dataset using a pretrained network, and then
+scoring those detections.
+
 TODO:
     - [ ] create CLI flag to reduce dataset size for debugging
          * Note: if we determine an optimal budget for test data size, then we

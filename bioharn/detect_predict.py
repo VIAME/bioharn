@@ -1,4 +1,5 @@
 """
+Logic for predicting on a new dataset using a trained detector.
 
 Notes:
 

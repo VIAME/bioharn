@@ -130,9 +130,10 @@ def main():
 
     $HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json
 
-    kwiver runner $VIAME_PREFIX/examples/detection_file_conversions/pipelines/coco_json_to_viame_csv.pipe -s \
-        detected_object_input:file_name=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json
-        detected_object_output:file_name=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.csv
+    kwiver runner $VIAME_PREFIX/examples/detection_file_conversions/pipelines/coco_json_to_viame_csv.pipe \
+        -s detected_object_input:file_name=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json \
+        -s detected_object_output:file_name=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.csv \
+        -s image_reader:video_filename=input_list.txt
     """
     import kwcoco
 
