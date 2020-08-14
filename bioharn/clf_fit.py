@@ -563,7 +563,6 @@ def setup_harn(cmdline=True, **kw):
         for tag, dset in torch_datasets.items()
     }
 
-    initializer_ = None
     classes = torch_datasets['train'].classes
 
     modelkw = {
@@ -575,8 +574,8 @@ def setup_harn(cmdline=True, **kw):
     model = ClfModel(**modelkw)
     model._initkw = modelkw
 
-    if initializer_ is None:
-        initializer_ = nh.Initializer.coerce(config)
+    initializer_ = nh.Initializer.coerce(config, association='prefix-hack')
+    # initializer_ = nh.Initializer.coerce(config, association='embedding')
 
     hyper = nh.HyperParams(
         name=config['name'],
@@ -759,5 +758,21 @@ if __name__ == '__main__':
             --xpu=auto \
             --batch_size=32 \
             --balance=classes
+
+        python -m bioharn.clf_fit \
+            --name=test-start-from-pretrained-pt \
+            --train_dataset=special:shapes32 \
+            --vali_dataset=special:shapes8 \
+            --pretrained=/home/joncrall/.cache/torch/checkpoints/resnet50-19c8e357.pth \
+            --workdir=$HOME/work/test \
+            --arch=resnet50 \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=256,256 \
+            --normalize_inputs=False \
+            --workers=0 \
+            --xpu=auto \
+            --batch_size=32
     """
     main()

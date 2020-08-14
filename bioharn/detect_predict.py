@@ -47,7 +47,7 @@ class DetectPredictConfig(scfg.Config):
         'xpu': 'auto',
 
         'window_dims': scfg.Value('native', help='size of a sliding window'),  # (512, 512),
-        'input_dims': scfg.Value('window', help='The size of the inputs to the network'),
+        'input_dims': scfg.Value('native', help='The size of the inputs to the network'),
 
         'workers': 0,
 
@@ -1070,6 +1070,7 @@ class DetectPredictCLIConfig(scfg.Config):
             'out_dpath': scfg.Path('./out', help='output directory'),
             'draw': scfg.Value(False),
             'sampler_backend': scfg.Value(None),
+            'enable_cache': scfg.Value(False),
             'workdir': scfg.Path('~/work/bioharn', help='work directory for sampler if needed'),
 
             'async_buffer': scfg.Value(False, help="I've seen this increase prediction rate from 2.0Hz to 2.3Hz, but it increases instability, unsure of the reason"),
@@ -1128,7 +1129,7 @@ def detect_cli(config={}):
 
     gid_to_pred, gid_to_pred_fpath = _cached_predict(
         predictor, sampler, out_dpath=out_dpath, gids=None,
-        draw=config['draw'], enable_cache=True, async_buffer=async_buffer)
+        draw=config['draw'], enable_cache=config['enable_cache'], async_buffer=async_buffer)
 
     import ndsampler
     coco_dsets = []
