@@ -25,9 +25,10 @@ rsync -avrLP $HOME/data/./noaa_habcam viame:data
 
 # TODO: can we use $HOME/data/ as the dest and not have it overwrite the symlink that lives there.
 rsync -avrPRLK --exclude detections viame:data/./US_ALASKA_MML_SEALION $HOME/data
+rsync -avrPR --exclude detections viame:data/./US_ALASKA_MML_SEALION $HOME/data
 
 /media/joncrall/raid/home/joncrall/data/noaa/
-rsync -avrPRLK --exclude detections viame:data/./US_ALASKA_MML_SEALION /media/joncrall/raid/home/joncrall/data/noaa/
+rsync -avrPRLK --exclude detections viame:data/./US_ALASKA_MML_SEALION $HOME/raid/home/joncrall/data/noaa/
 
 $HOME/data/
 

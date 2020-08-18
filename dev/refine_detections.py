@@ -124,17 +124,7 @@ def main():
         --score_thresh=0.2
 
     # Convert to VIAME CSV
-
-    VIAME_PREFIX=$HOME/code/VIAME/build-py3.8/install
-    source $VIAME_PREFIX/setup_viame.sh
-
-    $HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json
-
-    kwiver runner $VIAME_PREFIX/examples/detection_file_conversions/pipelines/coco_json_to_viame_csv.pipe \
-        -s detected_object_input:file_name=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json \
-        -s detected_object_output:file_name=$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.csv \
-        -s image_reader:video_filename=input_list.txt
-
+    See kwcoco_to_viame_csv.py
     """
     import kwcoco
 
@@ -545,6 +535,105 @@ def _true_devcheck():
     other_dset.fpath = true_dset.fpath.replace('_refined', '_auto')
     manual_dset.dump(manual_dset.fpath, newlines=True)
     other_dset.dump(other_dset.fpath, newlines=True)
+
+
+def _devcheck_year_breakdown_reorg():
+    """
+
+    mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION
+    sudo chown -R root:public /data/public/Aerial/US_ALASKA_MML_SEALION
+    sudo chmod g+w -R /data/public/Aerial/US_ALASKA_MML_SEALION
+
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2007/images
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2008/images
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2008W/images
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2009/images
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2010/images
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2011/images
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2012/images
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2013/images
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2014/images
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2015/images
+    sudo mkdir -p /data/public/Aerial/US_ALASKA_MML_SEALION/2016/images
+
+    # Copy contents of extracted directories
+
+    -rlptgoD.
+
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2007/ /data/public/Aerial/US_ALASKA_MML_SEALION/2007/images
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2008/ /data/public/Aerial/US_ALASKA_MML_SEALION/2008/images
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2008W/ /data/public/Aerial/US_ALASKA_MML_SEALION/2008W/images
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2009/ /data/public/Aerial/US_ALASKA_MML_SEALION/2009/images
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2010/ /data/public/Aerial/US_ALASKA_MML_SEALION/2010/images
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2011/ /data/public/Aerial/US_ALASKA_MML_SEALION/2011/images
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2012/ /data/public/Aerial/US_ALASKA_MML_SEALION/2012/images
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2013/ /data/public/Aerial/US_ALASKA_MML_SEALION/2013/images
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2014/ /data/public/Aerial/US_ALASKA_MML_SEALION/2014/images
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2015/ /data/public/Aerial/US_ALASKA_MML_SEALION/2015/images
+    rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2016/ /data/public/Aerial/US_ALASKA_MML_SEALION/2016/images
+    """
+    fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json')
+    import kwcoco
+    coco_dset = kwcoco.CocoDataset(fpath)
+
+    {tuple([p for p in img['file_name'].split('/')[0:4] if not p.lower().endswith('.jpg')]) for img in coco_dset.imgs.values()}
+
+    if 0:
+        from kwcoco import coco_schema
+        coco_schema.COCO_SCHEMA.validate(coco_dset.dataset)
+
+    # Fixup broken keypoint category schemas
+    for ann in coco_dset.anns.values():
+        kpts = ann.get('keypoints', [])
+        if kpts:
+            for kp in kpts:
+                if 'keypoint_category_id' in kp:
+                    pass
+                elif 'category' in kp:
+                    kpcat = coco_dset._resolve_to_kpcat(kp.pop('category'))
+                    kp['keypoint_category_id'] = kpcat['id']
+                elif 'category_name' in kp:
+                    kpcat = coco_dset._resolve_to_kpcat(kp.pop('category_name'))
+                    kp['keypoint_category_id'] = kpcat['id']
+                else:
+                    raise Exception
+
+    year_to_imgs = ub.group_items(coco_dset.imgs.values(), lambda x: x['year_code'])
+    print(ub.map_vals(len, year_to_imgs))
+
+    from os.path import relpath
+    dest_root = '/data/public/Aerial/US_ALASKA_MML_SEALION'
+
+    year_to_dset = {}
+
+    for year, imgs in ub.ProgIter(list(year_to_imgs.items())):
+        gids = [g['id'] for g in imgs]
+        year_dset = coco_dset.subset(gids, copy=True, autobuild=False)
+
+        # Munge the paths to the images
+        # CAREFUL THIS IS CHANGING POINTERS IN THE NEW FILES AS WELL
+        old_rel_path = join('BLACKEDOUT/extracted', str(year))
+        old_rel_dot_path = join('/home/joncrall/data/raid/noaa/sealions/BLACKEDOUT/extracted/', str(year))
+
+        dest_dpath = join(dest_root, str(year))
+        for img in year_dset.dataset['images']:
+            new_filename = join('images', relpath(img['file_name'], old_rel_path))
+            img['file_name'] = new_filename
+
+            if 'dot_fpath' in img:
+                new_filename = join('images', relpath(img['dot_fpath'], old_rel_dot_path))
+                img['dot_fpath'] = new_filename
+
+        # year_dset.index.build()
+        year_dset.fpath = join(dest_dpath, 'sealions_{}.kwcoco.json'.format(year))
+        year_dset.dump(year_dset.fpath, newlines=True)
+        year_dset.img_root = dest_dpath
+        year_to_dset[year] = year_dset
+
+    year_dset = year_to_dset['2007']
+
+    for year, year_dset in year_to_dset.items():
+        assert not list(year_dset.missing_images())
 
 
 if __name__ == '__main__':
