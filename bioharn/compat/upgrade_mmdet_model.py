@@ -87,13 +87,11 @@ def upgrade_deployed_mmdet_model(config):
 
     Ignore:
         import xinspect
-
         # Close xinspect so we dont need to depend on it
         import liberator
         closer = liberator.Closer()
         closer.add_dynamic(xinspect.dynamic_kwargs.get_func_sourcecode)
         print(closer.current_sourcecode())
-
 
     Ignore:
         5dd3181eaf2e2eed3505827c
@@ -173,6 +171,35 @@ def upgrade_deployed_mmdet_model(config):
         config_strings = 'input_stats = {!r}\n'.format(model_initkw['input_stats']) + config_strings
     config_strings = config_strings[:config_strings.find('_hack_mm_backbone_in_channels')]
     config_strings = config_strings.replace('self.', '')
+
+    import re
+    # UserWarning: "out_size" is deprecated in `RoIAlign.__init__`, please use "output_size" instead
+    # UserWarning: "sample_num" is deprecated in `RoIAlign.__init__`, please use "sampling_ratio" instead
+    #UserWarning: "iou_thr" is deprecated in `nms`, please use "iou_threshold" instead
+
+    from functools import partial
+    def careful_replace(match, repl, requires=None):
+        # Only replace the match if the context line contains the required text
+        start, stop = match.span()
+        # Look back to find the context line
+        prev_nl = match.string[:start][::-1].find('\n')
+        prev_text = match.string[start - prev_nl:start]
+        if requires is None or requires in prev_text:
+            return repl
+        else:
+            # Return original text
+            return match.string[start:stop]
+
+    def whole_word(regex):
+        return r'\b{}\b'.format(regex)
+
+    # This actually doesnt matter because we will extract the new model from
+    # the bioharn.models.mm_models source dir
+    new = re.sub(whole_word('iou_thr'), partial(careful_replace, repl='iou_threshold', requires='nms'), config_strings)
+    new = re.sub(whole_word('sample_num'), partial(careful_replace, repl='sampling_ratio', requires='RoIAlign'), new)
+    new = re.sub(whole_word('out_size'), partial(careful_replace, repl='output_size', requires='RoIAlign'), new)
+    config_strings = new
+
     print(config_strings)
 
     checkpoint = {

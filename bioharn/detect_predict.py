@@ -37,6 +37,10 @@ import kwimage
 import warnings
 from netharn.data.channel_spec import ChannelSpec
 from netharn.data.data_containers import ContainerXPU
+import os
+
+
+ENABLE_BIOHARN_WARNINGS = os.environ.get('ENABLE_BIOHARN_WARNINGS', '')
 
 
 class DetectPredictConfig(scfg.Config):
@@ -193,11 +197,12 @@ class DetectPredictor(object):
                 try:
                     native[key] = native_config[key]
                 except Exception:
-                    warnings.warn((
-                        'WARNING: Unable to determine native {} from model. '
-                        'Defaulting to {}! Please ensure this is OK.').format(
-                            key, native_defaults[key]
-                    ))
+                    if ENABLE_BIOHARN_WARNINGS:
+                        warnings.warn((
+                            'WARNING: Unable to determine native {} from model. '
+                            'Defaulting to {}! Please ensure this is OK.').format(
+                                key, native_defaults[key]
+                        ))
                     native[key] = native_defaults[key]
             else:
                 native[key] = config[key]
@@ -480,7 +485,7 @@ class DetectPredictor(object):
                                        overlap=predictor.config['window_overlap'],
                                        keepbound=True, allow_overshoot=True)
 
-        input_dims = predictor.config['input_dims']
+        input_dims = native['input_dims']
         if input_dims == 'full' or input_dims == window_dims:
             input_dims = None
 
@@ -520,9 +525,10 @@ class DetectPredictor(object):
                 except NotImplementedError:
                     predictor._compat_hack = 'fixup_mm_inputs'
                 if predictor._compat_hack:
-                    warnings.warn(
-                        'Normal mm-detection input failed. '
-                        'Attempting to find backwards compatible solution')
+                    if ENABLE_BIOHARN_WARNINGS:
+                        warnings.warn(
+                            'Normal mm-detection input failed. '
+                            'Attempting to find backwards compatible solution')
             else:
                 assert len(batch['inputs']) == 1
                 try:
@@ -614,6 +620,10 @@ class SingleImageDataset(torch_data.Dataset):
 
         # Resize the image patch if necessary
         if self.input_dims is not None and self.input_dims != 'window':
+            if isinstance(self.input_dims, str):
+                raise TypeError(
+                    'input dims is a non-window string but should '
+                    'have been resolved before this!')
             letterbox = nh.data.transforms.Resize(None, mode='letterbox')
             letterbox.target_size = self.input_dims[::-1]
             # Record the inverse transformation
@@ -772,6 +782,10 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
         # Resize the image patch if necessary
         if self.input_dims != 'native' and self.input_dims != 'window':
+            if isinstance(self.input_dims, str):
+                raise TypeError(
+                    'input dims is a non-window string but should '
+                    'have been resolved before this!')
             letterbox = nh.data.transforms.Resize(None, mode='letterbox')
             letterbox.target_size = self.input_dims[::-1]
             # Record the inverse transformation
