@@ -139,3 +139,10 @@ def main(**kw):
     print('dst_fpath = {!r}'.format(dst_fpath))
     with open(dst_fpath, 'w') as file:
         file.write(csv_text)
+
+if __name__ == '__main__':
+    """
+    CommandLine:
+        python ~/code/bioharn/dev/kwcoco_to_viame_csv.py
+    """
+    main()
