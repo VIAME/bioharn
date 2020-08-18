@@ -25,7 +25,6 @@ open('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/input_list.txt', 'w').write(
         -s detection_reader:file_name=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json \
         -s detection_writer:file_name=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.kwiver.viame.csv \
         -s image_reader:video_filename=$HOME/data/US_ALASKA_MML_SEALION/input_list.txt
-
 """
 
 import scriptconfig as scfg
@@ -40,6 +39,11 @@ class ConvertConfig(scfg.Config):
 
 def main(**kw):
     """
+    CommandLine:
+        python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+            --src /data/public/Aerial/US_ALASKA_MML_SEALION/2007/sealions_2007_v9.kwcoco.json \
+            --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2007/sealions_2007_v9.viame.csv
+
     Ignore:
         kw = {
             'src': ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json'),

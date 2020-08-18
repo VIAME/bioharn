@@ -625,7 +625,7 @@ def _devcheck_year_breakdown_reorg():
                 img['dot_fpath'] = new_filename
 
         # year_dset.index.build()
-        year_dset.fpath = join(dest_dpath, 'sealions_{}.kwcoco.json'.format(year))
+        year_dset.fpath = join(dest_dpath, 'sealions_{}_v9.kwcoco.json'.format(year))
         year_dset.dump(year_dset.fpath, newlines=True)
         year_dset.img_root = dest_dpath
         year_to_dset[year] = year_dset
