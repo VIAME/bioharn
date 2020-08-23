@@ -571,6 +571,46 @@ def _devcheck_year_breakdown_reorg():
     rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2014/ /data/public/Aerial/US_ALASKA_MML_SEALION/2014/images
     rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2015/ /data/public/Aerial/US_ALASKA_MML_SEALION/2015/images
     rsync -rP /data/projects/viame/US_ALASKA_MML_SEALION/BLACKEDOUT/extracted/2016/ /data/public/Aerial/US_ALASKA_MML_SEALION/2016/images
+
+
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2007/sealions_2007_v9.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2007/sealions_2007_v9.viame.csv
+
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2008/sealions_2008_v9.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2008/sealions_2008_v9.viame.csv
+
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2008W/sealions_2008W_v9.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2008W/sealions_2008W_v9.viame.csv
+
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2009/sealions_2009_v9.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2009/sealions_2009_v9.viame.csv
+
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2010/sealions_2010_v9.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2010/sealions_2010_v9.viame.csv
+
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2011/sealions_2011_v9.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2011/sealions_2011_v9.viame.csv
+
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2014/sealions_2014_v9.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2014/sealions_2014_v9.viame.csv
+
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2015/sealions_2015_v9.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2015/sealions_2015_v9.viame.csv
+
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2016/sealions_2016_v9.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2016/sealions_2016_v9.viame.csv
+
+    tree -L 2 /data/public/Aerial/US_ALASKA_MML_SEALION
+
     """
     fpath = ub.expandpath('$HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v9.mscoco.json')
     import kwcoco
@@ -605,7 +645,6 @@ def _devcheck_year_breakdown_reorg():
     dest_root = '/data/public/Aerial/US_ALASKA_MML_SEALION'
 
     year_to_dset = {}
-
     for year, imgs in ub.ProgIter(list(year_to_imgs.items())):
         gids = [g['id'] for g in imgs]
         year_dset = coco_dset.subset(gids, copy=True, autobuild=False)
