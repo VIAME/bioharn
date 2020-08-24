@@ -618,6 +618,7 @@ def setup_harn(cmdline=True, **kw):
         'tensorboard_groups': ['loss'],
         'eager_dump_tensorboard': True,
         'timeout': config['timeout'],
+        'colored': not ub.WIN32,
     })
     harn.intervals.update({})
     harn.script_config = config
