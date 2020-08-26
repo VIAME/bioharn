@@ -25,6 +25,10 @@ __for_developer__(){
 
     ./super_setup.py ensure
     ./super_setup.py develop
+
+    _PYCODE="import subprocess, re; print(re.match('.*release ([0-9]*.[0-9]*),.*', str(subprocess.check_output(['nvcc', '--version']))).groups()[0].replace('.', ''))"
+    CUDA_VERSION=$(python -c "$_PYCODE")
+    echo $CUDA_VERSION
 }
 
 __gdal_from_source(){
@@ -112,6 +116,8 @@ __gdal_from_source(){
     #    ..
     
 }
+
+python -c "import torch; print(torch.version.cuda)"
 
 
 MMCV_FULL_VERSION=$(python -c "
