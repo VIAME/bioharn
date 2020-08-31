@@ -335,6 +335,8 @@ def refine_detections(true_dset, pred_dsets, viz_dpath=None, **kwargs):
             stacked_dets = kwimage.Detections.concatenate(list(key_to_dets.values()))
             assignment = assign(true_dset, true_annots, stacked_dets, **kwargs)
             prog.ensure_newline()
+            print('len(true_annots) = {!r}'.format(len(true_annots)))
+            print('len(pred_annots) = {!r}'.format(len(pred_annots)))
             print('len(assignment) = {!r}'.format(len(assignment)))
         else:
             assignment = []
