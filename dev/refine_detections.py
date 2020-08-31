@@ -183,6 +183,9 @@ def assign(true_dset, true_annots, stacked_dets, score_thresh=0.4):
     if len(stacked_dets) == 0:
         return []
 
+    import xdev
+    xdev.embed()
+
     boxstats = true_dset.boxsize_stats(
             aids=true_annots.aids,
             statskw=dict(median=True))
