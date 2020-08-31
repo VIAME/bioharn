@@ -273,6 +273,7 @@ def assign(true_dset, true_annots, stacked_dets, score_thresh=0.4):
 
     # value = (1 / dists) * flags
 
+    print('values = {!r}'.format(values))
     assignment, _  = kwarray.maxvalue_assignment(values)
     assignment = [(t[0], t[1], values[t[0], t[1]]) for t in assignment]
     return assignment
