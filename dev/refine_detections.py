@@ -316,7 +316,9 @@ def refine_detections(true_dset, pred_dsets, viz_dpath=None, **kwargs):
 
     modified_time = ub.timestamp()
 
-    for gx, gid in ub.ProgIter(enumerate(gids_with_heuristic_annotations)):
+    prog = ub.ProgIter(gids_with_heuristic_annotations)
+
+    for gx, gid in enumerate(prog):
         true_img = true_dset.imgs[gid]
         true_annots = true_dset.annots(gid=true_img['id'])
 
@@ -332,6 +334,8 @@ def refine_detections(true_dset, pred_dsets, viz_dpath=None, **kwargs):
             # Concat all candidates and assign to true annotations
             stacked_dets = kwimage.Detections.concatenate(list(key_to_dets.values()))
             assignment = assign(true_dset, true_annots, stacked_dets, **kwargs)
+            prog.ensure_newline()
+            print('len(assignment) = {!r}'.format(len(assignment)))
         else:
             assignment = []
 

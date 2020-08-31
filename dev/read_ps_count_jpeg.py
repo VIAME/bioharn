@@ -736,7 +736,7 @@ def make_correspondence_2012_2013():
     python $HOME/code/bioharn/dev/refine_detections.py \
         --true_fpath=$HOME/data/US_ALASKA_MML_SEALION/sealions_photoshop_annots_2012_v2.kwcoco.json \
         --pred_fpaths=[$HOME/data/US_ALASKA_MML_SEALION/detections/cascade_v8_2012/pred/detections.mscoco.json,] \
-        --out_fpath=$HOME/US_ALASKA_MML_SEALION/sealions_2012_refined_v3.mscoco.json \
+        --out_fpath=$HOME/data/US_ALASKA_MML_SEALION/sealions_2012_refined_v3.mscoco.json \
         --viz_dpath=$HOME/data/US_ALASKA_MML_SEALION/detections/refine9_2012 \
         --score_thresh=0.2
     """
