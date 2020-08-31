@@ -183,9 +183,6 @@ def assign(true_dset, true_annots, stacked_dets, score_thresh=0.4):
     if len(stacked_dets) == 0:
         return []
 
-    import xdev
-    xdev.embed()
-
     boxstats = true_dset.boxsize_stats(
             aids=true_annots.aids,
             statskw=dict(median=True))
@@ -227,7 +224,8 @@ def assign(true_dset, true_annots, stacked_dets, score_thresh=0.4):
                 for catname in true_annots.cnames]
         true_size = np.hstack([true_boxes.width, true_boxes.height])
         true_shape_delta = np.sqrt(((true_size - true_size_prior) ** 2).sum(axis=1))
-        true_weight *= true_shape_delta
+        # Ensure to add 1 when delta is 0 so we dont prevent all assignment
+        true_weight *= (true_shape_delta + 1)
     else:
         pred_catnames = None
 
