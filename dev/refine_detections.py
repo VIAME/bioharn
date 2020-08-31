@@ -147,9 +147,10 @@ def main():
         score_thresh=config['score_thresh'])
 
     refined_dset.fpath = out_fpath
+    print('refined_dset.fpath = {!r}'.format(refined_dset.fpath))
     refined_dset.dump(refined_dset.fpath, newlines=True)
 
-    sealon_holdout_sets(refined_dset)
+    # sealon_holdout_sets(refined_dset)
 
 
 def assign(true_dset, true_annots, stacked_dets, score_thresh=0.4):
