@@ -997,7 +997,7 @@ def setup_harn(cmdline=True, **kw):
         'eager_dump_tensorboard': True,
         'deploy_after_error': True,
         'timeout': config['timeout'],
-        'colored': not ub.WIN32,
+        'allow_unicode': not ub.WIN32,
     })
     harn.intervals.update({
         'log_iter_train': 1000,

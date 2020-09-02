@@ -731,7 +731,6 @@ def make_correspondence_2012_2013():
         --xpu=0 --batch_size=32
 
 
-
     # Do refinement preocess to pick the new detection boxes when appropriate
     python $HOME/code/bioharn/dev/refine_detections.py \
         --true_fpath=$HOME/data/US_ALASKA_MML_SEALION/sealions_photoshop_annots_2012_v2.kwcoco.json \
@@ -739,4 +738,49 @@ def make_correspondence_2012_2013():
         --out_fpath=$HOME/data/US_ALASKA_MML_SEALION/sealions_2012_refined_v3.mscoco.json \
         --viz_dpath=$HOME/data/US_ALASKA_MML_SEALION/detections/refine9_2012 \
         --score_thresh=0.2
+
+    python $HOME/code/bioharn/dev/refine_detections.py \
+        --true_fpath=$HOME/data/US_ALASKA_MML_SEALION/sealions_photoshop_annots_2013_v2.kwcoco.json \
+        --pred_fpaths=[$HOME/data/US_ALASKA_MML_SEALION/detections/cascade_v8_2013/pred/detections.mscoco.json,] \
+        --out_fpath=$HOME/data/US_ALASKA_MML_SEALION/sealions_2013_refined_v3.mscoco.json \
+        --viz_dpath=$HOME/data/US_ALASKA_MML_SEALION/detections/refine9_2013 \
+        --score_thresh=0.2
+
+    # Copy to VIAME server
+    cp $HOME/remote/namek/data/US_ALASKA_MML_SEALION/sealions_2012_refined_v3.kwcoco.json \
+       $HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_2012_refined_v3.kwcoco.json
+
+    # Copy to VIAME server
+    cp $HOME/remote/namek/data/US_ALASKA_MML_SEALION/sealions_2013_refined_v3.mscoco.json \
+       $HOME/remote/viame/data/US_ALASKA_MML_SEALION/sealions_2013_refined_v3.mscoco.json
+
+
+    # On VIAME server: Move to the non-flat folder in PUBLIC
+    kwcoco reroot \
+        --src /data/projects/viame/US_ALASKA_MML_SEALION/sealions_2012_refined_v3.mscoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2012/sealions_2012_v3.kwcoco.json \
+        --old_prefix=BLACKEDOUT/extracted/2012/ \
+        --new_prefix=images \
+        --absolute=False
+
+    kwcoco reroot \
+        --src /data/projects/viame/US_ALASKA_MML_SEALION/sealions_2013_refined_v3.mscoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2013/sealions_2013_v3.kwcoco.json \
+        --old_prefix=BLACKEDOUT/extracted/2013/ \
+        --new_prefix=images \
+        --absolute=False
+
+
+    # On VIAME server: Convert to VIAME CSV
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2012/sealions_2012_v3.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2012/sealions_2007_v3.viame.csv
+
+
+    python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
+        --src /data/public/Aerial/US_ALASKA_MML_SEALION/2013/sealions_2013_v3.kwcoco.json \
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2013/sealions_2007_v3.viame.csv
+
+
+    # For final step see the hack_sealion_annots_on_server script
     """
