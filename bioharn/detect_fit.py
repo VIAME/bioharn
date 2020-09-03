@@ -1005,22 +1005,6 @@ def setup_harn(cmdline=True, **kw):
     })
     harn.script_config = config
 
-    if ub.WIN32:
-        # MONKEY PATCH STDOUT TO REMOVE UNICODE
-        import sys
-        _orig_stdout_write = sys.stdout.write
-        def monkey_write(text):
-            """
-            Returns the string without non ASCII characters
-
-            https://stackoverflow.com/questions/44010727/remove-unicode-code-uxxx-in-string-python
-
-            text = ' ascii pipe:| unicode pipe: │' + ub.color_text('red text', 'red')
-            """
-            new_text = text.encode('ascii', errors='ignore').decode('ascii')
-            _orig_stdout_write(new_text)
-        sys.stdout.write = monkey_write
-
     print('harn = {!r}'.format(harn))
     print('samplers = {!r}'.format(samplers))
     return harn

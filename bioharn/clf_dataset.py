@@ -255,20 +255,12 @@ class ClfDataset(torch_data.Dataset):
         """
         if len(self) == 0:
             raise Exception('must have some data')
-
-        def worker_init_fn(worker_id):
-            for i in range(worker_id + 1):
-                seed = np.random.randint(0, int(2 ** 32) - 1)
-            seed = seed + worker_id
-            kwarray.seed_global(seed)
-            if self.augmenter:
-                rng = kwarray.ensure_rng(None)
-                self.augmenter.seed_(rng)
+        from functools import partial
 
         loaderkw = {
             'num_workers': num_workers,
             'pin_memory': pin_memory,
-            'worker_init_fn': worker_init_fn,
+            'worker_init_fn': partial(_worker_init_fn, augmenter=self.augmenter),
         }
         if balance is None:
             balance = 'sequential'
@@ -306,6 +298,16 @@ class ClfDataset(torch_data.Dataset):
 
         loader = torch_data.DataLoader(self, **loaderkw)
         return loader
+
+
+def _worker_init_fn(worker_id, augmenter=None):
+    for i in range(worker_id + 1):
+        seed = np.random.randint(0, int(2 ** 32) - 1)
+    seed = seed + worker_id
+    kwarray.seed_global(seed)
+    if augmenter:
+        rng = kwarray.ensure_rng(None)
+        augmenter.seed_(rng)
 
 
 class SubsetSampler(torch_data.Sampler):
