@@ -6,16 +6,19 @@ import copy
 
 def hack():
     """
-    cd /data/public/Aerial/US_ALASKA_MML_SEALION
+    cd /data/public/Aerial
+    /US_ALASKA_MML_SEALION
+
     sudo chmod g+w -R /data/public/Aerial/
     sudo chown -R root:public /data/public/Aerial/US_ALASKA_MML_SEALION_FLAT/
+    sudo chown -R root:public *
     """
-    dpath = '/data/public/Aerial/US_ALASKA_MML_SEALION'
+    dpath = '/data/public/Aerial/_ORIG_US_ALASKA_MML_SEALION'
 
-    flat_dpath = ub.ensuredir('/data/public/Aerial/US_ALASKA_MML_SEALION_FLAT')
+    flat_dpath = ub.ensuredir('/data/public/Aerial/US_ALASKA_MML_SEALION')
 
-    # csv_fpaths = glob.glob(join(dpath, '*', '*.csv'))
-    csv_fpaths = glob.glob(join(dpath, '2013', '*.csv'))
+    csv_fpaths = glob.glob(join(dpath, '*', '*.csv'))
+    # csv_fpaths = glob.glob(join(dpath, '2013', '*.csv'))
 
     new_csv_fpaths = []
     to_copy = []
@@ -31,6 +34,9 @@ def hack():
             text = file.read()
         lines = [line.strip() for line in text.split('\n')]
         lines = [line for line in lines if line and not line.startswith('#')]
+
+        # HACK FOR FRAME NUMS
+        gname_to_frame_num = {}
 
         new_lines = []
         seen_ = set()
@@ -50,9 +56,15 @@ def hack():
                 # copies
                 seen_.add(old_gpath)
 
+            # HACK FOR FRAME NUMS
+            if old_gname not in gname_to_frame_num:
+                gname_to_frame_num[old_gname] = len(gname_to_frame_num)
+            frame_num = gname_to_frame_num[old_gname]
+
             # Modify the CSV
             new_parts = copy.copy(parts)
             new_parts[1] = new_gname
+            new_parts[2] = str(frame_num)
             new_lines.append(','.join(new_parts))
 
         # Rewrite the modified CSV to the same directory as the images

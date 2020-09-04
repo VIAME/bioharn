@@ -774,12 +774,12 @@ def make_correspondence_2012_2013():
     # On VIAME server: Convert to VIAME CSV
     python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
         --src /data/public/Aerial/US_ALASKA_MML_SEALION/2012/sealions_2012_v3.kwcoco.json \
-        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2012/sealions_2007_v3.viame.csv
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2012/sealions_2012_v3.viame.csv
 
 
     python $HOME/code/bioharn/dev/kwcoco_to_viame_csv.py \
         --src /data/public/Aerial/US_ALASKA_MML_SEALION/2013/sealions_2013_v3.kwcoco.json \
-        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2013/sealions_2007_v3.viame.csv
+        --dst /data/public/Aerial/US_ALASKA_MML_SEALION/2013/sealions_2013_v3.viame.csv
 
 
     # For final step see the hack_sealion_annots_on_server script
