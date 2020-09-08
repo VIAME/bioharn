@@ -302,7 +302,7 @@ class ClfDataset(torch_data.Dataset):
 
 def _worker_init_fn(worker_id, augmenter=None):
     for i in range(worker_id + 1):
-        seed = np.random.randint(0, int(2 ** 32) - 1)
+        seed = np.random.randint(0, int(2 ** 31) - 1)
     seed = seed + worker_id
     kwarray.seed_global(seed)
     if augmenter:
