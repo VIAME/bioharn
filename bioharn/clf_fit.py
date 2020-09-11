@@ -621,6 +621,10 @@ def setup_harn(cmdline=True, **kw):
         'colored': not ub.WIN32,
         'allow_unicode': not ub.WIN32,
     })
+
+    if ub.WIN32:
+        ub.util_colors.NO_COLOR = True
+
     harn.intervals.update({})
     harn.script_config = config
     return harn

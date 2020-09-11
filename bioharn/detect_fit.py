@@ -1005,6 +1005,9 @@ def setup_harn(cmdline=True, **kw):
     })
     harn.script_config = config
 
+    if ub.WIN32:
+        ub.util_colors.NO_COLOR = True
+
     print('harn = {!r}'.format(harn))
     print('samplers = {!r}'.format(samplers))
     return harn
