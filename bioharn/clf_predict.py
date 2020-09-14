@@ -178,8 +178,8 @@ class ClfPredictor(object):
             >>> import kwimage
             >>> predictor = ClfPredictor.demo()
             >>> image = kwimage.grab_test_image()
-            >>> classifications = list(predictor.predict([image]))
-            >>> classification = classifications[0]
+            >>> clfs = list(predictor.predict([image]))
+            >>> clf = clfs[0]
             >>> # xdoctest: +REQUIRES(--show)
             >>> import kwplot
             >>> kwplot.autompl()
@@ -430,6 +430,66 @@ class Classification(ub.NiceRepr):
             canvas, classes=self.classes, probs=self.prob, tcx=true_cidx,
             pcx=self.cidx)
         canvas = dtype_fixer(canvas)
+        return canvas
+
+    def draw_top(self, image, true_cidx=None, ntop=5):
+        """
+        Draws classification prediction on an image.
+        Similar style to the original ImageNet classification results.
+
+        Example:
+            >>> # xdoctest: +SKIP
+            >>> # requires new version of kwimage
+            >>> classes = ['class-A', 'class-B', 'class-C']
+            >>> self = Classification.random(classes=classes, rng=0)
+            >>> image = kwimage.grab_test_image(dsize=(300, 300))
+            >>> true_cidx = 2
+            >>> canvas = self.draw_top(image, true_cidx=true_cidx)
+            >>> # xdoctest: +REQUIRES(--show)
+            >>> import kwplot
+            >>> kwplot.autompl()
+            >>> kwplot.imshow(canvas)
+        """
+        import kwimage
+        sortx = self.prob.argsort()[0:ntop]
+
+        w = image.shape[1]
+
+        text_color = 'lightblue'
+
+        bar_colors = ['dodgerblue'] * len(sortx)
+        if true_cidx:
+            found = np.where(sortx == true_cidx)[0]
+            if found:
+                bar_colors[found[0]] = 'limegreen'
+            cname = self.classes[true_cidx]
+            name_canvas = kwimage.draw_text_on_image(
+                None, text=cname, org=(w / 2, 0), halign='center', valign='top',
+                color=text_color)
+        else:
+            name_canvas = None
+
+        top_classes = [self.classes[idx] for idx in sortx]
+        top_probs = self.prob[sortx]
+
+        text = '\n'.join(top_classes)
+        bar_canvas, info = kwimage.draw_text_on_image(
+            None, text, halign='right', valign='top', org=(w, 0), color=text_color,
+            return_info=True)
+        line_h = info['line_sizes'][0, 1]
+        top_pos = info['line_org'].T[1] - line_h
+        bars = kwimage.Boxes(np.c_[
+            [0] * len(top_pos),
+            top_pos,
+            top_probs * w,
+            [line_h] * len(top_pos)
+        ], 'xywh')
+        bars.draw_on(bar_canvas, color=bar_colors, thickness=-1)
+
+        if true_cidx:
+            canvas = kwimage.stack_images([image, name_canvas, bar_canvas], axis=0)
+        else:
+            canvas = kwimage.stack_images([image, bar_canvas], axis=0)
         return canvas
 
 
