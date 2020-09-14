@@ -376,7 +376,8 @@ class DetectEvaluator(object):
 
     def _init_predictor(evaluator):
         # Load model
-        deployed = nh.export.DeployedModel.coerce(evaluator.config['deployed'])
+        import torch_liberator
+        deployed = torch_liberator.DeployedModel.coerce(evaluator.config['deployed'])
         if hasattr(deployed, '_train_info'):
             evaluator.train_info = deployed._train_info
         else:

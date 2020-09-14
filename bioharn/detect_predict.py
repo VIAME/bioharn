@@ -35,6 +35,7 @@ import torch
 import scriptconfig as scfg
 import kwimage
 import warnings
+import torch_liberator
 from netharn.data.channel_spec import ChannelSpec
 from netharn.data.data_containers import ContainerXPU
 import os
@@ -92,7 +93,7 @@ def _ensure_upgraded_model(deployed_fpath):
 
     """
     from netharn.util import zopen
-    deployed = nh.export.DeployedModel.coerce(deployed_fpath)
+    deployed = torch_liberator.DeployedModel.coerce(deployed_fpath)
 
     # Hueristic to determine if the model needs update or not
     needs_update = False
@@ -176,7 +177,7 @@ class DetectPredictor(object):
         }
         @ub.memoize
         def _native_config():
-            deployed = nh.export.DeployedModel.coerce(config['deployed'])
+            deployed = torch_liberator.DeployedModel.coerce(config['deployed'])
             # New models should have relevant params here, which is slightly
             # less hacky than using the eval.
             native_config = deployed.train_info()['other']
@@ -229,7 +230,7 @@ class DetectPredictor(object):
             deployed = predictor.config['deployed']
             if isinstance(predictor.config['deployed'], str):
                 deployed = _ensure_upgraded_model(deployed)
-            deployed = nh.export.DeployedModel.coerce(deployed)
+            deployed = torch_liberator.DeployedModel.coerce(deployed)
             model = deployed.load_model()
             model.train(False)
             predictor.xpu = xpu

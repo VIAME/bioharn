@@ -620,7 +620,8 @@ class DetectHarn(nh.FitHarn):
                 if getattr(harn, 'deploy_fpath', None) is None:
                     harn.deploy_fpath = harn._deploy()
 
-                deployed = nh.export.DeployedModel.coerce(harn.deploy_fpath)
+                import torch_liberator
+                deployed = torch_liberator.DeployedModel.coerce(harn.deploy_fpath)
                 deployed._model = harn.model
                 deployed._train_info = harn.train_info
                 deployed.train_dpath = harn.train_dpath

@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import scriptconfig as scfg
 import kwimage
+import torch_liberator
 # import warnings
 # from bioharn.channel_spec import ChannelSpec
 
@@ -98,7 +99,7 @@ class ClfPredictor(object):
         }
         @ub.memoize
         def _native_config():
-            deployed = nh.export.DeployedModel.coerce(config['deployed'])
+            deployed = torch_liberator.DeployedModel.coerce(config['deployed'])
             # New models should have relevant params here, which is slightly
             # less hacky than using the eval.
             native_config = deployed.train_info()['other']
@@ -133,7 +134,7 @@ class ClfPredictor(object):
         # Just make sure the model is in memory (it might not be on the XPU yet)
         if predictor.model is None:
             xpu = nh.XPU.coerce(predictor.config['xpu'])
-            deployed = nh.export.DeployedModel.coerce(predictor.config['deployed'])
+            deployed = torch_liberator.DeployedModel.coerce(predictor.config['deployed'])
             model = deployed.load_model()
             model.train(False)
             predictor.xpu = xpu
@@ -166,8 +167,24 @@ class ClfPredictor(object):
             This exists as a convinience, the prefered method is to predict
             using a sampler, which is better at preserving metadata.
 
+        Args:
+            images (List[ndarray]): list of uint8 images.
+
         Yields:
             ClassificationResult
+
+        Example:
+            >>> import ndsampler
+            >>> import kwimage
+            >>> predictor = ClfPredictor.demo()
+            >>> image = kwimage.grab_test_image()
+            >>> classifications = list(predictor.predict([image]))
+            >>> classification = classifications[0]
+            >>> # xdoctest: +REQUIRES(--show)
+            >>> import kwplot
+            >>> kwplot.autompl()
+            >>> canvas = classification.draw_on(image.copy())
+            >>> kwplot.imshow(canvas)
         """
         native = predictor._infer_native(predictor.config)
         dataset = ImageListDataset(images, input_dims=native['input_dims'],
@@ -182,10 +199,21 @@ class ClfPredictor(object):
         predictor._ensure_mounted_model()
         predictor.model.eval()
         with torch.no_grad():
+            classes = predictor.raw_model.classes
             for raw_batch in prog:
-                batch_result = predictor.predict_batch(raw_batch)
-                for item in batch_result:
-                    yield item
+                batch_result, class_probs = predictor.predict_batch(raw_batch)
+                # Translate to row-based data structure
+                # (Do we want a column based data structure option?)
+                for (rx, row), prob in zip(batch_result.iterrows(), class_probs):
+                    datakeys = set(Classification.__datakeys__) | set(row.keys())
+                    clf_kwargs = row.copy()
+                    clf_kwargs.update({
+                        'prob': prob,
+                        'classes': classes,
+                        'datakeys': datakeys,
+                    })
+                    result = Classification(**clf_kwargs)
+                    yield result
 
     def predict_sampler(predictor, sampler, aids=None):
         """
