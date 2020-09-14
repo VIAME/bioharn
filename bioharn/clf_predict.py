@@ -482,7 +482,7 @@ class ClfSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
 class ImageListDataset(torch_data.Dataset):
     """
-    TODO: implement me.
+    Dataset for simple iteration over in-memory images
     """
     def __init__(self, images, input_dims=(224, 224), min_dim=64):
         self.images = images
@@ -493,7 +493,22 @@ class ImageListDataset(torch_data.Dataset):
         return len(self.images)
 
     def __getitem__(self, index):
-        raise NotImplementedError
+        image = self.images[index]
+        image = kwimage.atleast_3channels(image)[:, :, 0:3]
+
+        # Resize to input dimensinos
+        if self.input_dims is not None:
+            dsize = tuple(self.input_dims[::-1])
+            image = kwimage.imresize(image, dsize=dsize, letterbox=True)
+
+        im_chw = image.transpose(2, 0, 1) / 255.0
+        inputs = {
+            'rgb': torch.FloatTensor(im_chw),
+        }
+        item = {
+            'inputs': inputs,
+        }
+        return item
 
 
 def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
