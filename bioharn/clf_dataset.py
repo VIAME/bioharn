@@ -17,6 +17,7 @@ class ClfDataset(torch_data.Dataset):
     DataLoader. There is little netharn-specific about this class.
 
     Example:
+        >>> from bioharn.clf_dataset import *  # NOQA
         >>> import ndsampler
         >>> sampler = ndsampler.CocoSampler.demo()
         >>> self = ClfDataset(sampler)
@@ -31,7 +32,7 @@ class ClfDataset(torch_data.Dataset):
         >>> kwplot.autompl()
         >>> kwplot.imshow(batch['inputs']['rgb'][0])
     """
-    def __init__(self, sampler, input_dims=(256, 256), min_dim=64, augment=None):
+    def __init__(self, sampler, input_dims=(256, 256), min_dim=64, augment=None, gravity=0):
         self.sampler = sampler
         self.augment = augment
         self.conditional_augmentors = None
@@ -40,7 +41,7 @@ class ClfDataset(torch_data.Dataset):
         self.classes = self.sampler.catgraph
 
         self.disable_augmenter = not bool(augment)
-        self.augmenter = self._coerce_augmenter(augment)
+        self.augmenter = ClfAugmentor(mode=augment, gravity=gravity)
 
     @classmethod
     def demo(ClfDataset, key='shapes8', **kw):
@@ -89,8 +90,7 @@ class ClfDataset(torch_data.Dataset):
 
         image = kwimage.ensure_uint255(image)
         if self.augmenter is not None and not self.disable_augmenter:
-            det = self.augmenter.to_deterministic()
-            image = det.augment_image(image)
+            image = self.augmenter.augment_data(image)
 
         # Resize to input dimensinos
         if self.input_dims is not None:
@@ -116,105 +116,6 @@ class ClfDataset(torch_data.Dataset):
             'labels': labels,
         }
         return item
-
-    def _coerce_augmenter(self, augment):
-        import netharn as nh
-        import imgaug.augmenters as iaa
-        import imgaug as ia
-        if augment is True:
-            augment = 'simple'
-        if not augment:
-            augmenter = None
-        elif augment == 'simple':
-            augmenter = iaa.Sequential([
-                iaa.Crop(percent=(0, .2)),
-                iaa.Fliplr(p=.5)
-            ])
-        elif augment == 'medium':
-            augmenter = iaa.Sequential([
-                iaa.Sometimes(0.2, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
-                iaa.Crop(percent=(0, .2)),
-                iaa.Fliplr(p=.5)
-            ])
-        elif augment == 'complex':
-            gravity = 0
-            self._geometric = iaa.Sequential([
-                iaa.Sometimes(0.55, iaa.Affine(
-                    scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
-                    rotate=(-15, 15),
-                    shear=ia.parameters.TruncatedNormal(0.0, 2.5, low=-16, high=16),
-                    order=1,
-                    # if mode is constant, use a cval between 0 and 255
-                    cval=(0, 255),
-                    # use any of scikit-image's warping modes (see 2nd image from the top for examples)
-                    backend='cv2',
-                )),
-                iaa.Fliplr(p=.5),
-                iaa.Flipud(p=.5 * (1 - gravity)),
-            ] + ([iaa.Rot90(k=[0, 1, 2, 3])] * int(1 - gravity))  +
-                [
-                    iaa.Sometimes(.9, iaa.CropAndPad(px=(-16, 16))),
-                 ],
-            )
-            self._rgb_intensity = iaa.Sequential([
-                # Color, brightness, saturation, and contrast
-                iaa.Sometimes(0.1, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
-                iaa.Sometimes(.10, iaa.GammaContrast((0.5, 2.0))),
-                iaa.Sometimes(.10, iaa.LinearContrast((0.5, 1.5))),
-                iaa.Sometimes(.10, iaa.Multiply((0.5, 1.5), per_channel=0.5)),
-                iaa.Sometimes(.10, iaa.Add((-10, 10), per_channel=0.5)),
-                iaa.Sometimes(.1, iaa.Grayscale(alpha=(0, 1))),
-
-                # Speckle noise
-                iaa.Sometimes(.1, iaa.AddElementwise((-40, 40))),
-                iaa.Sometimes(.1, iaa.AdditiveGaussianNoise(
-                    loc=0, scale=(0.0, 0.05 * 255), per_channel=0.5
-                )),
-                iaa.Sometimes(.1, iaa.OneOf([
-                    iaa.Dropout((0.01, 0.1), per_channel=0.5),
-                    iaa.CoarseDropout(
-                        (.09, .31), size_percent=(0.19, 0.055),
-                        per_channel=0.15
-                    ),
-                ])),
-
-                # Blurring
-                iaa.Sometimes(.05, iaa.OneOf([
-                    iaa.GaussianBlur((0, 2.5)),
-                    iaa.AverageBlur(k=(2, 7)),
-                    iaa.MedianBlur(k=(3, 11)),
-                ])),
-
-                # Sharpening
-                iaa.Sometimes(.1, iaa.OneOf([
-                    iaa.Sometimes(.1, iaa.Sharpen(alpha=(0, 1.0), lightness=(0.75, 1.5))),
-                    iaa.Sometimes(.1, iaa.Emboss(alpha=(0, 1.0), strength=(0, 2.0))),
-                ])),
-
-                # Misc
-                iaa.Sometimes(.1, iaa.OneOf([
-                    iaa.EdgeDetect(alpha=(0, 0.7)),
-                    iaa.DirectedEdgeDetect(
-                        alpha=(0, 0.7), direction=(0.0, 1.0)
-                    ),
-                ])),
-            ], random_order=True)
-
-            augmenter = []
-
-            self._disp_intensity = iaa.Sequential([
-                iaa.Sometimes(.1, iaa.CoarseDropout(p=(.1, .3), size_percent=(0.02, 0.5))),
-                iaa.Sometimes(.1, iaa.AddElementwise((-40, 40))),
-            ], random_order=True)
-
-            # TODO: better multi-channel augmentation
-            augmenter = iaa.Sequential([
-                self._rgb_intensity,
-                self._geometric,
-            ], random_order=False)
-        else:
-            raise KeyError('Unknown augmentation {!r}'.format(self.augment))
-        return augmenter
 
     def make_loader(self, batch_size=16, num_batches='auto', num_workers=0,
                     shuffle=False, pin_memory=False, drop_last=False,
@@ -349,3 +250,175 @@ def roundrobin(*iterables):
             # Remove the iterator we just exhausted from the cycle.
             num_active -= 1
             nexts = cycle(islice(nexts, num_active))
+
+
+class ClfAugmentor(object):
+    """
+    CommandLine:
+        xdoctest -m bioharn.clf_dataset ClfAugmentor --show --mode=medium2 --num=15
+        xdoctest -m bioharn.clf_dataset ClfAugmentor --show --mode=complex --gravity=1 --num=15
+        xdoctest -m bioharn.clf_dataset ClfAugmentor --show --mode=complex --gravity=0 --num=15
+
+    Example:
+        >>> # xdoctest: +REQUIRES(--show)
+        >>> import scriptconfig as scfg
+        >>> import kwimage
+        >>> config = scfg.quick_cli({
+        >>>     'fpath': kwimage.grab_test_image_fpath(),
+        >>>     'mode': 'complex',
+        >>>     'gravity': 0,
+        >>>     'num': 11,
+        >>>     'rng': None,
+        >>> })
+        >>> import kwplot
+        >>> kwplot.autompl()
+        >>> orig_imdata = kwimage.imread(config['fpath'])
+        >>> augmentor = ClfAugmentor(config['mode'], gravity=config['gravity'], rng=config['rng'])
+        >>> first = kwimage.draw_text_on_image(orig_imdata, 'orig', (0, 0), valign='top', color='limegreen', border=1)
+        >>> fnum = 1
+        >>> fig = kwplot.figure(fnum=fnum)
+        >>> fig.suptitle('Press <spacebar> to re-augment')
+        >>> ax = fig.gca()
+        >>> def augment_and_draw():
+        >>>     print('augment and drawing')
+        >>>     augged_images = []
+        >>>     for idx in range(config['num']):
+        >>>         aug_im = augmentor.augment_data(orig_imdata.copy())
+        >>>         augged_images.append(aug_im)
+        >>>     canvas = kwimage.stack_images_grid([first] + augged_images)
+        >>>     kwplot.imshow(canvas, ax=ax)
+        >>> def on_key_press(event):
+        >>>     if event and event.key == ' ':
+        >>>         augment_and_draw()
+        >>>         fig.canvas.draw()
+        >>> augment_and_draw()
+        >>> cid = fig.canvas.mpl_connect('key_press_event', on_key_press)
+        >>> kwplot.show_if_requested()
+    """
+    def __init__(self, mode='simple', gravity=0, rng=None):
+        import netharn as nh
+        import imgaug.augmenters as iaa
+        import imgaug as ia
+        self.rng = kwarray.ensure_rng(rng)
+        self.mode = mode
+
+        if mode is True:
+            mode = 'simple'
+        if not mode:
+            augmenter = None
+        elif mode == 'simple':
+            augmenter = iaa.Sequential([
+                iaa.Crop(percent=(0, .2)),
+                iaa.Fliplr(p=.5)
+            ])
+        elif mode == 'medium':
+            augmenter = iaa.Sequential([
+                iaa.Sometimes(0.2, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
+                iaa.Crop(percent=(0, .2)),
+                iaa.Fliplr(p=.5)
+            ])
+        elif mode == 'medium2':
+            augmenter = iaa.Sequential([
+                iaa.Sometimes(0.2, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
+                iaa.Crop(percent=(0, .2)),
+                iaa.Fliplr(p=.5),
+                iaa.Sometimes(.2, iaa.Grayscale(alpha=(0, 1))),
+            ])
+        elif mode == 'complex':
+            self._geometric = iaa.Sequential([
+                iaa.Sometimes(0.55, iaa.Affine(
+                    scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
+                    rotate=(-15, 15),
+                    shear=ia.parameters.TruncatedNormal(0.0, 2.5, low=-16, high=16),
+                    order=1,
+                    # if mode is constant, use a cval between 0 and 255
+                    cval=(0, 255),
+                    # use any of scikit-image's warping modes (see 2nd image from the top for examples)
+                    backend='cv2',
+                )),
+                iaa.Fliplr(p=.5),
+                iaa.Flipud(p=.5 * (1 - gravity)),
+            ] + ([iaa.Rot90(k=[0, 1, 2, 3])] * int(1 - gravity))  +
+                [
+                    iaa.Sometimes(.9, iaa.CropAndPad(px=(-16, 16))),
+                 ],
+            )
+            self._rgb_intensity = iaa.Sequential([
+                # Color, brightness, saturation, and contrast
+                iaa.Sometimes(0.1, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
+                iaa.Sometimes(.10, iaa.GammaContrast((0.5, 2.0))),
+                iaa.Sometimes(.10, iaa.LinearContrast((0.5, 1.5))),
+                iaa.Sometimes(.10, iaa.Multiply((0.5, 1.5), per_channel=0.5)),
+                iaa.Sometimes(.10, iaa.Add((-10, 10), per_channel=0.5)),
+                iaa.Sometimes(.1, iaa.Grayscale(alpha=(0, 1))),
+
+                # Speckle noise
+                iaa.Sometimes(.1, iaa.AddElementwise((-40, 40))),
+                iaa.Sometimes(.1, iaa.AdditiveGaussianNoise(
+                    loc=0, scale=(0.0, 0.05 * 255), per_channel=0.5
+                )),
+                iaa.Sometimes(.1, iaa.OneOf([
+                    iaa.Dropout((0.01, 0.1), per_channel=0.5),
+                    iaa.CoarseDropout(
+                        (.09, .31), size_percent=(0.19, 0.055),
+                        per_channel=0.15
+                    ),
+                ])),
+
+                # Blurring
+                iaa.Sometimes(.05, iaa.OneOf([
+                    iaa.GaussianBlur((0, 2.5)),
+                    iaa.AverageBlur(k=(2, 7)),
+                    iaa.MedianBlur(k=(3, 11)),
+                ])),
+
+                # Sharpening
+                iaa.Sometimes(.1, iaa.OneOf([
+                    iaa.Sometimes(.1, iaa.Sharpen(alpha=(0, 1.0), lightness=(0.75, 1.5))),
+                    iaa.Sometimes(.1, iaa.Emboss(alpha=(0, 1.0), strength=(0, 2.0))),
+                ])),
+
+                # Misc
+                iaa.Sometimes(.1, iaa.OneOf([
+                    iaa.EdgeDetect(alpha=(0, 0.7)),
+                    iaa.DirectedEdgeDetect(
+                        alpha=(0, 0.7), direction=(0.0, 1.0)
+                    ),
+                ])),
+            ], random_order=True)
+
+            augmenter = []
+
+            self._disp_intensity = iaa.Sequential([
+                iaa.Sometimes(.1, iaa.CoarseDropout(p=(.1, .3), size_percent=(0.02, 0.5))),
+                iaa.Sometimes(.1, iaa.AddElementwise((-40, 40))),
+            ], random_order=True)
+
+            # TODO: better multi-channel augmentation
+            augmenter = iaa.Sequential([
+                self._rgb_intensity,
+                self._geometric,
+            ], random_order=False)
+        else:
+            raise KeyError('Unknown augmentation {!r}'.format(self.augment))
+
+        self.augmenter = augmenter
+
+    def json_id(self):
+        import netharn as nh
+        if self.augmenter:
+            return nh.data.transforms.imgaug_json_id(self.augmenter)
+
+    def seed_(self, rng):
+        auger = self.augmenter
+        if auger is not None:
+            if hasattr(auger, 'seed_'):
+                return auger.seed_(rng)
+            else:
+                return auger.reseed(rng)
+
+    def augment_data(self, imdata):
+        if self.augmenter:
+            det = self.augmenter.to_deterministic()
+            imdata = det.augment_image(imdata)
+        return imdata

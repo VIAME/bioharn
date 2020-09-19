@@ -932,8 +932,54 @@ def preselect_regions(sampler, window_overlap, window_dims,
 
 class DetectionAugmentor(object):
     """
-    Ignore:
-        self = DetectionAugmentor(mode='heavy')
+    CommandLine:
+        xdoctest -m bioharn.detect_dataset DetectionAugmentor --show --mode=heavy --num=3
+        xdoctest -m bioharn.detect_dataset DetectionAugmentor --show --mode=complex --gravity=1 --num=15
+        xdoctest -m bioharn.detect_dataset DetectionAugmentor --show --mode=complex --gravity=0 --num=8
+
+    Example:
+        >>> # xdoctest: +REQUIRES(--show)
+        >>> from bioharn.detect_dataset import *  # NOQA
+        >>> import scriptconfig as scfg
+        >>> import kwimage
+        >>> config = scfg.quick_cli({
+        >>>     'fpath': kwimage.grab_test_image_fpath(),
+        >>>     'mode': 'simple',
+        >>>     'gravity': 0,
+        >>>     'num': 8,
+        >>>     'rng': None,
+        >>>     'ndet': 3,
+        >>> })
+        >>> import kwplot
+        >>> kwplot.autompl()
+        >>> orig_imdata = kwimage.imread(config['fpath'])
+        >>> augmentor = DetectionAugmentor(config['mode'], gravity=config['gravity'], rng=config['rng'])
+        >>> orig_dets = kwimage.Detections.random(num=config['ndet'], segmentations=True)
+        >>> orig_dets = orig_dets.scale(tuple(orig_imdata.shape[0:2][::-1]))
+        >>> first = kwimage.draw_text_on_image(
+        >>>     orig_imdata.copy(), 'orig', (0, 0),
+        >>>     valign='top', color='limegreen', border=1)
+        >>> first = orig_dets.draw_on(first)
+        >>> fnum = 1
+        >>> fig = kwplot.figure(fnum=fnum)
+        >>> fig.suptitle('Press <spacebar> to re-augment')
+        >>> ax = fig.gca()
+        >>> def augment_and_draw():
+        >>>     print('augment and drawing')
+        >>>     augged_images = []
+        >>>     for idx in range(config['num']):
+        >>>         aug_im, dets2, disp_im = augmentor.augment_data(orig_imdata.copy(), orig_dets)
+        >>>         aug_im = dets2.draw_on(aug_im)
+        >>>         augged_images.append(aug_im)
+        >>>     canvas = kwimage.stack_images_grid([first] + augged_images)
+        >>>     kwplot.imshow(canvas, ax=ax)
+        >>> augment_and_draw()
+        >>> def on_key_press(event):
+        >>>     if event and event.key == ' ':
+        >>>         augment_and_draw()
+        >>>         fig.canvas.draw()
+        >>> cid = fig.canvas.mpl_connect('key_press_event', on_key_press)
+        >>> kwplot.show_if_requested()
     """
     def __init__(self, mode='simple', gravity=0, rng=None):
         import imgaug as ia
@@ -947,6 +993,7 @@ class DetectionAugmentor(object):
         self._geometric = iaa.Sequential([])
         self._disp_intensity = iaa.Sequential([])
 
+        # DEFINE NEW MODES HERE
         if mode == 'simple':
             self._geometric = iaa.Sequential([
                 iaa.Fliplr(p=.5),
@@ -1167,32 +1214,8 @@ class DetectionAugmentor(object):
         self.seed_(self.rng)
 
     def json_id(self):
-        def imgaug_json_id(aug):
-            # Ripped from netharn
-            # TODO: submit a PR to imgaug that registers parameters
-            # with classes
-            import imgaug
-            if isinstance(aug, tuple):
-                return [imgaug_json_id(item) for item in aug]
-            elif isinstance(aug, imgaug.parameters.StochasticParameter):
-                return str(aug)
-            else:
-                try:
-                    info = ub.odict()
-                    info['__class__'] = aug.__class__.__name__
-                    params = aug.get_parameters()
-                    if params:
-                        info['params'] = [imgaug_json_id(p) for p in params]
-                    if isinstance(aug, list):
-                        children = aug[:]
-                        children = [imgaug_json_id(c) for c in children]
-                        info['children'] = children
-                    return info
-                except Exception:
-                    # imgaug is weird and buggy
-                    return str(aug)
-
-        params = ub.map_vals(imgaug_json_id, self._augers)
+        import netharn as nh
+        params = ub.map_vals(nh.data.transforms.imgaug_json_id, self._augers)
         return params
 
     def seed_(self, rng):
