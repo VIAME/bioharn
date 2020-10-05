@@ -276,6 +276,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
             sampler = self.sampler
             # First check if the dataset defines a proper disparity channel
             if 'auxillary' in img:
+                img['auxiliary'] = img['auxillary']  # Hack
+            if 'auxiliary' in img:
                 from ndsampler.utils import util_gdal
                 disp_fpath = sampler.dset.get_auxillary_fpath(gid, 'disparity')
                 disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
@@ -293,7 +295,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 #     raise AssertionError('gid={} {}'.format(gid, ub.repr2(kwarray.stats_dict(disp_im))))
 
             if disp_im is None:
-                raise Exception('no auxillary disparity')
+                raise Exception('no auxiliary disparity')
                 disp_im = np.zeros()
 
         with_annots = ['boxes']

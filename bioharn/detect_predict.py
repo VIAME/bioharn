@@ -263,13 +263,15 @@ class DetectPredictor(object):
             full_rgb = path_or_image
         return full_rgb
 
-    def predict(predictor, path_or_image):
+    def predict(predictor, inputs):
         """
         Predict on a single large image using a sliding window_dims
 
         Args:
-            path_or_image (PathLike | ndarray): An 8-bit RGB numpy image or a
-                path to the image.
+            inputs (Dict[str, PathLike | ndarray] | PathLike | ndarray):
+                An 8-bit RGB numpy image or a path to the image for single-rgb
+                detectors. For multi-channel detectors this should be a
+                dictionary where the channel name maps to a path or ndarray.
 
         Returns:
             kwimage.Detections: a wrapper around predicted boxes, scores,
@@ -279,9 +281,6 @@ class DetectPredictor(object):
             :method:`predict_sampler` - this can be a faster alternative to
             predict, but it requires that your dataset is formatted as a
             sampler.
-
-        TODO:
-            - [X] Handle auxillary inputs
         """
         predictor.info('Begin detection prediction')
 
