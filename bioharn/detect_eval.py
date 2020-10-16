@@ -274,6 +274,7 @@ class DetectEvaluator(object):
             :class:`bioharn.detect_predict.DetectPredictConfig`.
 
     Example:
+        >>> # xdoctest: +REQUIRES(--slow)
         >>> from bioharn.detect_eval import *  # NOQA
         >>> # See DetectEvaluateConfig for config docs
         >>> config = DetectEvaluator.demo_config()
