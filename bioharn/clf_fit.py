@@ -369,6 +369,7 @@ class ClfHarn(nh.FitHarn):
             dict: dictionary of scalar metrics for netharn to log
 
         Example:
+            >>> # xdoctest: +REQUIRES(--slow)
             >>> harn = setup_harn().initialize()
             >>> harn._demo_epoch('vali', max_iter=10)
             >>> harn.on_epoch()

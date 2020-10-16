@@ -174,6 +174,7 @@ class ClfPredictor(object):
             ClassificationResult
 
         Example:
+            >>> # xdoctest: +REQUIRES(--slow)
             >>> import ndsampler
             >>> import kwimage
             >>> predictor = ClfPredictor.demo()
@@ -223,6 +224,7 @@ class ClfPredictor(object):
             ClassificationResult
 
         Example:
+            >>> # xdoctest: +REQUIRES(--slow)
             >>> import ndsampler
             >>> predictor = ClfPredictor.demo()
             >>> sampler = ndsampler.CocoSampler.demo()

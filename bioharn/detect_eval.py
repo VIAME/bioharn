@@ -161,16 +161,17 @@ def evaluate_models(cmdline=True, **kw):
 
             results = evaluator.evaluate()
 
-            small_results = {
-                'measures': results.measures.summary(),
-                'ovr_measures': results.ovr_measures.summary(),
-                'meta': results.meta,
-            }
             from kwcoco.util.util_json import ensure_json_serializable
+            import json
+            single_result = results['area_range=[0,inf],iou_thresh=0.5']
+            small_results = {
+                'nocls_measures': single_result.nocls_measures.summary(),
+                'ovr_measures': single_result.ovr_measures.summary(),
+                'meta': single_result.meta,
+            }
             small_results = ensure_json_serializable(small_results, normalize_containers=True)
             small_metrics_fpath = join(evaluator.paths['metrics'], 'small_metrics.json')
             print('small_metrics_fpath = {!r}'.format(small_metrics_fpath))
-            import json
             with open(small_metrics_fpath, 'w') as file:
                 json.dump(small_results, file, indent='    ')
             metric_fpaths.append(small_metrics_fpath)
@@ -582,9 +583,9 @@ class DetectEvaluator(object):
             'true_dataset': truth_sampler,
             'classes_of_interest': classes_of_interest,
             'ignore_classes': ignore_classes,
-            'out_dpath': metrics_dpath,
-            'expt_title': expt_title,
-            'draw': False,  # hack while this still exists
+            # 'out_dpath': metrics_dpath,
+            # 'expt_title': expt_title,
+            # 'draw': False,  # hack while this still exists
         })
         print('coco_eval_config = {}'.format(ub.repr2(coco_eval_config, nl=1)))
         coco_eval_config['pred_dataset'] = gid_to_pred
@@ -602,19 +603,16 @@ class DetectEvaluator(object):
             'eval_config': evaluator.config.asdict(),
             'train_info': evaluator.train_info,
         }
-        results.meta.update(extra_meta)
+        # results.meta.update(extra_meta)
+        for subres in results.values():
+            subres.meta.update(extra_meta)
 
-        # small_results = {
-        #     'measures': results['measures'].summary(),
-        #     'ovr_measures': results['ovr_measures'].summary(),
-        # }
-
-        # TODO: we should likely not be dumping the results here
-        # It should be the caller responsibility.
         metrics_fpath = join(metrics_dpath, 'metrics.json')
         print('dumping metrics_fpath = {!r}'.format(metrics_fpath))
         results.dump(metrics_fpath, indent='    ')
-        results.dump_figures(metrics_dpath)
+        results.dump_figures(
+            out_dpath=metrics_dpath,
+            expt_title=expt_title)
 
         if True:
             print('Choosing representative truth images')

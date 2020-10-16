@@ -12,24 +12,12 @@ import torch
 import kwimage
 import kwarray
 from collections import OrderedDict
-from distutils.version import LooseVersion
+# from distutils.version import LooseVersion
 import warnings  # NOQA
 # from bioharn.channel_spec import ChannelSpec
 # from bioharn import data_containers
 from netharn.data.channel_spec import ChannelSpec
 from netharn.data import data_containers
-
-
-@ub.memoize
-def _mmdet_is_version_1x():
-    import mmdet
-    return LooseVersion(mmdet.__version__) < LooseVersion('2.0.0')
-
-
-@ub.memoize
-def _mmdet_is_pre_1_1():
-    import mmdet
-    return LooseVersion(mmdet.__version__) < LooseVersion('1.1.0')
 
 
 def _hack_mm_backbone_in_channels(backbone_cfg):
@@ -39,7 +27,6 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
     if 'in_channels' not in backbone_cfg:
         return
     import mmdet
-    _NEEDS_CHECK = _mmdet_is_pre_1_1()
     _NEEDS_CHECK = True
     if _NEEDS_CHECK:
         import inspect
@@ -48,10 +35,7 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
         if backbone_key == 'ResNeXt':
             backbone_key = 'ResNet'
 
-        if _mmdet_is_version_1x():
-            backbone_cls = models.registry.BACKBONES.get(backbone_key)
-        else:
-            backbone_cls = models.builder.BACKBONES.get(backbone_key)
+        backbone_cls = models.builder.BACKBONES.get(backbone_key)
 
         cls_kw = inspect.signature(backbone_cls).parameters
         if 'in_channels' not in cls_kw:
@@ -420,28 +404,40 @@ class MM_Coder(object):
         batch_dets = []
 
         if isinstance(batch_results, data_containers.BatchContainer):
-            batch_results = batch_results.data
-
-        # HACK for the way mmdet handles background
-        if _mmdet_is_version_1x():
-            class_offset = 1
-            if 'backround' in self.classes:
-                start = 1
-            else:
-                start = 0
+            batch_result_data = batch_results.data
         else:
-            class_offset = 0
-            start = 0
+            batch_result_data = batch_results
 
-        for result in batch_results:
+        class_offset = 0
+        start = 0
+        mm_sseg_results = None
+
+        for result in batch_result_data:
             if isinstance(result, tuple) and len(result) == 2:
                 # bbox and segmentation result
                 mm_bbox_results = result[0]
                 mm_sseg_results = result[1]
             elif isinstance(result, list):
-                # bbox only result
-                mm_bbox_results = result
-                mm_sseg_results = None
+                # Hack for mmdet 2.4+ (not sure exactly what format change is
+                # so this may need to be reworked)
+                from distutils.version import LooseVersion
+                import mmdet
+                if LooseVersion(mmdet.__version__) >= LooseVersion('2.4.0'):
+
+                    mm_sseg_results = None
+                    if len(result) == 1:
+                        if isinstance(result[0], tuple):
+                            mm_bbox_results = result[0][0]
+                            mm_sseg_results = result[0][1]
+
+                    if mm_sseg_results is None:
+                        # They seem to have added another level of nesting
+                        # Not sure what the semantics of it are yet.
+                        import itertools as it
+                        mm_bbox_results = list(it.chain.from_iterable(result))
+                else:
+                    # bbox only result
+                    mm_bbox_results = result
             else:
                 # TODO: when using data parallel, we have
                 # Note: this actually only happened when we failed to use
@@ -456,6 +452,7 @@ class MM_Coder(object):
                 # Stack the results into a detections object
                 pred_cidxs = []
                 for cidx, cls_results in enumerate(mm_bbox_results, start=start):
+                    # assert cls_results.shape == (None, 5)
                     pred_cidxs.extend([cidx + class_offset] * len(cls_results))
                 pred_tlbr = np.vstack([r[:, 0:4] for r in mm_bbox_results])
                 pred_score = np.hstack([r[:, 4] for r in mm_bbox_results])
@@ -613,18 +610,13 @@ class MM_Detector(nh.layers.Module):
             if with_mask:
                 if 'gt_masks' in mm_inputs:
                     # mmdet only allows numpy inputs
-                    if _mmdet_is_version_1x():
-                        numpy_masks = [kwarray.ArrayAPI.numpy(mask)
-                                       for mask in mm_inputs['gt_masks']]
-                        trainkw['gt_masks'] = numpy_masks
-                    else:
-                        from mmdet.core.mask import BitmapMasks
-                        numpy_masks = [kwarray.ArrayAPI.numpy(mask)
-                                       for mask in mm_inputs['gt_masks']]
-                        bitmap_masks = [
-                            BitmapMasks(m, height=m.shape[1], width=m.shape[2])
-                            for m in numpy_masks]
-                        trainkw['gt_masks'] = bitmap_masks
+                    from mmdet.core.mask import BitmapMasks
+                    numpy_masks = [kwarray.ArrayAPI.numpy(mask)
+                                   for mask in mm_inputs['gt_masks']]
+                    bitmap_masks = [
+                        BitmapMasks(m, height=m.shape[1], width=m.shape[2])
+                        for m in numpy_masks]
+                    trainkw['gt_masks'] = bitmap_masks
 
             # Compute input normalization
             imgs_norm = self.input_norm(imgs)
@@ -755,55 +747,29 @@ class MM_RetinaNet(MM_Detector):
         in_channels = len(ub.peek(chann_norm.values()))
 
         compat_params = {}
-        if _mmdet_is_version_1x():
-            compat_params['bbox_head'] = dict(
-                type='RetinaHead',
-                num_classes=num_classes,
-                in_channels=256,
-                stacked_convs=4,
-                feat_channels=256,
+        compat_params['bbox_head'] = dict(
+            type='RetinaHead',
+            num_classes=80,
+            in_channels=256,
+            stacked_convs=4,
+            feat_channels=256,
+            anchor_generator=dict(
+                type='AnchorGenerator',
                 octave_base_scale=4,
                 scales_per_octave=3,
-
-                # anchor_ratios=[0.5, 1.0, 2.0],
-                anchor_ratios=[0.75, 1.0, 1.5],
-                # anchor_ratios=[0.8, 0.9, 1.0, 1.1, 1.2],
-
-                anchor_strides=[8, 16, 32, 64, 128],
-                # anchor_strides=[4, 8, 16, 32, 64],
+                ratios=[0.5, 1.0, 2.0],
+                strides=[8, 16, 32, 64, 128]),
+            bbox_coder=dict(
+                type='DeltaXYWHBBoxCoder',
                 target_means=[.0, .0, .0, .0],
-                target_stds=[1.0, 1.0, 1.0, 1.0],
-                loss_cls=dict(
-                    type='FocalLoss',
-                    use_sigmoid=True,
-                    gamma=2.0,
-                    alpha=0.25,
-                    loss_weight=1.0),
-                loss_bbox=dict(type='SmoothL1Loss', beta=0.11, loss_weight=1.0))
-        else:
-            compat_params['bbox_head'] = dict(
-                type='RetinaHead',
-                num_classes=80,
-                in_channels=256,
-                stacked_convs=4,
-                feat_channels=256,
-                anchor_generator=dict(
-                    type='AnchorGenerator',
-                    octave_base_scale=4,
-                    scales_per_octave=3,
-                    ratios=[0.5, 1.0, 2.0],
-                    strides=[8, 16, 32, 64, 128]),
-                bbox_coder=dict(
-                    type='DeltaXYWHBBoxCoder',
-                    target_means=[.0, .0, .0, .0],
-                    target_stds=[1.0, 1.0, 1.0, 1.0]),
-                loss_cls=dict(
-                    type='FocalLoss',
-                    use_sigmoid=True,
-                    gamma=2.0,
-                    alpha=0.25,
-                    loss_weight=1.0),
-                loss_bbox=dict(type='L1Loss', loss_weight=1.0))
+                target_stds=[1.0, 1.0, 1.0, 1.0]),
+            loss_cls=dict(
+                type='FocalLoss',
+                use_sigmoid=True,
+                gamma=2.0,
+                alpha=0.25,
+                loss_weight=1.0),
+            loss_bbox=dict(type='L1Loss', loss_weight=1.0))
 
         # model settings
         mm_config = dict(
@@ -888,103 +854,56 @@ class MM_MaskRCNN(MM_Detector):
         in_channels = len(ub.peek(chann_norm.values()))
 
         compat_params = {}
-        if _mmdet_is_version_1x():
-            compat_params.update(dict(
-                rpn_head=dict(
-                    type='RPNHead',
-                    in_channels=256,
-                    feat_channels=256,
-                    anchor_scales=[8],
-                    anchor_ratios=[0.5, 1.0, 2.0],
-                    anchor_strides=[4, 8, 16, 32, 64],
-                    target_means=[.0, .0, .0, .0],
-                    target_stds=[1.0, 1.0, 1.0, 1.0],
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)),
-                bbox_roi_extractor=dict(
-                    type='SingleRoIExtractor',
-                    roi_layer=dict(type='RoIAlign', out_size=7, sample_num=2),
-                    out_channels=256,
-                    featmap_strides=[4, 8, 16, 32]),
-                bbox_head=dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.1, 0.1, 0.2, 0.2],
-                    reg_class_agnostic=False,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-                mask_roi_extractor=dict(
-                    type='SingleRoIExtractor',
-                    roi_layer=dict(type='RoIAlign', out_size=14, sample_num=2),
-                    out_channels=256,
-                    featmap_strides=[4, 8, 16, 32]),
-                mask_head=dict(
-                    type='FCNMaskHead',
-                    num_convs=4,
-                    in_channels=256,
-                    conv_out_channels=256,
-                    num_classes=num_classes,
-                    loss_mask=dict(
-                        type='CrossEntropyLoss', use_mask=True, loss_weight=1.0)))
-            )
-        else:
-            compat_params['rpn_head'] = dict(
-                type='RPNHead',
+        compat_params['rpn_head'] = dict(
+            type='RPNHead',
+            in_channels=256,
+            feat_channels=256,
+            anchor_generator=dict(
+                type='AnchorGenerator',
+                scales=[8],
+                ratios=[0.5, 1.0, 2.0],
+                strides=[4, 8, 16, 32, 64]),
+            bbox_coder=dict(
+                type='DeltaXYWHBBoxCoder',
+                target_means=[.0, .0, .0, .0],
+                target_stds=[1.0, 1.0, 1.0, 1.0]),
+            loss_cls=dict(
+                type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+            loss_bbox=dict(type='L1Loss', loss_weight=1.0))
+        compat_params['roi_head'] = dict(
+            type='StandardRoIHead',
+            bbox_roi_extractor=dict(
+                type='SingleRoIExtractor',
+                roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
+                out_channels=256,
+                featmap_strides=[4, 8, 16, 32]),
+            bbox_head=dict(
+                type='Shared2FCBBoxHead',
                 in_channels=256,
-                feat_channels=256,
-                anchor_generator=dict(
-                    type='AnchorGenerator',
-                    scales=[8],
-                    ratios=[0.5, 1.0, 2.0],
-                    strides=[4, 8, 16, 32, 64]),
+                fc_out_channels=1024,
+                roi_feat_size=7,
+                num_classes=80,
                 bbox_coder=dict(
                     type='DeltaXYWHBBoxCoder',
-                    target_means=[.0, .0, .0, .0],
-                    target_stds=[1.0, 1.0, 1.0, 1.0]),
+                    target_means=[0., 0., 0., 0.],
+                    target_stds=[0.1, 0.1, 0.2, 0.2]),
+                reg_class_agnostic=False,
                 loss_cls=dict(
-                    type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-                loss_bbox=dict(type='L1Loss', loss_weight=1.0))
-            compat_params['roi_head'] = dict(
-                type='StandardRoIHead',
-                bbox_roi_extractor=dict(
-                    type='SingleRoIExtractor',
-                    roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
-                    out_channels=256,
-                    featmap_strides=[4, 8, 16, 32]),
-                bbox_head=dict(
-                    type='Shared2FCBBoxHead',
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=80,
-                    bbox_coder=dict(
-                        type='DeltaXYWHBBoxCoder',
-                        target_means=[0., 0., 0., 0.],
-                        target_stds=[0.1, 0.1, 0.2, 0.2]),
-                    reg_class_agnostic=False,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='L1Loss', loss_weight=1.0)),
-                mask_roi_extractor=dict(
-                    type='SingleRoIExtractor',
-                    roi_layer=dict(type='RoIAlign', output_size=14, sampling_ratio=0),
-                    out_channels=256,
-                    featmap_strides=[4, 8, 16, 32]),
-                mask_head=dict(
-                    type='FCNMaskHead',
-                    num_convs=4,
-                    in_channels=256,
-                    conv_out_channels=256,
-                    num_classes=80,
-                    loss_mask=dict(
-                        type='CrossEntropyLoss', use_mask=True, loss_weight=1.0)))
+                    type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
+                loss_bbox=dict(type='L1Loss', loss_weight=1.0)),
+            mask_roi_extractor=dict(
+                type='SingleRoIExtractor',
+                roi_layer=dict(type='RoIAlign', output_size=14, sampling_ratio=0),
+                out_channels=256,
+                featmap_strides=[4, 8, 16, 32]),
+            mask_head=dict(
+                type='FCNMaskHead',
+                num_convs=4,
+                in_channels=256,
+                conv_out_channels=256,
+                num_classes=80,
+                loss_mask=dict(
+                    type='CrossEntropyLoss', use_mask=True, loss_weight=1.0)))
 
         # model settings
         mm_config = dict(
@@ -1143,19 +1062,11 @@ class MM_CascadeRCNN(MM_Detector):
         if 'background' in classes:
             # Mmdet changed its "background category" conventions
             # https://mmdetection.readthedocs.io/en/latest/compatibility.html#codebase-conventions
-            if _mmdet_is_version_1x():
-                if classes.node_to_idx['background'] != 0:
-                    raise AssertionError('mmdet 1.x needs background to be the first class')
-                num_classes = len(classes)
-            else:
-                if classes.node_to_idx['background'] != len(classes) - 1:
-                    raise AssertionError('mmdet 2.x needs background to be the last class')
-                num_classes = len(classes) - 1
+            if classes.node_to_idx['background'] != len(classes) - 1:
+                raise AssertionError('mmdet 2.x needs background to be the last class')
+            num_classes = len(classes) - 1
         else:
-            if _mmdet_is_version_1x():
-                num_classes = len(classes) + 1
-            else:
-                num_classes = len(classes)
+            num_classes = len(classes)
 
         self.channels = ChannelSpec.coerce(channels)
 
@@ -1169,148 +1080,85 @@ class MM_CascadeRCNN(MM_Detector):
         self.in_channels = in_channels
 
         compat_params = {}
-        if _mmdet_is_version_1x():
-            # Compatibility for mmdet 1.x
-            compat_params['num_stages'] = 3
-            compat_params['rpn_head'] = dict(
-                type='RPNHead',
-                in_channels=256,
-                feat_channels=256,
-                anchor_scales=[8],
-                anchor_ratios=[0.5, 1.0, 2.0],
-                anchor_strides=[4, 8, 16, 32, 64],
+        # Compatibility for mmdet 2.x
+        compat_params['rpn_head'] = dict(
+            type='RPNHead',
+            in_channels=256,
+            feat_channels=256,
+            anchor_generator=dict(
+                type='AnchorGenerator',
+                scales=[8],
+                ratios=[0.5, 1.0, 2.0],
+                strides=[4, 8, 16, 32, 64]),
+            bbox_coder=dict(
+                type='DeltaXYWHBBoxCoder',
                 target_means=[.0, .0, .0, .0],
-                target_stds=[1.0, 1.0, 1.0, 1.0],
-                loss_cls=dict(
-                    type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-                loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)
-            )
-            compat_params['bbox_head'] = [
-                dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.1, 0.1, 0.2, 0.2],
-                    reg_class_agnostic=True,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-                dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.05, 0.05, 0.1, 0.1],
-                    reg_class_agnostic=True,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-                dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.033, 0.033, 0.067, 0.067],
-                    reg_class_agnostic=True,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
-            ]
-            compat_params['bbox_roi_extractor'] = dict(
-                type='SingleRoIExtractor',
-                roi_layer=dict(type='RoIAlign', out_size=7, sample_num=2, use_torchvision=True),
-                out_channels=256,
-                featmap_strides=[4, 8, 16, 32])
-        else:
-            # Compatibility for mmdet 2.x
-            compat_params['rpn_head'] = dict(
-                type='RPNHead',
-                in_channels=256,
-                feat_channels=256,
-                anchor_generator=dict(
-                    type='AnchorGenerator',
-                    scales=[8],
-                    ratios=[0.5, 1.0, 2.0],
-                    strides=[4, 8, 16, 32, 64]),
-                bbox_coder=dict(
-                    type='DeltaXYWHBBoxCoder',
-                    target_means=[.0, .0, .0, .0],
-                    target_stds=[1.0, 1.0, 1.0, 1.0]),
-                loss_cls=dict(
-                    type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-                loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0))
+                target_stds=[1.0, 1.0, 1.0, 1.0]),
+            loss_cls=dict(
+                type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+            loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0))
 
-            compat_params['roi_head'] = dict(
-                type='CascadeRoIHead',
-                num_stages=3,
-                stage_loss_weights=[1, 0.5, 0.25],
-                bbox_roi_extractor=dict(
-                    type='SingleRoIExtractor',
-                    roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
-                    out_channels=256,
-                    featmap_strides=[4, 8, 16, 32]),
-                bbox_head=[
-                    dict(
-                        type='Shared2FCBBoxHead',
-                        in_channels=256,
-                        fc_out_channels=1024,
-                        roi_feat_size=7,
-                        num_classes=num_classes,
-                        bbox_coder=dict(
-                            type='DeltaXYWHBBoxCoder',
-                            target_means=[0., 0., 0., 0.],
-                            target_stds=[0.1, 0.1, 0.2, 0.2]),
-                        reg_class_agnostic=True,
-                        loss_cls=dict(
-                            type='CrossEntropyLoss',
-                            use_sigmoid=False,
-                            loss_weight=1.0),
-                        loss_bbox=dict(type='SmoothL1Loss', beta=1.0,
-                                       loss_weight=1.0)),
-                    dict(
-                        type='Shared2FCBBoxHead',
-                        in_channels=256,
-                        fc_out_channels=1024,
-                        roi_feat_size=7,
-                        num_classes=num_classes,
-                        bbox_coder=dict(
-                            type='DeltaXYWHBBoxCoder',
-                            target_means=[0., 0., 0., 0.],
-                            target_stds=[0.05, 0.05, 0.1, 0.1]),
-                        reg_class_agnostic=True,
-                        loss_cls=dict(
-                            type='CrossEntropyLoss',
-                            use_sigmoid=False,
-                            loss_weight=1.0),
-                        loss_bbox=dict(type='SmoothL1Loss', beta=1.0,
-                                       loss_weight=1.0)),
-                    dict(
-                        type='Shared2FCBBoxHead',
-                        in_channels=256,
-                        fc_out_channels=1024,
-                        roi_feat_size=7,
-                        num_classes=num_classes,
-                        bbox_coder=dict(
-                            type='DeltaXYWHBBoxCoder',
-                            target_means=[0., 0., 0., 0.],
-                            target_stds=[0.033, 0.033, 0.067, 0.067]),
-                        reg_class_agnostic=True,
-                        loss_cls=dict(
-                            type='CrossEntropyLoss',
-                            use_sigmoid=False,
-                            loss_weight=1.0),
-                        loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
-                ])
+        compat_params['roi_head'] = dict(
+            type='CascadeRoIHead',
+            num_stages=3,
+            stage_loss_weights=[1, 0.5, 0.25],
+            bbox_roi_extractor=dict(
+                type='SingleRoIExtractor',
+                roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
+                out_channels=256,
+                featmap_strides=[4, 8, 16, 32]),
+            bbox_head=[
+                dict(
+                    type='Shared2FCBBoxHead',
+                    in_channels=256,
+                    fc_out_channels=1024,
+                    roi_feat_size=7,
+                    num_classes=num_classes,
+                    bbox_coder=dict(
+                        type='DeltaXYWHBBoxCoder',
+                        target_means=[0., 0., 0., 0.],
+                        target_stds=[0.1, 0.1, 0.2, 0.2]),
+                    reg_class_agnostic=True,
+                    loss_cls=dict(
+                        type='CrossEntropyLoss',
+                        use_sigmoid=False,
+                        loss_weight=1.0),
+                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0,
+                                   loss_weight=1.0)),
+                dict(
+                    type='Shared2FCBBoxHead',
+                    in_channels=256,
+                    fc_out_channels=1024,
+                    roi_feat_size=7,
+                    num_classes=num_classes,
+                    bbox_coder=dict(
+                        type='DeltaXYWHBBoxCoder',
+                        target_means=[0., 0., 0., 0.],
+                        target_stds=[0.05, 0.05, 0.1, 0.1]),
+                    reg_class_agnostic=True,
+                    loss_cls=dict(
+                        type='CrossEntropyLoss',
+                        use_sigmoid=False,
+                        loss_weight=1.0),
+                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0,
+                                   loss_weight=1.0)),
+                dict(
+                    type='Shared2FCBBoxHead',
+                    in_channels=256,
+                    fc_out_channels=1024,
+                    roi_feat_size=7,
+                    num_classes=num_classes,
+                    bbox_coder=dict(
+                        type='DeltaXYWHBBoxCoder',
+                        target_means=[0., 0., 0., 0.],
+                        target_stds=[0.033, 0.033, 0.067, 0.067]),
+                    reg_class_agnostic=True,
+                    loss_cls=dict(
+                        type='CrossEntropyLoss',
+                        use_sigmoid=False,
+                        loss_weight=1.0),
+                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
+            ])
 
         mm_config =  dict(
             type='CascadeRCNN',
@@ -1438,10 +1286,7 @@ class MM_CascadeRCNN(MM_Detector):
         Hack for data parallel runs where the loss dicts need to have the same
         exact keys.
         """
-        if _mmdet_is_version_1x():
-            num_stages = self.detector.num_stages
-        else:
-            num_stages = self.detector.roi_head.num_stages
+        num_stages = self.detector.roi_head.num_stages
         for i in range(num_stages):
             for name in ['loss_cls', 'loss_bbox']:
                 key = 's{}.{}'.format(i, name)

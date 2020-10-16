@@ -39,11 +39,31 @@ class DetectFitConfig(scfg.Config):
         # Dataset options
         'multiscale': False,
         # 'visible_thresh': scfg.Value(0.5, help='percentage of a box that must be visible to be included in truth'),
-        'input_dims': scfg.Value('window', help='size of input to the system '),
-        'window_dims': scfg.Value((512, 512), help='size of window to place over the dataset'),
-        'window_overlap': scfg.Value(0.0, help='amount of overlap in the sliding windows'),
-        'normalize_inputs': scfg.Value(False, help='if True, precompute training mean and std for data whitening'),
+        'input_dims': scfg.Value('window', help=ub.paragraph(
+            '''
+            After a window is sample, it is resized to this shape (using
+            letterboxing to maintain aspect ratio). This is the size of input
+            to the system, so if your network needs 224x224 pixel input, then
+            this is the place to set it. By default the window size is
+            unchanged.
+            ''')),
+        'window_dims': scfg.Value((512, 512), help=ub.paragraph(
+            '''
+            Size of window to place over the dataset.
+            ''')),
+        'window_overlap': scfg.Value(0.0, help=ub.paragraph(
+            '''
+            Amount of overlap in the sliding windows. This is given as a
+            fraction between 0 and 1.
+            ''')),
+        'normalize_inputs': scfg.Value('imagenet', help=ub.paragraph(
+            '''
+            Specification for the mean and std for data whitening.
 
+            If True, precompute using 1000 unaugmented training images.
+            If an integer, use that many unaugmented training images.
+            If 'imagenet' use standard mean/std values (default).
+            ''')),
         # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['medium', 'simple']),
         'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'low', 'simple', 'complex', None]),
         'gravity': scfg.Value(0.0, help='how often to assume gravity vector for augmentation'),
@@ -772,10 +792,18 @@ def setup_harn(cmdline=True, **kw):
     channels = ChannelSpec.coerce(config['channels'])
     print('channels = {!r}'.format(channels))
 
-    if config['normalize_inputs']:
+    if config['normalize_inputs'] == 'imagenet':
+        input_stats = {
+            'mean':  torch.Tensor([[[[0.4850]], [[0.4560]], [[0.4060]]]]),
+            'std':  torch.Tensor([[[[0.2290]], [[0.2240]], [[0.2250]]]]),
+        }
+    elif config['normalize_inputs']:
+        # TODO: this needs to be refactored and abstracted
         # Get stats on the dataset (todo: nice way to disable augmentation temporarilly for this)
         _dset = torch_datasets['train']
-        stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(1000, len(_dset))]
+        num = config['normalize_inputs']
+        num = 1000 if not num else num
+        stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(num, len(_dset))]
 
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
 
