@@ -884,8 +884,8 @@ def setup_harn(cmdline=True, **kw):
             model._init_backbone_from_pretrained('torchvision://resnet50')
         elif config['backbone_init'] is not None:
             model._init_backbone_from_pretrained(config['backbone_init'])
-    elif arch == 'HRNetV2_w18_MaskRCNN':
-        from xviewharn.models import new_models_v1
+    elif arch == 'MM_HRNetV2_w18_MaskRCNN':
+        from bioharn.models import new_models_v1
         initkw = dict(
             classes=classes,
             channels=config['channels'],
@@ -898,7 +898,7 @@ def setup_harn(cmdline=True, **kw):
         elif config['backbone_init'] is not None:
             model._init_backbone_from_pretrained(config['backbone_init'])
     elif arch == 'maskrcnn':
-        from xviewharn.models import mm_models
+        from bioharn.models import mm_models
         initkw = dict(
             classes=classes,
             channels=config['channels'],
