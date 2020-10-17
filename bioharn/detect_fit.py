@@ -211,8 +211,8 @@ class DetectHarn(nh.FitHarn):
 
             >>> from bioharn.detect_fit import *  # NOQA
             >>> harn = setup_harn(bsize=2, datasets='special:shapes256',
-            >>>     arch='yolo2', init='lightnet', xpu=0, channels='rgb',
-            >>>     workers=0, normalize_inputs=False, sampler_backend=None)
+            >>>     arch='MM_HRNetV2_w18_MaskRCNN', xpu='auto',
+            >>>     workers=0, normalize_inputs='imagenet', sampler_backend=None)
 
         Example:
             >>> # DISABLE_DOCTSET

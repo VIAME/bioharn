@@ -155,8 +155,7 @@ print(mmcv_full_version)
 ")
 echo "MMCV_FULL_VERSION = $MMCV_FULL_VERSION"
 
-pip uninstall mmcv-full mmdet
-
+pip uninstall mmcv mmcv-full mmdet
 pip install mmcv-full==$MMCV_FULL_VERSION -f https://openmmlab.oss-accelerate.aliyuncs.com/mmcv/dist/index.html
 #pip install mmcv-full==1.0.5+torch1.6.0+cu101 -f https://openmmlab.oss-accelerate.aliyuncs.com/mmcv/dist/index.html
 # pip install git+https://github.com/open-mmlab/mmdetection.git@595bf86e69ad7452498f32166ece985d9cc012be
@@ -165,7 +164,5 @@ pip install mmcv-full==$MMCV_FULL_VERSION -f https://openmmlab.oss-accelerate.al
 pip install git+https://github.com/open-mmlab/mmdetection.git@v2.5.0
 
 #pip install mmdet
-
-
 # Install bioharn in developer mode
 pip install -e .
