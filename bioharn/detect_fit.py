@@ -213,6 +213,11 @@ class DetectHarn(nh.FitHarn):
             >>> harn = setup_harn(bsize=2, datasets='special:shapes256',
             >>>     arch='MM_HRNetV2_w18_MaskRCNN', xpu='auto',
             >>>     workers=0, normalize_inputs='imagenet', sampler_backend=None)
+            >>> harn.initialize()
+            >>> batch = harn._demo_batch(1, 'vali')
+            >>> del batch['label']['has_mask']
+            >>> del batch['label']['class_masks']
+            >>> outputs, loss = harn.run_batch(batch)
 
         Example:
             >>> # DISABLE_DOCTSET
@@ -231,17 +236,19 @@ class DetectHarn(nh.FitHarn):
         harn._hack_do_draw = (harn.batch_index < harn.script_config['num_draw'])
         harn._hack_do_draw |= ((harn._draw_timer.toc() > 60 * harn.script_config['draw_interval']) and
                                (harn.script_config['draw_interval'] > 0))
+
+        return_result = False
         return_result = harn._hack_do_draw
 
         if getattr(harn.raw_model, '__BUILTIN_CRITERION__', False):
-            try:
-                # hack for mmdet
-                harn.raw_model.detector.test_cfg['score_thr'] = 0.0
-            except AttributeError:
-                pass
+            # try:
+            #     # hack for mmdet
+            #     harn.raw_model.detector.test_cfg['score_thr'] = 0.0
+            # except AttributeError:
+            #     pass
 
             batch = batch.copy()
-            batch.pop('tr')
+            batch.pop('tr', None)
             from netharn.data.data_containers import BatchContainer
 
             with warnings.catch_warnings():
