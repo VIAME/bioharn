@@ -254,6 +254,7 @@ class DetectHarn(nh.FitHarn):
 
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', 'indexing with dtype')
+                warnings.filterwarnings('ignore', 'Default upsampling behavior')
                 # warnings.filterwarnings('ignore', 'asked to gather along dimension 0')
                 outputs = harn.model.forward(batch, return_loss=True,
                                              return_result=return_result)
