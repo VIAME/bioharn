@@ -722,10 +722,12 @@ class MM_Detector(nh.layers.Module):
                     from mmdet.core.mask import BitmapMasks
                     numpy_masks = [kwarray.ArrayAPI.numpy(mask)
                                    for mask in mm_inputs['gt_masks']]
-                    bitmap_masks = [
-                        BitmapMasks(m, height=m.shape[1], width=m.shape[2])
-                        for m in numpy_masks]
-                    trainkw['gt_masks'] = bitmap_masks
+                    import xdev
+                    with xdev.embed_on_exception_context:
+                        bitmap_masks = [
+                            BitmapMasks(m, height=m.shape[1], width=m.shape[2])
+                            for m in numpy_masks]
+                        trainkw['gt_masks'] = bitmap_masks
 
             # Compute input normalization
             imgs_norm = self.input_norm(imgs)
