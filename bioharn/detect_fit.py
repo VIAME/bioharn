@@ -122,6 +122,7 @@ class DetectFitConfig(scfg.Config):
         'ensure_background_class': scfg.Value(False, help='ensure a background category exists'),
         'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
         'test_on_finish': False,
+        'vali_intervals': 1,
     }
 
     def normalize(self):
@@ -1051,6 +1052,7 @@ def setup_harn(cmdline=True, **kw):
     harn.intervals.update({
         'log_iter_train': 1000,
         'test': 0,
+        'vali': config['vali_intervals'],
     })
     harn.script_config = config
 

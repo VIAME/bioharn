@@ -17,7 +17,6 @@ Ignore:
 import ubelt as ub
 import numpy as np
 import warnings  # NOQA
-import torch.functional as F
 from netharn.data.channel_spec import ChannelSpec
 from bioharn.models.mm_models import MM_Detector
 from mmdet.models.detectors.base import BaseDetector
@@ -29,7 +28,7 @@ import torch
 # import numpy as np
 # import torch
 # import torch.nn as nn
-# import torch.nn.functional as F
+import torch.nn.functional as F
 from mmcv.cnn import Conv2d, ConvModule, build_upsample_layer
 from mmcv.ops.carafe import CARAFEPack
 from mmcv.runner import auto_fp16, force_fp32
