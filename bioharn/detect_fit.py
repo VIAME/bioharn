@@ -864,7 +864,8 @@ def setup_harn(cmdline=True, **kw):
         input_stats = None
     print('input_stats = {!r}'.format(input_stats))
 
-    initializer_ = nh.Initializer.coerce(config, leftover='kaiming_normal')
+    initializer_ = nh.Initializer.coerce(
+        config, leftover='kaiming_normal', association='embedding')
     print('initializer_ = {!r}'.format(initializer_))
 
     arch = config['arch']
@@ -1808,7 +1809,7 @@ input_stats = {'std': array([[[0.38 ]], [[0.384]], [[0.388]]]),
                'mean': array([[[0.185]], [[0.169]], [[0.161]]])}
 
     """
-    if 0:
+    if 1:
         def make_warnings_print_tracebacks():
             import warnings
             import traceback
