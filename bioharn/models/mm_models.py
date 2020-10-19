@@ -745,8 +745,6 @@ class MM_Detector(nh.layers.Module):
                     numpy_masks = [kwarray.ArrayAPI.numpy(mask)
                                    for mask in mm_inputs['gt_masks']]
                     import xdev
-                    xdev.embed()
-                    import xdev
                     with xdev.embed_on_exception_context:
                         bitmap_masks = [
                             BitmapMasks(m, height=m.shape[1], width=m.shape[2])
