@@ -436,6 +436,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     chw01[:, sly, slx] = 0
 
         if 'segmentations' in dets.data and self.use_segmentation:
+            import xdev
+            xdev.embed()
             # Convert segmentations to masks
             has_mask_list = []
             class_mask_list = []

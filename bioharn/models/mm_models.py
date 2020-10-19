@@ -176,13 +176,35 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
         >>> batch = _demo_batch(bsize)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
     """
-    if isinstance(batch['inputs'], dict):
+    if isinstance(batch, torch.Tensor):
+        inputs = batch
+    elif isinstance(batch['inputs'], dict):
         assert len(batch['inputs']) == 1, ('only early fusion for now')
         inputs = ub.peek(batch['inputs'].values())
     else:
         inputs = batch['inputs']
 
-    if type(inputs).__name__ in ['BatchContainer']:
+    if isinstance(inputs, torch.Tensor):
+        B, C, H, W = inputs.shape
+
+        # hack in img meta
+        img_metas = [
+            {
+                'img_shape': (H, W, C),
+                'ori_shape': (H, W, C),
+                'pad_shape': (H, W, C),
+                'filename': '<memory>.png',
+                'scale_factor': 1.0,
+                'flip': False,
+            }
+            for _ in range(B)
+        ]
+
+        mm_inputs = {
+            'imgs': inputs,
+            'img_metas': img_metas,
+        }
+    elif type(inputs).__name__ in ['BatchContainer']:
         # Things are already in data containers
 
         # Get the number of batch items for each GPU / group
@@ -722,6 +744,8 @@ class MM_Detector(nh.layers.Module):
                     from mmdet.core.mask import BitmapMasks
                     numpy_masks = [kwarray.ArrayAPI.numpy(mask)
                                    for mask in mm_inputs['gt_masks']]
+                    import xdev
+                    xdev.embed()
                     import xdev
                     with xdev.embed_on_exception_context:
                         bitmap_masks = [
