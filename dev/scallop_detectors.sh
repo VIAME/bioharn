@@ -23,20 +23,20 @@ python -m bioharn.detect_fit \
     --bstep=8
 
 
-python ~/code/bioharn/dev/coco_cli/coco_add_dummy_segmentations.py
-    --src $HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json
+python ~/code/bioharn/dev/coco_cli/coco_add_dummy_segmentations.py \
+    --src $HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
     --dst $HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json
 
-python ~/code/bioharn/dev/coco_cli/coco_add_dummy_segmentations.py
-    --src $HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json
+python ~/code/bioharn/dev/coco_cli/coco_add_dummy_segmentations.py \
+    --src $HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
     --dst $HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train_dummy_sseg.mscoco.json
 
 
 python -m bioharn.detect_fit \
     --nice=bioharn-det-hrmask18-rgb-coi-v1 \
     --workdir=$HOME/work/bioharn \
-    --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
-    --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
+    --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train_dummy_sseg.mscoco.json \
+    --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json \
     "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
     --channels="rgb" \
     --window_dims=768,768 \

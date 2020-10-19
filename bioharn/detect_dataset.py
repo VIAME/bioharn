@@ -133,6 +133,12 @@ class DetectFitDataset(torch.utils.data.Dataset):
     @classmethod
     def demo(cls, key='habcam', augment='simple', channels='rgb', window_dims=(512, 512), **kw):
         """
+
+        Example:
+            cls = DetectFitDataset
+
+
+
         Ignore:
             from bioharn.detect_dataset import *  # NOQA
             self = DetectFitDataset.demo('habcam', augment='complex', channels='rgb|disparity')
@@ -164,7 +170,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         import ndsampler
         if key == 'habcam':
             # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
-            fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json')
+            # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json')
+            fpath = ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
             dset = ndsampler.CocoDataset(fpath)
             from bioharn.detect_fit import DetectFitConfig
             config = DetectFitConfig()
@@ -271,6 +278,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         disp_im = None
         _debug('self.channels = {!r}'.format(self.channels))
+
+        list(self.channels.keys())
+
         if 'disparity' in self.channels:
 
             sampler = self.sampler
@@ -298,8 +308,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 raise Exception('no auxiliary disparity')
                 disp_im = np.zeros()
 
-        with_annots = ['boxes']
         _debug('self.use_segmentation = {!r}'.format(self.use_segmentation))
+        with_annots = ['boxes']
         if self.use_segmentation:
             with_annots += ['segmentation']
 
@@ -329,15 +339,16 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     weights[idx] = 0
 
         # TODO: remove anything marked as "negative"
-        HACK_SSEG = False
-        if HACK_SSEG:
-            if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
-                ssegs = []
-                for xy, w in zip(boxes.xy_center, boxes.width):
-                    r = w / 2.0
-                    circle = kwimage.Polygon.circle(xy, r)
-                    ssegs.append(circle)
-                ssegs = kwimage.PolygonList(ssegs)
+        # We dont do this anymore
+        # HACK_SSEG = False
+        # if HACK_SSEG:
+        #     if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
+        #         ssegs = []
+        #         for xy, w in zip(boxes.xy_center, boxes.width):
+        #             r = w / 2.0
+        #             circle = kwimage.Polygon.circle(xy, r)
+        #             ssegs.append(circle)
+        #         ssegs = kwimage.PolygonList(ssegs)
 
         classes = self.sampler.classes
         dets = kwimage.Detections(
@@ -436,8 +447,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     chw01[:, sly, slx] = 0
 
         if 'segmentations' in dets.data and self.use_segmentation:
-            import xdev
-            xdev.embed()
             # Convert segmentations to masks
             has_mask_list = []
             class_mask_list = []
@@ -450,7 +459,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     class_mask_list.append(mask_tensor[None, :])
                     has_mask_list.append(1)
                 else:
-                    bad_mask = torch.empty((h, w), dtype=torch.uint8)
+                    bad_mask = torch.empty((1, h, w), dtype=torch.uint8)
+                    bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
                     class_mask_list.append(bad_mask)
                     has_mask_list.append(-1)
 
