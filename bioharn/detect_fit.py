@@ -360,10 +360,10 @@ class DetectHarn(nh.FitHarn):
             >>>     nice='overfit_test', batch_size=1,
             >>>     # datasets='special:voc',
             >>>     # datasets='special:shapes8',
-            >>>     datasets='$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json',
+            >>>     datasets=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json'),
             >>>     gravity=1, augment=None,
             >>>     #arch='yolo2', pretrained='lightnet', lr=3e-5, normalize_inputs=False, anchors='lightnet', ensure_background_class=0, seen_thresh=110,
-            >>>     arch='efficientdet', init='noop', lr=1e-4, normalize_inputs=True,
+            >>>     arch='MM_HRNetV2_w18_MaskRCNN', init='noop', lr=1e-4, normalize_inputs='imagenet',
             >>>     #arch='retinanet', init='noop', normalize_inputs=True, lr=1e-3,
             >>>     #arch='cascade', init='noop', normalize_inputs=True, lr=1e-3,
             >>>     channels='rgb',
@@ -698,6 +698,7 @@ def setup_harn(cmdline=True, **kw):
     import ndsampler
     from ndsampler import coerce_data
     config = DetectFitConfig(default=kw, cmdline=cmdline)
+    print('config = {}'.format(ub.repr2(dict(config), nl=1)))
 
     nh.configure_hacks(config)  # fix opencv bugs
     ub.ensuredir(config['workdir'])
