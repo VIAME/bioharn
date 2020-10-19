@@ -135,6 +135,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         """
 
         Example:
+            fpath = ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
             cls = DetectFitDataset
 
 
@@ -168,6 +169,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             kwplot.show_if_requested()
         """
         import ndsampler
+        channels = ChannelSpec.coerce(channels)
         if key == 'habcam':
             # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
             # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json')
@@ -177,7 +179,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
             config = DetectFitConfig()
             sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
         else:
-            sampler = ndsampler.CocoSampler.demo(key, aux='disparity', **kw)
+            aux = 'disparity' if 'disparity' in channels else None
+            sampler = ndsampler.CocoSampler.demo(key, aux=aux, **kw)
+
         self = cls(sampler, augment=augment, window_dims=window_dims, channels=channels)
         return self
 
