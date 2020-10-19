@@ -72,5 +72,4 @@ class CocoDummyAddSegmentationsCLI:
 _CLI = CocoDummyAddSegmentationsCLI
 
 if __name__ == '__main__':
-    _CLI._main()
-
+    _CLI.main()
