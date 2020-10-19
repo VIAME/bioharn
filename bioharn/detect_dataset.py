@@ -135,8 +135,12 @@ class DetectFitDataset(torch.utils.data.Dataset):
         """
 
         Example:
+            import sys, ubelt
+            sys.path.append(ubelt.expandpath('~/code/bioharn'))
+            from bioharn.detect_dataset import *  # NOQA
             fpath = ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
             cls = DetectFitDataset
+            self = cls.demo(fpath, augment='simple', channels='rgb', window_dims=(512, 512))
 
 
 
@@ -169,17 +173,24 @@ class DetectFitDataset(torch.utils.data.Dataset):
             kwplot.show_if_requested()
         """
         import ndsampler
+        from os.path import exists
+
+        aux = 'disparity' if 'disparity' in channels else None
         channels = ChannelSpec.coerce(channels)
-        if key == 'habcam':
-            # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
-            # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json')
-            fpath = ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
-            dset = ndsampler.CocoDataset(fpath)
+        if exists(key):
+            import kwcoco
+            dset = kwcoco.CocoDataset(key)
             from bioharn.detect_fit import DetectFitConfig
             config = DetectFitConfig()
             sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
+        # if key == 'habcam':
+        #     # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
+        #     # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json')
+        #     fpath = ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
+        #     dset = ndsampler.CocoDataset(fpath)
+        #     config = DetectFitConfig()
+        #     sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
         else:
-            aux = 'disparity' if 'disparity' in channels else None
             sampler = ndsampler.CocoSampler.demo(key, aux=aux, **kw)
 
         self = cls(sampler, augment=augment, window_dims=window_dims, channels=channels)
