@@ -359,7 +359,8 @@ class DetectHarn(nh.FitHarn):
             >>> harn = setup_harn(
             >>>     nice='overfit_test', batch_size=1,
             >>>     # datasets='special:voc',
-            >>>     datasets='special:shapes8',
+            >>>     # datasets='special:shapes8',
+            >>>     datasets='$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json',
             >>>     gravity=1, augment=None,
             >>>     #arch='yolo2', pretrained='lightnet', lr=3e-5, normalize_inputs=False, anchors='lightnet', ensure_background_class=0, seen_thresh=110,
             >>>     arch='efficientdet', init='noop', lr=1e-4, normalize_inputs=True,

@@ -131,17 +131,23 @@ class DetectFitDataset(torch.utils.data.Dataset):
         self.chosen_regions = chosen_regions
 
     @classmethod
-    def demo(cls, key='habcam', augment='simple', channels='rgb', window_dims=(512, 512), **kw):
+    def demo(cls, key='shapes8', augment='simple', channels='rgb', window_dims=(512, 512), **kw):
         """
 
         Example:
             import sys, ubelt
             sys.path.append(ubelt.expandpath('~/code/bioharn'))
             from bioharn.detect_dataset import *  # NOQA
-            fpath = ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
+            key = ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
             cls = DetectFitDataset
-            self = cls.demo(fpath, augment='simple', channels='rgb', window_dims=(512, 512))
+            self = DetectFitDataset.demo(key, augment='simple', channels='rgb', window_dims=(512, 512))
 
+            import xdev
+            globals().update(**xdev.get_func_kwargs(DetectFitDataset.demo))
+
+
+            loader = self.make_loader(batch_size=4, shuffle=True)
+            batch = ub.peek(loader)
 
 
         Ignore:
@@ -175,8 +181,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         import ndsampler
         from os.path import exists
 
-        aux = 'disparity' if 'disparity' in channels else None
         channels = ChannelSpec.coerce(channels)
+        aux = 'disparity' if 'disparity' in channels else None
         if exists(key):
             import kwcoco
             dset = kwcoco.CocoDataset(key)
