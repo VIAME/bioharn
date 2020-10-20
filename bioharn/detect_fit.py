@@ -357,10 +357,10 @@ class DetectHarn(nh.FitHarn):
             >>> from bioharn.detect_fit import *  # NOQA
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
             >>> harn = setup_harn(
-            >>>     nice='overfit_test', batch_size=4,
+            >>>     nice='overfit_test', batch_size=8,
             >>>     # datasets='special:voc',
-            >>>     # datasets='special:shapes8',
-            >>>     train_dataset=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json'),
+            >>>     train_dataset='special:vidshapes8',
+            >>>     # train_dataset=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json'),
             >>>     gravity=1, augment=None,
             >>>     #arch='yolo2', pretrained='lightnet', lr=3e-5, normalize_inputs=False, anchors='lightnet', ensure_background_class=0, seen_thresh=110,
             >>>     arch='MM_HRNetV2_w18_MaskRCNN', init='noop', lr=1e-4, normalize_inputs='imagenet',
@@ -532,11 +532,14 @@ class DetectHarn(nh.FitHarn):
             if 'class_masks' in labels:
                 # Add in truth segmentation masks
                 try:
-                    masks = list(ub.flatten(labels['class_masks']))
-                    item_masks = masks[idx]
+                    item_masks = list(ub.flatten(labels['class_masks']))[idx]
+                    item_flags = list(ub.flatten(labels['has_mask']))[idx]
                     ssegs = []
-                    for mask in item_masks:
-                        ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
+                    for flag, mask in zip(item_flags, item_masks):
+                        if flag > 0:
+                            ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
+                        else:
+                            ssegs.append(None)
                     true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
                 except Exception as ex:
                     harn.warn('issue building sseg viz due to {!r}'.format(ex))
