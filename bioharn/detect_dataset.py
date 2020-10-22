@@ -11,8 +11,10 @@ from netharn.data.data_containers import container_collate
 from functools import partial
 import numbers
 
-# _debug = print
-_debug = ub.identity
+if 0:
+    _debug = print
+else:
+    _debug = ub.identity
 
 
 class DetectFitDataset(torch.utils.data.Dataset):
@@ -100,6 +102,13 @@ class DetectFitDataset(torch.utils.data.Dataset):
         # the aspect ratio.
         self.letterbox = nh.data.transforms.Resize(None, mode='letterbox')
 
+        self.want_aux = self.channels.unique() - {'rgb'}
+
+        # Storage for input statistics (populated after dataset creation ---
+        # because we need the dataset to compute it!), so we can fill with real
+        # mean values instead of zeros.
+        self.input_stats = None
+
     @ub.memoize_property
     def input_id(self):
         # Use the sampler to compute an input id
@@ -135,6 +144,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
         """
 
         Example:
+
+            channels = "rgb|disparity,flowx|flowy"
+
             import sys, ubelt
             sys.path.append(ubelt.expandpath('~/code/bioharn'))
             from bioharn.detect_dataset import *  # NOQA
@@ -151,52 +163,41 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
 
         Ignore:
-            from bioharn.detect_dataset import *  # NOQA
-            self = DetectFitDataset.demo('habcam', augment='complex', channels='rgb|disparity')
-            index = 30
-
-            self.disable_augmenter = False
-            item = self[index]
-            # xdoc: +REQUIRES(--show)
-            import kwplot
-            kwplot.figure(doclf=True, fnum=1)
-            kwplot.autompl()  # xdoc: +SKIP
-            components = self.channels.decode(item['inputs'], axis=0)
-            rgb01 = components['rgb'].data.numpy().transpose(1, 2, 0)
-            boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
-            canvas_rgb = np.ascontiguousarray(kwimage.ensure_uint255(rgb01))
-            canvas_rgb = boxes.draw_on(canvas_rgb)
-            if 'disparity' in components:
-                disp = components['disparity'].data.numpy().transpose(1, 2, 0)
-                disp_canvs = np.ascontiguousarray(disp.copy())
-                disp_canvs = disp_canvs - disp_canvs.min()
-                disp_canvs = disp_canvs / disp_canvs.max()
-                disp_canvs = boxes.draw_on(disp_canvs)
-                kwplot.imshow(canvas_rgb, pnum=(1, 2, 1), fnum=1)
-                kwplot.imshow(disp_canvs, pnum=(1, 2, 2), fnum=1)
-            else:
-                kwplot.imshow(canvas_rgb, pnum=(1, 1, 1), fnum=1)
-            kwplot.show_if_requested()
+            >>> from bioharn.detect_dataset import *  # NOQA
+            >>> self = DetectFitDataset.demo('vidshapes8', augment='complex', channels='rgb|disparity,flowx|flowy')
+            >>> index = 1
+            >>> #
+            >>> self.disable_augmenter = False
+            >>> item = self[index]
+            >>> # xdoc: +REQUIRES(--show)
+            >>> import kwplot
+            >>> kwplot.figure(doclf=True, fnum=1)
+            >>> kwplot.autompl()  # xdoc: +SKIP
+            >>> components = self.channels.decode(item['inputs'], axis=0)
+            >>> rgb01 = components['rgb'].data.numpy().transpose(1, 2, 0)
+            >>> boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
+            >>> canvas_rgb = np.ascontiguousarray(kwimage.ensure_uint255(rgb01))
+            >>> canvas_rgb = boxes.draw_on(canvas_rgb)
+            >>> pnum_ = kwplot.PlotNums(nSubplots=len(components))
+            >>> kwplot.imshow(canvas_rgb, pnum=pnum_(), fnum=1, title='rgb')
+            >>> for aux_key, aux_im in ub.dict_diff(components, {'rgb'}).items():
+            >>>     aux_canvs = kwimage.normalize(aux_im.data.numpy().transpose(1, 2, 0))
+            >>>     aux_canvs = boxes.draw_on(aux_canvs)
+            >>>     kwplot.imshow(aux_canvs, pnum=pnum_(), fnum=1, title=aux_key)
+            >>> kwplot.show_if_requested()
         """
         import ndsampler
         from os.path import exists
 
         channels = ChannelSpec.coerce(channels)
-        aux = 'disparity' if 'disparity' in channels else None
         if exists(key):
             import kwcoco
             dset = kwcoco.CocoDataset(key)
             from bioharn.detect_fit import DetectFitConfig
             config = DetectFitConfig()
             sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
-        # if key == 'habcam':
-        #     # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
-        #     # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json')
-        #     fpath = ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
-        #     dset = ndsampler.CocoDataset(fpath)
-        #     config = DetectFitConfig()
-        #     sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
         else:
+            aux = list(channels.difference(ChannelSpec.coerce('rgb')).keys())
             sampler = ndsampler.CocoSampler.demo(key, aux=aux, **kw)
 
         self = cls(sampler, augment=augment, window_dims=window_dims, channels=channels)
@@ -213,7 +214,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
         Example:
             >>> # DISABLE_DOCTSET
             >>> from bioharn.detect_dataset import *  # NOQA
-            >>> torch_dset = self = DetectFitDataset.demo(key='shapes8', augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
+            >>> torch_dset = self = DetectFitDataset.demo(
+            >>>     key='vidshapes32', channels="rgb|disparity,flowx|flowy",
+            >>>     augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
             >>> index = 1
             >>> spec = {'index': index, 'input_dims': (120, 120)}
             >>> item = self[spec]
@@ -236,7 +239,10 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         Ignore:
             >>> from bioharn.detect_dataset import *  # NOQA
-            >>> self = DetectFitDataset.demo(key='habcam', augment='complex')
+            >>> fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
+            >>> fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json')
+            >>> fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
+            >>> self = DetectFitDataset.demo(key=fpath, augment='complex', channels='rgb|disparity')
             >>> spec = {'index': 954, 'input_dims': (300, 300)}
             >>> item = self[spec]
             >>> hwc01 = item['inputs']['rgb'].data.numpy().transpose(1, 2, 0)
@@ -297,35 +303,51 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         img = self.sampler.dset.imgs[gid]
 
-        disp_im = None
+        aux_components = None
         _debug('self.channels = {!r}'.format(self.channels))
 
-        list(self.channels.keys())
-
-        if 'disparity' in self.channels:
-
+        if self.want_aux:
             sampler = self.sampler
-            # First check if the dataset defines a proper disparity channel
             if 'auxillary' in img:
                 img['auxiliary'] = img['auxillary']  # Hack
-            if 'auxiliary' in img:
+
+            if 'auxiliary' not in img:
+                raise ValueError('Image does not have auxiliary information')
+
+            disk_fusion = ChannelSpec(','.join([a['channels'] for a in img['auxiliary']]))
+            component_indices = disk_fusion.component_indices(axis=0)
+            component_indices = ub.dict_isect(component_indices, self.want_aux)
+            aux_components = {}
+            for part, (key, subindex) in component_indices.items():
+                # TODO: The channels may be fused on disk different than we would
+                # like them to be fused in the network. We need a way of rectifying
+                # available channels with requested channels.
+
+                # First check if the dataset defines a proper disparity channel
                 from ndsampler.utils import util_gdal
-                disp_fpath = sampler.dset.get_auxillary_fpath(gid, 'disparity')
-                disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
-                data_dims = disp_frame.shape[0:2]
+                disp_fpath = sampler.dset.get_auxiliary_fpath(gid, key)
+
+                aux_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
+                data_dims = aux_frame.shape[0:2]
                 data_slice, extra_padding, st_dims = self.sampler._rectify_tr(
                     tr, data_dims, window_dims=None, pad=pad)
+
+                if part != key:
+                    # disk input is prefused, need to separate it out
+                    data_slice = data_slice + tuple(subindex)
+
                 # Load the image data
-                disp_im = disp_frame[data_slice]
+                aux_im = aux_frame[data_slice]
                 if extra_padding:
-                    if disp_im.ndim != len(extra_padding):
+                    if aux_im.ndim != len(extra_padding):
                         extra_padding = extra_padding + [(0, 0)]  # Handle channels
-                    disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
+                    aux_im = np.pad(aux_im, extra_padding, **{'mode': 'constant'})
+                aux_components[part] = aux_im
 
-                # if disp_im.max() > 1.0:
-                #     raise AssertionError('gid={} {}'.format(gid, ub.repr2(kwarray.stats_dict(disp_im))))
+            # if disp_im.max() > 1.0:
+            #     raise AssertionError('gid={} {}'.format(gid, ub.repr2(kwarray.stats_dict(disp_im))))
 
-            if disp_im is None:
+            if not aux_components:
                 raise Exception('no auxiliary disparity')
                 disp_im = np.zeros()
 
@@ -359,18 +381,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 if catname.lower() not in self.classes_of_interest:
                     weights[idx] = 0
 
-        # TODO: remove anything marked as "negative"
-        # We dont do this anymore
-        # HACK_SSEG = False
-        # if HACK_SSEG:
-        #     if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
-        #         ssegs = []
-        #         for xy, w in zip(boxes.xy_center, boxes.width):
-        #             r = w / 2.0
-        #             circle = kwimage.Polygon.circle(xy, r)
-        #             ssegs.append(circle)
-        #         ssegs = kwimage.PolygonList(ssegs)
-
         classes = self.sampler.classes
         dets = kwimage.Detections(
             boxes=boxes,
@@ -384,8 +394,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         if self.augmenter and not self.disable_augmenter:
             _debug('augment')
-            imdata, dets, disp_im = self.augmenter.augment_data(
-                imdata, dets, disp_im)
+            imdata, dets, aux_components = self.augmenter.augment_data(
+                imdata, dets, aux_components)
             # disp_im.dtype
 
         _debug('un-pad')
@@ -395,8 +405,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
             y_sl, x_sl = [slice(d_pad, d - d_pad) for d, d_pad in
                           zip(imdata.shape[0:2], pad)]
             imdata = imdata[y_sl, x_sl]
-            if disp_im is not None:
-                disp_im = disp_im[y_sl, x_sl]
+            if aux_components is not None:
+                for auxkey, aux_im in aux_components.items():
+                    aux_components[auxkey] = aux_im[y_sl, x_sl]
             dets = dets.translate([-x_sl.start, -y_sl.start])
 
         # Ignore any box that is cutoff.
@@ -416,13 +427,14 @@ class DetectFitDataset(torch.utils.data.Dataset):
         prelb_dims = imdata.shape[0:2]
         imdata = self.letterbox.augment_image(imdata)
         postlb_dims = imdata.shape[0:2]
-        if disp_im is not None:
-            # note: the letterbox augment doesn't handle floats wello
+        if aux_components is not None:
+            # note: the letterbox augment doesn't handle floats well
             # use the kwimage.imresize instead
-            # disp_im = self.letterbox.augment_image(disp_im)
-            disp_im = kwimage.imresize(
-                disp_im, dsize=self.letterbox.target_size,
-                letterbox=True).clip(0, 1)
+            for auxkey, aux_im in aux_components.items():
+                # aux_components[auxkey] = self.letterbox.augment_image(aux_im)
+                aux_components[auxkey] = kwimage.imresize(
+                    aux_im, dsize=self.letterbox.target_size,
+                    letterbox=True).clip(0, 1)
         if len(dets):
             _debug('warp')
             dets = dets.warp(self.letterbox,
@@ -496,12 +508,13 @@ class DetectFitDataset(torch.utils.data.Dataset):
         compoments = {
             'rgb': chw01,
         }
+        if aux_components is not None:
+            for auxkey, aux_im in aux_components.items():
+                aux_im = kwarray.atleast_nd(aux_im, 3)
+                compoments[auxkey] = torch.FloatTensor(
+                    aux_im.transpose(2, 0, 1))
         _debug('compoments = {!r}'.format(compoments))
-        _debug('disp_im = {!r}'.format(disp_im))
-        if disp_im is not None:
-            disp_im = kwarray.atleast_nd(disp_im, 3)
-            compoments['disparity'] = torch.FloatTensor(
-                disp_im.transpose(2, 0, 1))
+        _debug('aux_components = {!r}'.format(aux_components))
 
         inputs = {
             k: ItemContainer(v, stack=True)
@@ -873,6 +886,7 @@ def preselect_regions(sampler, window_overlap, window_dims,
         if img.get('source', '') == 'habcam_2015_stereo':
             # Hack: todo, cannoncial way to get this effect
             full_dims = [img['height'], img['width'] // 2]
+            raise AssertionError('We should not do this hack anymore')
         else:
             full_dims = [img['height'], img['width']]
 
@@ -1258,7 +1272,7 @@ class DetectionAugmentor(object):
             if auger is not None:
                 reseed_(auger, rng)
 
-    def augment_data(self, imdata, dets, disp_im=None):
+    def augment_data(self, imdata, dets, aux_components=None):
         """
         Ignore:
             self = DetectionAugmentor(mode='heavy')
@@ -1267,12 +1281,12 @@ class DetectionAugmentor(object):
             dets = kwimage.Detections.random(segmentations=True, rng=rng).scale(s)
 
             imdata = (rng.rand(s, s, 3) * 255).astype(np.uint8)
-            disp_im = rng.rand(s, s).astype(np.float32).clip(0, 1)
+            aux_components = {'disparity': rng.rand(s, s).astype(np.float32).clip(0, 1)}
 
             import kwplot
             kwplot.imshow(imdata, fnum=1, pnum=(2, 2, 1), doclf=True)
             dets.draw()
-            kwplot.imshow(disp_im, fnum=1, pnum=(2, 2, 2))
+            kwplot.imshow(aux_components['disparity'], fnum=1, pnum=(2, 2, 2))
             dets.draw()
 
             imdata1, dets1, disp_im1 = self.augment_data(imdata, dets, disp_im)
@@ -1296,15 +1310,16 @@ class DetectionAugmentor(object):
         _debug('aug rgb')
         imdata = rgb_im_aug_det.augment_image(imdata)
 
-        _debug('disp_im = {!r}'.format(disp_im))
-        if disp_im is not None:
-            # _debug(kwarray.stats_dict(disp_im))
-            disp_im = kwimage.ensure_uint255(disp_im)
-            disp_im = disp_im_aug_det.augment_image(disp_im)
-            disp_im = geom_aug_det.augment_image(disp_im)
-            disp_im = disp_im_aug_det.augment_image(disp_im)
-            disp_im = kwimage.ensure_float01(disp_im)
-            # _debug(kwarray.stats_dict(disp_im))
+        if aux_components:
+            for key, aux_im in aux_components.items():
+                # _debug(kwarray.stats_dict(disp_im))
+                aux_im = kwimage.ensure_uint255(aux_im)
+                aux_im = disp_im_aug_det.augment_image(aux_im)
+                aux_im = geom_aug_det.augment_image(aux_im)
+                aux_im = disp_im_aug_det.augment_image(aux_im)
+                aux_im = kwimage.ensure_float01(aux_im)
+                # _debug(kwarray.stats_dict(aux_im))
+                aux_components[key] = aux_im
 
         output_dims = imdata.shape[0:2]
 
@@ -1313,4 +1328,4 @@ class DetectionAugmentor(object):
             dets = dets.warp(geom_aug_det, input_dims=input_dims,
                              output_dims=output_dims)
 
-        return imdata, dets, disp_im
+        return imdata, dets, aux_components

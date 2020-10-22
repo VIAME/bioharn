@@ -159,6 +159,156 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
                 ).format(mmdet.__version__))
 
 
+def _ensure_unwrapped_and_mounted(mm_inputs, xpu):
+    from kwcoco.util.util_json import IndexableWalker
+    walker = IndexableWalker(mm_inputs)
+    for path, val in walker:
+        if isinstance(val, data_containers.BatchContainer):
+            if len(val.data) != 1:
+                raise ValueError('data not scattered correctly')
+            if val.cpu_only:
+                val = val.data[0]
+            else:
+                val = xpu.move(val.data[0])
+            walker[path] = val
+    return mm_inputs
+
+
+def _hack_numpy_gt_masks(gt_masks):
+    # mmdet only allows numpy inputs
+    from mmdet.core.mask import BitmapMasks
+    numpy_masks = [kwarray.ArrayAPI.numpy(mask) for mask in gt_masks]
+    bitmap_masks = [
+        BitmapMasks(m, height=m.shape[1], width=m.shape[2])
+        for m in numpy_masks]
+    return bitmap_masks
+
+
+def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
+                with_mask=True, packed=False):
+    """
+    Input data for testing this detector
+
+    Args:
+        packed (bool, default=False): if True return dict of data containers
+            otherwise unwrap the datacontainers by packing their contents.
+
+    Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> from bioharn.models.mm_models import _demo_batch, _batch_to_mm_inputs
+        >>> #globals().update(**xdev.get_func_kwargs(_demo_batch))
+        >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
+        >>> channels = ChannelSpec.coerce('rgb,mx|my')
+        >>> #
+        >>> batch = _demo_batch(bsize=4, with_mask=True, channels=channels)
+        >>> mm_inputs = _batch_to_mm_inputs(batch)
+        >>> #
+        >>> batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=True)
+        >>> mm_inputs = _batch_to_mm_inputs(batch)
+    """
+    rng = kwarray.ensure_rng(0)
+    from bioharn.data_containers import ItemContainer
+    from bioharn.data_containers import container_collate
+    if isinstance(bsize, list):
+        item_sizes = bsize
+        bsize = len(item_sizes)
+    else:
+        item_sizes = [rng.randint(0, 10) for bx in range(bsize)]
+
+    channels = ChannelSpec.coerce(channels)
+    B, H, W = bsize, h, w
+
+    input_shapes = {
+        key: (B, c, H, W)
+        for key, c in channels.sizes().items()
+    }
+    inputs = {
+        key: torch.rand(*shape)
+        for key, shape in input_shapes.items()
+    }
+
+    batch_items = []
+    for bx in range(B):
+
+        item_sizes[bx]
+
+        dets = kwimage.Detections.random(num=item_sizes[bx],
+                                         classes=classes,
+                                         segmentations=True)
+        dets = dets.scale((W, H))
+
+        # Extract segmentations if they exist
+        if with_mask:
+            has_mask_list = []
+            class_mask_list = []
+            for sseg in dets.data['segmentations']:
+                if sseg is not None:
+                    mask = sseg.to_mask(dims=(H, W))
+                    c_mask = mask.to_c_mask().data
+                    mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
+                    class_mask_list.append(mask_tensor[None, :])
+                    has_mask_list.append(1)
+                else:
+                    class_mask_list.append(None)
+                    has_mask_list.append(-1)
+
+            has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+            if len(class_mask_list) == 0:
+                class_masks = torch.empty((0, H, W), dtype=torch.uint8)
+            else:
+                class_masks = torch.cat(class_mask_list, dim=0)
+        else:
+            class_masks = None
+
+        dets = dets.tensor()
+        label = {
+            'tlbr': ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
+            'class_idxs': ItemContainer(dets.class_idxs, stack=False),
+            'weight': ItemContainer(torch.FloatTensor(rng.rand(len(dets))), stack=False)
+        }
+
+        if with_mask:
+            label['class_masks'] = ItemContainer(class_masks, stack=False)
+            label['has_mask'] = ItemContainer(has_mask, stack=False)
+
+        item = {
+            'inputs': {
+                key: ItemContainer(vals[bx], stack=True)
+                for key, vals in inputs.items()
+            },
+            'label': label,
+        }
+        batch_items.append(item)
+
+    # import netharn as nh
+    # from bioharn.data_containers import container_collate
+    batch = container_collate(batch_items, num_devices=1)
+    # batch = nh.data.collate.padded_collate(batch_items)
+
+    if packed:
+        from kwcoco.util.util_json import IndexableWalker
+        walker = IndexableWalker(batch)
+        for path, val in walker:
+            if isinstance(val, data_containers.BatchContainer):
+                walker[path] = val.pack()
+                walker.send(False)
+
+    return batch
+
+
+def _dummy_img_metas(B, H, W, C):
+    img_metas = [{
+        'img_shape': (H, W, C),
+        'ori_shape': (H, W, C),
+        'pad_shape': (H, W, C),
+        'filename': '<memory>.png',
+        'scale_factor': 1.0,
+        'flip': False,
+    } for _ in range(B)]
+    return img_metas
+
+
 def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
     """
     Convert our netharn style batch to mmdet style
@@ -175,64 +325,116 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
         >>> bsize = [0, 0, 0, 0]
         >>> batch = _demo_batch(bsize)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
+
+        >>> channels = ChannelSpec.coerce('rgb,mx|my')
+        >>> batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=False)
+        >>> mm_inputs = _batch_to_mm_inputs(batch)
+
+        >>> # batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=True)
+        >>> # mm_inputs = _batch_to_mm_inputs(batch)
+
+        parent_batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=False)
+        batch = parent_batch['inputs']['rgb']
+        mm_inputs = _batch_to_mm_inputs(batch)
+        mm_inputs = _batch_to_mm_inputs(batch.pack())
+
+        # Test the packed non-batch container style inputs
     """
     if isinstance(batch, torch.Tensor):
-        inputs = batch
-    elif isinstance(batch['inputs'], dict):
-        assert len(batch['inputs']) == 1, ('only early fusion for now')
-        inputs = ub.peek(batch['inputs'].values())
-    else:
-        inputs = batch['inputs']
-
-    if isinstance(inputs, torch.Tensor):
-        B, C, H, W = inputs.shape
+        # Absolute simplest case where the input is given as a
+        # (presumably RGB or grayscale) Tensor
+        B, C, H, W = batch.shape
 
         # hack in img meta
-        img_metas = [
-            {
-                'img_shape': (H, W, C),
-                'ori_shape': (H, W, C),
-                'pad_shape': (H, W, C),
-                'filename': '<memory>.png',
-                'scale_factor': 1.0,
-                'flip': False,
-            }
-            for _ in range(B)
-        ]
+        img_metas = _dummy_img_metas(B, H, W, C)
 
         mm_inputs = {
-            'imgs': inputs,
+            'imgs': batch,
             'img_metas': img_metas,
         }
-    elif type(inputs).__name__ in ['BatchContainer']:
-        # Things are already in data containers
-
+        return mm_inputs
+    if isinstance(batch, data_containers.BatchContainer):
+        # Second simplest case, no labels are given and just an one main stream
+        # is given as a batch container.
+        main_stream = batch
+        stream_type = type(batch)
         # Get the number of batch items for each GPU / group
-        groupsizes = [item.shape[0] for item in inputs.data]
-
-        B = len(inputs.data)
-        C, H, W = inputs.data[0].shape[1:]
-
-        DC = type(inputs)
+        groupsizes = [item.shape[0] for item in main_stream.data]
+        B = len(main_stream.data)
+        C, H, W = main_stream.data[0].shape[1:]
+        DC = stream_type
 
         # hack in img meta
         img_metas = DC([
-            [
-                {
-                    'img_shape': (H, W, C),
-                    'ori_shape': (H, W, C),
-                    'pad_shape': (H, W, C),
-                    'filename': '<memory>.png',
-                    'scale_factor': 1.0,
-                    'flip': False,
-                }
-                for _ in range(num)
-            ]
+            _dummy_img_metas(num, H, W, C)
             for num in groupsizes
         ], stack=False, cpu_only=True)
 
         mm_inputs = {
-            'imgs': inputs,
+            'imgs': main_stream,
+            'img_metas': img_metas,
+        }
+        return mm_inputs
+
+    if not isinstance(batch, dict):
+        raise TypeError('We expected input batch to be a dictionary')
+
+    if isinstance(batch['inputs'], dict):
+        inputs = batch['inputs']
+    else:
+        # Input streams were not specified
+        inputs = {'???': batch['inputs']}
+
+    # Determine what the main input stream is.
+    # Typically this will be RGB.
+    if len(inputs) == 0:
+        raise ValueError('No inputs are given')
+    elif len(inputs) == 1 and False:
+        # NOTE: the len(inputs) > 1 case should work for this as well hack this
+        # to be false for testing for now. Can remove the and False after we
+        # verify the fusion case works well.
+        #
+        # Simple case, only one channel
+        main_key, main_stream = ub.peek(inputs.items())
+        stream_type = type(main_stream)
+    else:
+        # Early fusion case
+        input_types = ub.map_vals(type, inputs)
+        if not ub.allsame(input_types.values()):
+            raise Exception('Input streams should all be the same type')
+        stream_type = ub.peek(input_types.values())
+        key_priority_lut = {
+            'rgb': 2,
+            'gray': 1,
+        }
+        stream_priority = {
+            key: (key_priority_lut.get(key, 0), value.numel())
+            for key, value in inputs.items()
+        }
+        main_key = ub.argmax(stream_priority)
+        main_stream = inputs[main_key]
+
+    if isinstance(main_stream, data_containers.BatchContainer):
+        # Things are already in data containers
+
+        # Get the number of batch items for each GPU / group
+        groupsizes = [item.shape[0] for item in main_stream.data]
+
+        B = len(main_stream.data)
+        C, H, W = main_stream.data[0].shape[1:]
+
+        DC = stream_type
+
+        # hack in img meta
+        img_metas = DC([
+            _dummy_img_metas(num, H, W, C)
+            for num in groupsizes
+        ], stack=False, cpu_only=True)
+
+        mm_inputs = {
+            'imgs': main_stream,
+            'main_key': main_key,
+            'inputs': inputs,
             'img_metas': img_metas,
         }
 
@@ -277,8 +479,10 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                     for inner_bx in range(len(ignore_flags.data[outer_bx])):
                         flags = ignore_flags.data[outer_bx][inner_bx]
                         ignore_bboxes = mm_inputs['gt_bboxes'].data[outer_bx][inner_bx][flags]
-                        mm_inputs['gt_labels'].data[outer_bx][inner_bx] = mm_inputs['gt_labels'].data[outer_bx][inner_bx][~flags]
-                        mm_inputs['gt_bboxes'].data[outer_bx][inner_bx] = mm_inputs['gt_bboxes'].data[outer_bx][inner_bx][~flags]
+                        mm_inputs['gt_labels'].data[outer_bx][inner_bx] = (
+                            mm_inputs['gt_labels'].data[outer_bx][inner_bx][~flags])
+                        mm_inputs['gt_bboxes'].data[outer_bx][inner_bx] = (
+                            mm_inputs['gt_bboxes'].data[outer_bx][inner_bx][~flags])
                         inner_bboxes_ignore.append(ignore_bboxes)
                     outer_bboxes_ignore.append(inner_bboxes_ignore)
 
@@ -286,23 +490,15 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                                                    label['weight'].stack)
 
     else:
-        B, C, H, W = inputs.shape
+        B, C, H, W = main_stream.shape
 
         # hack in img meta
-        img_metas = [
-            {
-                'img_shape': (H, W, C),
-                'ori_shape': (H, W, C),
-                'pad_shape': (H, W, C),
-                'filename': '<memory>.png',
-                'scale_factor': 1.0,
-                'flip': False,
-            }
-            for _ in range(B)
-        ]
+        img_metas = _dummy_img_metas(B, H, W, C)
 
         mm_inputs = {
-            'imgs': inputs,
+            'imgs': main_stream,
+            'main_key': main_key,
+            'inputs': inputs,
             'img_metas': img_metas,
         }
 
@@ -384,102 +580,6 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                     mm_inputs['gt_masks'] = gt_masks
 
     return mm_inputs
-
-
-def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
-                with_mask=True):
-    """
-    Input data for testing this detector
-
-    Example:
-        >>> # xdoctest: +REQUIRES(module:mmdet)
-        >>> from bioharn.models.mm_models import *  # NOQA
-        >>> from bioharn.models.mm_models import _demo_batch, _batch_to_mm_inputs
-        >>> #globals().update(**xdev.get_func_kwargs(_demo_batch))
-        >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
-        >>> channels = ChannelSpec.coerce('rgb|d')
-        >>> batch = _demo_batch(with_mask=False, channels=channels)
-        >>> mm_inputs = _batch_to_mm_inputs(batch)
-    """
-    rng = kwarray.ensure_rng(0)
-    from bioharn.data_containers import ItemContainer
-    from bioharn.data_containers import container_collate
-    if isinstance(bsize, list):
-        item_sizes = bsize
-        bsize = len(item_sizes)
-    else:
-        item_sizes = [rng.randint(0, 10) for bx in range(bsize)]
-
-    channels = ChannelSpec.coerce(channels)
-    B, H, W = bsize, h, w
-
-    input_shapes = {
-        key: (B, c, H, W)
-        for key, c in channels.sizes().items()
-    }
-    inputs = {
-        key: torch.rand(*shape)
-        for key, shape in input_shapes.items()
-    }
-
-    batch_items = []
-    for bx in range(B):
-
-        item_sizes[bx]
-
-        dets = kwimage.Detections.random(num=item_sizes[bx],
-                                         classes=classes,
-                                         segmentations=True)
-        dets = dets.scale((W, H))
-
-        # Extract segmentations if they exist
-        if with_mask:
-            has_mask_list = []
-            class_mask_list = []
-            for sseg in dets.data['segmentations']:
-                if sseg is not None:
-                    mask = sseg.to_mask(dims=(H, W))
-                    c_mask = mask.to_c_mask().data
-                    mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
-                    class_mask_list.append(mask_tensor[None, :])
-                    has_mask_list.append(1)
-                else:
-                    class_mask_list.append(None)
-                    has_mask_list.append(-1)
-
-            has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
-            if len(class_mask_list) == 0:
-                class_masks = torch.empty((0, H, W), dtype=torch.uint8)
-            else:
-                class_masks = torch.cat(class_mask_list, dim=0)
-        else:
-            class_masks = None
-
-        dets = dets.tensor()
-        label = {
-            'tlbr': ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
-            'class_idxs': ItemContainer(dets.class_idxs, stack=False),
-            'weight': ItemContainer(torch.FloatTensor(rng.rand(len(dets))), stack=False)
-        }
-
-        if with_mask:
-            label['class_masks'] = ItemContainer(class_masks, stack=False)
-            label['has_mask'] = ItemContainer(has_mask, stack=False)
-
-        item = {
-            'inputs': {
-                key: ItemContainer(vals[bx], stack=True)
-                for key, vals in inputs.items()
-            },
-            'label': label,
-        }
-        batch_items.append(item)
-
-    # import netharn as nh
-    # from bioharn.data_containers import container_collate
-    batch = container_collate(batch_items, num_devices=1)
-    # batch = nh.data.collate.padded_collate(batch_items)
-    return batch
 
 
 class MM_Coder(object):
@@ -661,42 +761,10 @@ class MM_Detector(nh.layers.Module):
         batch = _demo_batch(bsize, channels, h, w, with_mask=with_mask)
         return batch
 
-    def forward(self, batch, return_loss=True, return_result=True):
+    def origstyle_mmdet_forward(self, mm_inputs, return_loss=True, return_result=True):
         """
-        Wraps the mm-detection interface with something that plays nicer with
-        netharn.
-
-        Args:
-            batch (Dict): containing:
-                - im (tensor):
-                - label (None | Dict): optional if loss is needed. Contains:
-                    tlbr: bounding boxes in tlbr space
-                    class_idxs: bounding box class indices
-                    weight: bounding box class weights (only used to set ignore
-                        flags)
-
-                OR an mmdet style batch containing:
-                    imgs
-                    img_metas
-                    gt_bboxes
-                    gt_labels
-                    etc...
-
-            return_loss (bool): compute the loss
-            return_result (bool): compute the result
-                TODO: make this more efficient if loss was computed as well
-
-        Returns:
-            Dict: containing results and losses depending on if return_loss and
-                return_result were specified.
+        The mmdet <= 2.5 style of inputs
         """
-        if 'img_metas' in batch and 'imgs' in batch:
-            # already in mm_inputs format
-            orig_mm_inputs = batch
-        else:
-            orig_mm_inputs = _batch_to_mm_inputs(batch)
-
-        mm_inputs = orig_mm_inputs.copy()
 
         # from bioharn.data_containers import _report_data_shape
         # print('--------------')
@@ -708,16 +776,7 @@ class MM_Detector(nh.layers.Module):
         # Hack: remove data containers if it hasn't been done already
         import netharn as nh
         xpu = nh.XPU.from_data(self)
-        for key in mm_inputs.keys():
-            value = mm_inputs[key]
-            if isinstance(value, data_containers.BatchContainer):
-                if len(value.data) != 1:
-                    raise ValueError('data not scattered correctly')
-                if value.cpu_only:
-                    value = value.data[0]
-                else:
-                    value = xpu.move(value.data[0])
-                mm_inputs[key] = value
+        mm_inputs = _ensure_unwrapped_and_mounted(mm_inputs, xpu)
 
         imgs = mm_inputs.pop('imgs')
         img_metas = mm_inputs.pop('img_metas')
@@ -741,15 +800,7 @@ class MM_Detector(nh.layers.Module):
             if with_mask:
                 if 'gt_masks' in mm_inputs:
                     # mmdet only allows numpy inputs
-                    from mmdet.core.mask import BitmapMasks
-                    numpy_masks = [kwarray.ArrayAPI.numpy(mask)
-                                   for mask in mm_inputs['gt_masks']]
-                    import xdev
-                    with xdev.embed_on_exception_context:
-                        bitmap_masks = [
-                            BitmapMasks(m, height=m.shape[1], width=m.shape[2])
-                            for m in numpy_masks]
-                        trainkw['gt_masks'] = bitmap_masks
+                    trainkw['gt_masks'] = _hack_numpy_gt_masks(mm_inputs['gt_masks'])
 
             # Compute input normalization
             imgs_norm = self.input_norm(imgs)
@@ -791,6 +842,53 @@ class MM_Detector(nh.layers.Module):
                 outputs['batch_results'] = data_containers.BatchContainer(
                     batch_results, stack=False, cpu_only=True)
         return outputs
+
+    def forward(self, batch, return_loss=True, return_result=True):
+        """
+        Wraps the mm-detection interface with something that plays nicer with
+        netharn.
+
+        Args:
+            batch (Dict): containing:
+                - inputs (Dict[str, Tensor]):
+                    mapping of input streams (e.g. rgb or motion) to
+                    corresponding tensors.
+                - label (None | Dict): optional if loss is needed. Contains:
+                    tlbr: bounding boxes in tlbr space
+                    class_idxs: bounding box class indices
+                    weight: bounding box class weights (only used to set ignore
+                        flags)
+
+                OR an mmdet style batch containing:
+                    imgs
+                    img_metas
+                    gt_bboxes
+                    gt_labels
+                    etc...
+
+                    # OR new auxillary information
+                    auxs
+                    main_key
+                    <subject to change>
+
+            return_loss (bool): compute the loss
+            return_result (bool): compute the result
+                TODO: make this more efficient if loss was computed as well
+
+        Returns:
+            Dict: containing results and losses depending on if return_loss and
+                return_result were specified.
+        """
+        if 'img_metas' in batch and 'imgs' in batch:
+            # already in mm_inputs format
+            orig_mm_inputs = batch
+        else:
+            orig_mm_inputs = _batch_to_mm_inputs(batch)
+
+        mm_inputs = orig_mm_inputs.copy()
+
+        return self.origstyle_mmdet_forward(
+            mm_inputs, return_loss=return_loss, return_result=return_loss)
 
     def _init_backbone_from_pretrained(self, filename):
         """
@@ -1412,6 +1510,7 @@ class MM_CascadeRCNN(MM_Detector):
         super(MM_CascadeRCNN, self).__init__(mm_config, train_cfg=train_cfg,
                                              test_cfg=test_cfg,
                                              classes=classes,
+                                             channels=channels,
                                              input_stats=input_stats)
 
     def _fix_loss_parts(self, loss_parts):

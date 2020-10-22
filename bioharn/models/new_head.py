@@ -63,6 +63,8 @@ from mmdet.core import mask_target
 import numpy as np
 from mmcv.ops.nms import batched_nms
 
+import kwcoco
+
 
 GPU_MEM_LIMIT = (1024 ** 3)
 BYTES_PER_FLOAT = 4
@@ -145,7 +147,7 @@ class BBoxHead(nn.Module):
                  with_reg=True,
                  roi_feat_size=7,
                  in_channels=256,
-                 num_classes=80,
+                 classes=80,
                  bbox_coder=dict(
                      type='DeltaXYWHBBoxCoder',
                      target_means=[0., 0., 0., 0.],
@@ -166,7 +168,10 @@ class BBoxHead(nn.Module):
         self.roi_feat_size = _pair(roi_feat_size)
         self.roi_feat_area = self.roi_feat_size[0] * self.roi_feat_size[1]
         self.in_channels = in_channels
-        self.num_classes = num_classes
+
+        self.classes = kwcoco.CategoryTree.coerce(classes)
+        self.num_classes = len(self.classes)
+
         self.reg_class_agnostic = reg_class_agnostic
         self.reg_decoded_bbox = reg_decoded_bbox
         self.fp16_enabled = False
@@ -182,9 +187,9 @@ class BBoxHead(nn.Module):
             in_channels *= self.roi_feat_area
         if self.with_cls:
             # need to add background class
-            self.fc_cls = nn.Linear(in_channels, num_classes + 1)
+            self.fc_cls = nn.Linear(in_channels, self.num_classes + 1)
         if self.with_reg:
-            out_dim_reg = 4 if reg_class_agnostic else 4 * num_classes
+            out_dim_reg = 4 if reg_class_agnostic else 4 * self.num_classes
             self.fc_reg = nn.Linear(in_channels, out_dim_reg)
         self.debug_imgs = None
 
@@ -1340,7 +1345,7 @@ class FCNMaskHead_V2(nn.Module):
                  in_channels=256,
                  conv_kernel_size=3,
                  conv_out_channels=256,
-                 num_classes=80,
+                 classes=80,
                  class_agnostic=False,
                  upsample_cfg=dict(type='deconv', scale_factor=2),
                  conv_cfg=None,
@@ -1364,7 +1369,8 @@ class FCNMaskHead_V2(nn.Module):
         self.conv_out_channels = conv_out_channels
         self.upsample_method = self.upsample_cfg.get('type')
         self.scale_factor = self.upsample_cfg.pop('scale_factor', None)
-        self.num_classes = num_classes
+        self.classes = kwcoco.CategoryTree.coerce(classes)
+        self.num_classes = len(self.classes)
         self.class_agnostic = class_agnostic
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg

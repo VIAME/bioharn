@@ -20,6 +20,8 @@ from mmcv.cnn import kaiming_init
 from mmcv.runner import load_checkpoint
 import torch.nn as nn
 
+import netharn as nh
+
 
 class HRModule(nn.Module):
     """High-Resolution Module for HRNet.
@@ -274,7 +276,9 @@ class HRNet_V2(nn.Module):
                  norm_cfg=dict(type='BN'),
                  norm_eval=True,
                  with_cp=False,
-                 zero_init_residual=False):
+                 zero_init_residual=False,
+                 input_stats=None,
+                 ):
         super().__init__()
         self.extra = extra
         self.conv_cfg = conv_cfg
@@ -282,6 +286,11 @@ class HRNet_V2(nn.Module):
         self.norm_eval = norm_eval
         self.with_cp = with_cp
         self.zero_init_residual = zero_init_residual
+
+        if input_stats is None:
+            input_stats = {}
+
+        self.input_norm = nh.layers.InputNorm(**input_stats)
 
         # stem net
         self.norm1_name, norm1 = build_norm_layer(self.norm_cfg, 64, postfix=1)
@@ -503,6 +512,7 @@ class HRNet_V2(nn.Module):
 
     def forward(self, x):
         """Forward function."""
+        x = self.input_norm(x)
         x = self.conv1(x)
         x = self.norm1(x)
         x = self.relu(x)
