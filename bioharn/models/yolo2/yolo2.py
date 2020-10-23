@@ -177,9 +177,23 @@ class Yolo2(layers.AnalyticModule):
         import ndsampler
         classes = ndsampler.CategoryTree.coerce(classes)
 
+        chan_keys = list(self.channels.keys())
+        if len(chan_keys) != 1:
+            raise ValueError('this model can only do early fusion')
         if input_stats is None:
             input_stats = {}
-        self.input_norm = layers.InputNorm(**input_stats)
+        if len(input_stats):
+            if chan_keys != list(input_stats.keys()):
+                # Backwards compat for older pre-fusion input stats method
+                assert 'mean' in input_stats or 'std' in input_stats
+                input_stats = {
+                    chan_keys[0]: input_stats,
+                }
+        if len(input_stats) != 1:
+            raise ValueError('this model can only do early fusion')
+        main_input_stats = ub.peek(input_stats.values())
+
+        self.input_norm = layers.InputNorm(**main_input_stats)
 
         self.classes = classes
         self.num_classes = len(classes)

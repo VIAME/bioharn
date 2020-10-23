@@ -577,7 +577,9 @@ class DetectHarn(nh.FitHarn):
                 canvas = true_dets.draw_on(canvas, color='green')
                 canvas = pred_dets.draw_on(canvas, color='blue')
             except Exception as ex:
-                harn.warn('ex = {!r}'.format(ex))
+                import xdev
+                xdev.embed()
+                harn.warn('In draw_batch ex = {!r}'.format(ex))
                 canvas = kwimage.draw_text_on_image(
                     canvas, 'drawing-error', org=(0, 0), valign='top')
 
@@ -651,7 +653,8 @@ class DetectHarn(nh.FitHarn):
         if harn.script_config['test_on_finish']:
             eval_dataset = harn.datasets.get('test', None)
             if eval_dataset is None:
-                harn.warn('No test dataset to evaluate')
+                harn.warn('No test dataset to evaluate, trying vali')
+                eval_dataset = harn.datasets.get('vali', None)
 
             if eval_dataset is None:
                 harn.warn('No evaluation dataset')
@@ -674,7 +677,7 @@ class DetectHarn(nh.FitHarn):
                     'deployed': deployed,
 
                     # fixme: should be able to pass the dataset as an object
-                    'dataset': harn.datasets['test'].sampler.dset.fpath,
+                    'dataset': eval_dataset.sampler.dset.fpath,
 
                     'input_dims': harn.script_config['input_dims'],
                     'window_dims': harn.script_config['window_dims'],
@@ -850,9 +853,6 @@ def setup_harn(cmdline=True, **kw):
             # Track moving average of each fused channel stream
             channel_stats = {key: nh.util.RunningStats()
                              for key in channels.keys()}
-
-            import xdev
-            xdev.embed()
 
             for batch in ub.ProgIter(loader, desc='estimate mean/std'):
                 for key, val in batch['inputs'].items():
@@ -1138,23 +1138,45 @@ if __name__ == '__main__':
 
         python -m bioharn.detect_fit \
             --nice=bioharn_shapes_example3 \
-            --train_dataset=./auxtrain.json \
-            --vali_dataset=./auxvali.json \
+            --train_dataset=vidshapes32-aux \
+            --vali_dataset=vidshapes8-aux \
             --augment=simple \
             "--channels=rgb|disparity,flowx|flowy" \
             --init=noop \
             --arch=MM_HRNetV2_w18_MaskRCNN \
-            --optim=sgd --lr=1e-5 \
+            --optim=sgd --lr=1e-8 \
             --schedule=ReduceLROnPlateau-p10-c10 \
             --patience=100 \
-            --max_epochs=10 \
             --input_dims=256,256 \
             --window_dims=512,512 \
             --window_overlap=0.0 \
             --normalize_inputs=True \
             --workers=0 --xpu=0 --batch_size=2 --bstep=4 \
             --sampler_backend=cog \
-            --num_batches=10
+            --test_on_finish=True \
+            --num_batches=10 \
+            --max_epoch=10
+
+        python -m bioharn.detect_fit \
+            --nice=bioharn_shapes_example3 \
+            --train_dataset=vidshapes32-aux \
+            --vali_dataset=vidshapes8-aux \
+            --augment=simple \
+            "--channels=rgb|disparity" \
+            --init=noop \
+            --arch=efficientdet \
+            --optim=sgd --lr=1e-8 \
+            --schedule=ReduceLROnPlateau-p10-c10 \
+            --patience=100 \
+            --input_dims=256,256 \
+            --window_dims=512,512 \
+            --window_overlap=0.0 \
+            --normalize_inputs=True \
+            --workers=0 --xpu=0 --batch_size=2 --bstep=4 \
+            --sampler_backend=cog \
+            --test_on_finish=True \
+            --num_batches=10 \
+            --max_epoch=10
     """
     if 1:
         def make_warnings_print_tracebacks():

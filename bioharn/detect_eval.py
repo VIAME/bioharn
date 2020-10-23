@@ -57,7 +57,7 @@ class DetectEvaluateConfig(scfg.Config):
         'xpu': scfg.Value('auto', help='a CUDA device or a CPU'),
 
         'channels': scfg.Value(
-            'native',
+            'native', type=str,
             help='a specification of channels needed by this model. See ChannelSpec for details. '
             'Typically this can be inferred from the model'),
 
@@ -74,6 +74,46 @@ class DetectEvaluateConfig(scfg.Config):
         'classes_of_interest': scfg.Value([], help='if specified only these classes are given weight'),
 
         'async_buffer': scfg.Value(False, help="I've seen this increase prediction rate but it also increases instability, unsure of the reason"),
+
+        # kwcoco eval config overrides
+        'compat': scfg.Value(
+            value='all',
+            choices=['all', 'mutex', 'ancestors'],
+            help=ub.paragraph(
+                '''
+                Matching strategy for which true annots are allowed to match
+                which predicted annots.
+                `mutex` means true boxes can only match predictions where the
+                true class has highest probability (pycocotools setting).
+                `all` means any class can match any other class.
+                Dont use `ancestors`, it is broken.
+                ''')),
+
+        'monotonic_ppv': scfg.Value(False, help=ub.paragraph(
+            '''
+            if True forces precision to be monotonic. Defaults to True for
+            compatibility with pycocotools, but that might not be the best
+            option.
+            ''')),
+
+        'ap_method': scfg.Value('sklearn', help=ub.paragraph(
+            '''
+            Method for computing AP. Defaults to a setting comparable to
+            pycocotools. Can also be set to sklearn to use an alterative
+            method.
+            ''')),
+
+        'area_range': scfg.Value(
+            value=['all'],
+            # value='0-inf,0-32,32-96,96-inf',
+            help=(
+                'minimum and maximum object areas to consider. '
+                'may be specified as a comma-separated code: <min>-<max>. '
+                'also accepts keys all, small, medium, and large. '
+            )),
+
+        'iou_bias': scfg.Value(0, help=(
+            'pycocotools setting is 1, but 0 may be better')),
     }
 
 
@@ -163,7 +203,7 @@ def evaluate_models(cmdline=True, **kw):
 
             from kwcoco.util.util_json import ensure_json_serializable
             import json
-            single_result = results['area_range=[0,inf],iou_thresh=0.5']
+            single_result = results['area_range=all,iou_thresh=0.5']
             small_results = {
                 'nocls_measures': single_result.nocls_measures.summary(),
                 'ovr_measures': single_result.ovr_measures.summary(),
@@ -594,6 +634,12 @@ class DetectEvaluator(object):
         coco_eval._init()
         results = coco_eval.evaluate()
 
+        eval_config = evaluator.config.asdict()
+
+        from kwcoco.util.util_json import ensure_json_serializable
+        eval_config = ensure_json_serializable(
+            eval_config, normalize_containers=True)
+
         extra_meta = {
             'dset_tag': evaluator.dset_tag,
             'model_tag': evaluator.model_tag,
@@ -601,7 +647,7 @@ class DetectEvaluator(object):
 
             'ignore_classes': sorted(ignore_classes),
 
-            'eval_config': evaluator.config.asdict(),
+            'eval_config': eval_config,
             'train_info': evaluator.train_info,
         }
         # results.meta.update(extra_meta)

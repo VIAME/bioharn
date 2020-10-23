@@ -729,9 +729,23 @@ class MM_Detector(nh.layers.Module):
         if input_stats is None:
             input_stats = {}
 
-        self.channels = ChannelSpec.coerce(channels)
         self.classes = kwcoco.CategoryTree.coerce(classes)
-        self.input_norm = nh.layers.InputNorm(**input_stats)
+        self.channels = ChannelSpec.coerce(channels)
+
+        chan_keys = list(self.channels.keys())
+        if len(chan_keys) != 1:
+            raise ValueError('this model can only do early fusion')
+        if len(input_stats):
+            if chan_keys != list(input_stats.keys()):
+                # Backwards compat for older pre-fusion input stats method
+                assert 'mean' in input_stats or 'std' in input_stats
+                input_stats = {
+                    chan_keys[0]: input_stats,
+                }
+        if len(input_stats) != 1:
+            raise ValueError('this model can only do early fusion')
+        main_input_stats = ub.peek(input_stats.values())
+        self.input_norm = nh.layers.InputNorm(**main_input_stats)
 
         if train_cfg is not None:
             train_cfg = mmcv.utils.config.ConfigDict(train_cfg)
@@ -761,10 +775,49 @@ class MM_Detector(nh.layers.Module):
         batch = _demo_batch(bsize, channels, h, w, with_mask=with_mask)
         return batch
 
-    def origstyle_mmdet_forward(self, mm_inputs, return_loss=True, return_result=True):
+    def forward(self, batch, return_loss=True, return_result=True):
         """
-        The mmdet <= 2.5 style of inputs
+        Wraps the mm-detection interface with something that plays nicer with
+        netharn.
+
+        Args:
+            batch (Dict): containing:
+                - inputs (Dict[str, Tensor]):
+                    mapping of input streams (e.g. rgb or motion) to
+                    corresponding tensors.
+                - label (None | Dict): optional if loss is needed. Contains:
+                    tlbr: bounding boxes in tlbr space
+                    class_idxs: bounding box class indices
+                    weight: bounding box class weights (only used to set ignore
+                        flags)
+
+                OR an mmdet style batch containing:
+                    imgs
+                    img_metas
+                    gt_bboxes
+                    gt_labels
+                    etc...
+
+                    # OR new auxillary information
+                    auxs
+                    main_key
+                    <subject to change>
+
+            return_loss (bool): compute the loss
+            return_result (bool): compute the result
+                TODO: make this more efficient if loss was computed as well
+
+        Returns:
+            Dict: containing results and losses depending on if return_loss and
+                return_result were specified.
         """
+        if 'img_metas' in batch and 'imgs' in batch:
+            # already in mm_inputs format
+            orig_mm_inputs = batch
+        else:
+            orig_mm_inputs = _batch_to_mm_inputs(batch)
+
+        mm_inputs = orig_mm_inputs.copy()
 
         # from bioharn.data_containers import _report_data_shape
         # print('--------------')
@@ -843,53 +896,6 @@ class MM_Detector(nh.layers.Module):
                     batch_results, stack=False, cpu_only=True)
         return outputs
 
-    def forward(self, batch, return_loss=True, return_result=True):
-        """
-        Wraps the mm-detection interface with something that plays nicer with
-        netharn.
-
-        Args:
-            batch (Dict): containing:
-                - inputs (Dict[str, Tensor]):
-                    mapping of input streams (e.g. rgb or motion) to
-                    corresponding tensors.
-                - label (None | Dict): optional if loss is needed. Contains:
-                    tlbr: bounding boxes in tlbr space
-                    class_idxs: bounding box class indices
-                    weight: bounding box class weights (only used to set ignore
-                        flags)
-
-                OR an mmdet style batch containing:
-                    imgs
-                    img_metas
-                    gt_bboxes
-                    gt_labels
-                    etc...
-
-                    # OR new auxillary information
-                    auxs
-                    main_key
-                    <subject to change>
-
-            return_loss (bool): compute the loss
-            return_result (bool): compute the result
-                TODO: make this more efficient if loss was computed as well
-
-        Returns:
-            Dict: containing results and losses depending on if return_loss and
-                return_result were specified.
-        """
-        if 'img_metas' in batch and 'imgs' in batch:
-            # already in mm_inputs format
-            orig_mm_inputs = batch
-        else:
-            orig_mm_inputs = _batch_to_mm_inputs(batch)
-
-        mm_inputs = orig_mm_inputs.copy()
-
-        return self.origstyle_mmdet_forward(
-            mm_inputs, return_loss=return_loss, return_result=return_loss)
-
     def _init_backbone_from_pretrained(self, filename):
         """
         Loads pretrained backbone weights
@@ -966,11 +972,12 @@ class MM_RetinaNet(MM_Detector):
         import kwcoco
         classes = kwcoco.CategoryTree.coerce(classes)
         self.classes = classes
-        if 'background' in classes:
-            assert classes.node_to_idx['background'] == 0
-            num_classes = len(classes)
-        else:
-            num_classes = len(classes) + 1
+        # if 'background' in classes:
+        #     assert classes.node_to_idx['background'] == 0
+        #     num_classes = len(classes)
+        # else:
+        #     num_classes = len(classes) + 1
+        num_classes = len(classes)
 
         self.channels = ChannelSpec.coerce(channels)
         chann_norm = self.channels.normalize()
@@ -980,7 +987,7 @@ class MM_RetinaNet(MM_Detector):
         compat_params = {}
         compat_params['bbox_head'] = dict(
             type='RetinaHead',
-            num_classes=80,
+            num_classes=num_classes,
             in_channels=256,
             stacked_convs=4,
             feat_channels=256,
@@ -1042,9 +1049,9 @@ class MM_RetinaNet(MM_Detector):
 
         backbone_cfg = mm_config['backbone']
         _hack_mm_backbone_in_channels(backbone_cfg)
-        super(MM_RetinaNet, self).__init__(mm_config, train_cfg=train_cfg,
-                                           test_cfg=test_cfg, classes=classes,
-                                           input_stats=input_stats)
+        super().__init__(mm_config, train_cfg=train_cfg, test_cfg=test_cfg,
+                         classes=classes, input_stats=input_stats,
+                         channels=channels)
 
 
 class MM_MaskRCNN(MM_Detector):
@@ -1072,11 +1079,12 @@ class MM_MaskRCNN(MM_Detector):
     def __init__(self, classes, channels='rgb', input_stats=None):
         import kwcoco
         classes = kwcoco.CategoryTree.coerce(classes)
-        if 'background' in classes:
-            assert classes.node_to_idx['background'] == 0
-            num_classes = len(classes)
-        else:
-            num_classes = len(classes) + 1
+        # if 'background' in classes:
+        #     assert classes.node_to_idx['background'] == 0
+        #     num_classes = len(classes)
+        # else:
+        #     num_classes = len(classes) + 1
+        num_classes = len(classes)
 
         # pretrained = 'torchvision://resnet50'
         self.channels = ChannelSpec.coerce(channels)
@@ -1132,7 +1140,7 @@ class MM_MaskRCNN(MM_Detector):
                 num_convs=4,
                 in_channels=256,
                 conv_out_channels=256,
-                num_classes=80,
+                num_classes=num_classes,
                 loss_mask=dict(
                     type='CrossEntropyLoss', use_mask=True, loss_weight=1.0)))
 
@@ -1211,9 +1219,9 @@ class MM_MaskRCNN(MM_Detector):
 
         backbone_cfg = mm_config['backbone']
         _hack_mm_backbone_in_channels(backbone_cfg)
-        super(MM_MaskRCNN, self).__init__(mm_config, train_cfg=train_cfg,
-                                          test_cfg=test_cfg, classes=classes,
-                                          input_stats=input_stats)
+        super().__init__(mm_config, train_cfg=train_cfg, test_cfg=test_cfg,
+                         classes=classes, input_stats=input_stats,
+                         channels=channels)
 
 
 def _load_mmcv_weights(filename, map_location=None):
@@ -1290,14 +1298,20 @@ class MM_CascadeRCNN(MM_Detector):
         import kwcoco
         classes = kwcoco.CategoryTree.coerce(classes)
 
-        if 'background' in classes:
-            # Mmdet changed its "background category" conventions
-            # https://mmdetection.readthedocs.io/en/latest/compatibility.html#codebase-conventions
-            if classes.node_to_idx['background'] != len(classes) - 1:
-                raise AssertionError('mmdet 2.x needs background to be the last class')
-            num_classes = len(classes) - 1
-        else:
-            num_classes = len(classes)
+        # if 'background' in classes:
+        #     # Mmdet changed its "background category" conventions
+        #     # https://mmdetection.readthedocs.io/en/latest/compatibility.html#codebase-conventions
+        #     if classes.node_to_idx['background'] != len(classes) - 1:
+        #         raise AssertionError('mmdet 2.x needs background to be the last class')
+        #     num_classes = len(classes) - 1
+        # else:
+        #     num_classes = len(classes)
+        # if 'background' in classes:
+        #     assert classes.node_to_idx['background'] == 0
+        #     num_classes = len(classes)
+        # else:
+        #     num_classes = len(classes) + 1
+        num_classes = len(classes)
 
         self.channels = ChannelSpec.coerce(channels)
 

@@ -301,55 +301,19 @@ class DetectFitDataset(torch.utils.data.Dataset):
         # after.
         pad = int((slices[0].stop - slices[0].start) * 0.3)
 
-        img = self.sampler.dset.imgs[gid]
-
         aux_components = None
         _debug('self.channels = {!r}'.format(self.channels))
 
         if self.want_aux:
             sampler = self.sampler
-            if 'auxillary' in img:
-                img['auxiliary'] = img['auxillary']  # Hack
-
-            if 'auxiliary' not in img:
-                raise ValueError('Image does not have auxiliary information')
-
-            disk_fusion = ChannelSpec(','.join([a['channels'] for a in img['auxiliary']]))
-            component_indices = disk_fusion.component_indices(axis=0)
-            component_indices = ub.dict_isect(component_indices, self.want_aux)
-            aux_components = {}
-            for part, (key, subindex) in component_indices.items():
-                # TODO: The channels may be fused on disk different than we would
-                # like them to be fused in the network. We need a way of rectifying
-                # available channels with requested channels.
-
-                # First check if the dataset defines a proper disparity channel
-                from ndsampler.utils import util_gdal
-                disp_fpath = sampler.dset.get_auxiliary_fpath(gid, key)
-
-                aux_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
-                data_dims = aux_frame.shape[0:2]
-                data_slice, extra_padding, st_dims = self.sampler._rectify_tr(
-                    tr, data_dims, window_dims=None, pad=pad)
-
-                if part != key:
-                    # disk input is prefused, need to separate it out
-                    data_slice = data_slice + tuple(subindex)
-
-                # Load the image data
-                aux_im = aux_frame[data_slice]
-                if extra_padding:
-                    if aux_im.ndim != len(extra_padding):
-                        extra_padding = extra_padding + [(0, 0)]  # Handle channels
-                    aux_im = np.pad(aux_im, extra_padding, **{'mode': 'constant'})
-                aux_components[part] = aux_im
-
+            want_aux = self.want_aux
+            aux_components = load_sample_auxiliary(
+                sampler, tr, want_aux, pad=pad)
             # if disp_im.max() > 1.0:
             #     raise AssertionError('gid={} {}'.format(gid, ub.repr2(kwarray.stats_dict(disp_im))))
-
             if not aux_components:
+                # disp_im = np.zeros()
                 raise Exception('no auxiliary disparity')
-                disp_im = np.zeros()
 
         _debug('self.use_segmentation = {!r}'.format(self.use_segmentation))
         with_annots = ['boxes']
@@ -431,7 +395,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
             # note: the letterbox augment doesn't handle floats well
             # use the kwimage.imresize instead
             for auxkey, aux_im in aux_components.items():
-                # aux_components[auxkey] = self.letterbox.augment_image(aux_im)
                 aux_components[auxkey] = kwimage.imresize(
                     aux_im, dsize=self.letterbox.target_size,
                     letterbox=True).clip(0, 1)
@@ -505,20 +468,20 @@ class DetectFitDataset(torch.utils.data.Dataset):
             label['class_masks'] = ItemContainer(class_masks, stack=False)
             label['has_mask'] = ItemContainer(has_mask, stack=False)
 
-        compoments = {
+        components = {
             'rgb': chw01,
         }
         if aux_components is not None:
             for auxkey, aux_im in aux_components.items():
                 aux_im = kwarray.atleast_nd(aux_im, 3)
-                compoments[auxkey] = torch.FloatTensor(
+                components[auxkey] = torch.FloatTensor(
                     aux_im.transpose(2, 0, 1))
-        _debug('compoments = {!r}'.format(compoments))
+        _debug('components = {!r}'.format(components))
         _debug('aux_components = {!r}'.format(aux_components))
 
         inputs = {
             k: ItemContainer(v, stack=True)
-            for k, v in self.channels.encode(compoments).items()
+            for k, v in self.channels.encode(components).items()
         }
         _debug('inputs = {!r}'.format(inputs))
 
@@ -625,6 +588,76 @@ class DetectFitDataset(torch.utils.data.Dataset):
             collate_fn=collate_fn, num_workers=num_workers,
             pin_memory=pin_memory, worker_init_fn=worker_init_fn)
         return loader
+
+
+def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
+    """
+    Prototype for auxiliary channel loading that should eventually be merged
+    into ndsampler itself.
+
+    Args:
+        sampler (CocoSampler):
+        tr (Dict): spatial localization of the target region
+        want_aux (List[str]): list of desired raw channels to load
+        pad (int): padding
+
+    TODO:
+        - [ ] Handle case when auxiliary data is not aligned with the main data
+        - [ ] Don't rely on the auxiliary data being in COG format.
+        - [ ] Improve efficiency when all components of a disk-fused stream
+              are present.
+        - [ ] Improve efficiency of creating the disk_fusion channel spec
+
+    Example:
+        >>> import ndsampler
+        >>> from netharn.data.channel_spec import ChannelSpec
+        >>> want_aux = ChannelSpec.coerce('disparity,flowx|flowy').unique()
+        >>> sampler = ndsampler.CocoSampler.demo('vidshapes8-aux')
+        >>> pad = 0
+        >>> tr = {'gid': 1, 'cx': 10, 'cy': 10, 'width': 5, 'height': 5}
+        >>> aux_components = load_sample_auxiliary(sampler, tr, want_aux)
+        >>> print(ub.map_vals(lambda x: x.shape, aux_components))
+    """
+    gid = tr['gid']
+    img = sampler.dset.imgs[gid]
+
+    from ndsampler.utils import util_gdal
+    if 'auxillary' in img:
+        img['auxiliary'] = img['auxillary']  # Hack
+
+    if 'auxiliary' not in img:
+        raise ValueError('Image does not have auxiliary information')
+
+    disk_fusion = ChannelSpec(','.join([a['channels'] for a in img['auxiliary']]))
+    component_indices = disk_fusion.component_indices(axis=0)
+    component_indices = ub.dict_isect(component_indices, want_aux)
+    aux_components = {}
+    for part, (key, subindex) in component_indices.items():
+        # TODO: The channels may be fused on disk different than we would
+        # like them to be fused in the network. We need a way of rectifying
+        # available channels with requested channels.
+
+        # First check if the dataset defines a proper disparity channel
+        disp_fpath = sampler.dset.get_auxiliary_fpath(gid, key)
+
+        aux_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
+        data_dims = aux_frame.shape[0:2]
+        data_slice, extra_padding, st_dims = sampler._rectify_tr(
+            tr, data_dims, window_dims=None, pad=pad)
+
+        if part != key:
+            # disk input is prefused, need to separate it out
+            data_slice = data_slice + tuple(subindex)
+
+        # Load the image data
+        aux_im = aux_frame[data_slice]
+        if extra_padding:
+            if aux_im.ndim != len(extra_padding):
+                extra_padding = extra_padding + [(0, 0)]  # Handle channels
+            aux_im = np.pad(aux_im, extra_padding, **{'mode': 'constant'})
+        aux_components[part] = aux_im
+
+    return aux_components
 
 
 class RandomSampler(torch_sampler.RandomSampler):

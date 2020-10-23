@@ -59,7 +59,7 @@ class DetectPredictConfig(scfg.Config):
         'window_overlap': scfg.Value(0.0, help='overlap of the sliding window'),
 
         'channels': scfg.Value(
-            'native',
+            'native', type=str,
             help='list of channels needed by the model. '
             'Typically this can be inferred from the model'),
 
@@ -288,7 +288,7 @@ class DetectPredictor(object):
         # Ensure model is in prediction mode and disable gradients for speed
         predictor._ensure_mounted_model()
 
-        full_rgb = predictor._rectify_image(path_or_image)
+        full_rgb = predictor._rectify_image(inputs)
         predictor.info('Detect objects in image (shape={})'.format(full_rgb.shape))
 
         full_rgb, pad_offset_rc, window_dims = predictor._prepare_image(full_rgb)
@@ -531,9 +531,9 @@ class DetectPredictor(object):
                             'Normal mm-detection input failed. '
                             'Attempting to find backwards compatible solution')
             else:
-                assert len(batch['inputs']) == 1
+                # assert len(batch['inputs']) == 1
                 try:
-                    im = ub.peek(batch['inputs'].values())
+                    # im = ub.peek(batch['inputs'].values())
                     outputs = predictor.model.forward(batch['inputs'])
                 except Exception:
                     try:
@@ -574,10 +574,10 @@ class DetectPredictor(object):
             det = det.numpy()
             det = det.compress(det.scores > predictor.config['conf_thresh'])
 
-            if True and len(det) and np.all(det.boxes.width <= 1):
+            if True and len(det) and np.all(det.boxes.width <= 1) and len(batch['inputs']) == 1:
                 # HACK FOR YOLO
                 # TODO: decode should return detections in batch input space
-                assert len(batch['inputs']) == 1
+                # assert len(batch['inputs']) == 1
                 im = ub.peek(batch['inputs'].values())
                 inp_size = np.array(im.shape[-2:][::-1])
                 det = det.scale(inp_size)
@@ -696,6 +696,8 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         self.subindex = None
         self.gids = gids
         self._build_sliders()
+
+        self.want_aux = self.channels.unique() - {'rgb'}
 
     @classmethod
     def demo(WindowedSamplerDataset, key='habcam', **kwargs):
@@ -836,27 +838,47 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         sampler = self.sampler
 
         # if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
-        if 'disparity' in unique_channels:
-            from ndsampler.utils import util_gdal
-            disp_fpath = sampler.dset.get_auxillary_fpath(gid, 'disparity')
-            disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
-            data_dims = disp_frame.shape[0:2]
-            pad = 0
-            data_slice, extra_padding, st_dims = sampler._rectify_tr(
-                tr, data_dims, window_dims=None, pad=pad)
-            # Load the image data
-            disp_im = disp_frame[data_slice]
-            if extra_padding:
-                if disp_im.ndim != len(extra_padding):
-                    extra_padding = extra_padding + [(0, 0)]  # Handle channels
-                disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
-            if letterbox is not None:
-                disp_im = letterbox.augment_image(disp_im)
-            if len(disp_im.shape) == 2:
-                disp_im = disp_im[None, :, :]
-            else:
-                disp_im = disp_im.transpose(2, 0, 1)
-            components['disparity'] = torch.FloatTensor(disp_im)
+        # if 'disparity' in unique_channels:
+        #     from ndsampler.utils import util_gdal
+        #     disp_fpath = sampler.dset.get_auxiliary_fpath(gid, 'disparity')
+        #     disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
+        #     data_dims = disp_frame.shape[0:2]
+        #     pad = 0
+        #     data_slice, extra_padding, st_dims = sampler._rectify_tr(
+        #         tr, data_dims, window_dims=None, pad=pad)
+        #     # Load the image data
+        #     disp_im = disp_frame[data_slice]
+        #     if extra_padding:
+        #         if disp_im.ndim != len(extra_padding):
+        #             extra_padding = extra_padding + [(0, 0)]  # Handle channels
+        #         disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
+        #     if letterbox is not None:
+        #         disp_im = letterbox.augment_image(disp_im)
+        #     if len(disp_im.shape) == 2:
+        #         disp_im = disp_im[None, :, :]
+        #     else:
+        #         disp_im = disp_im.transpose(2, 0, 1)
+        #     components['disparity'] = torch.FloatTensor(disp_im)
+
+        if self.want_aux:
+            import kwarray
+            from bioharn.detect_dataset import load_sample_auxiliary
+            sampler = self.sampler
+
+            want_aux = self.want_aux
+            aux_components = load_sample_auxiliary(sampler, tr, want_aux)
+
+            # note: the letterbox augment doesn't handle floats well
+            # use the kwimage.imresize instead
+            for auxkey, aux_im in aux_components.items():
+                aux_components[auxkey] = kwimage.imresize(
+                    aux_im, dsize=letterbox.target_size,
+                    letterbox=True).clip(0, 1)
+
+            for auxkey, aux_im in aux_components.items():
+                aux_im = kwarray.atleast_nd(aux_im, 3)
+                components[auxkey] = torch.FloatTensor(
+                    aux_im.transpose(2, 0, 1))
 
         item['inputs'] = self.channels.encode(components)
         return item
