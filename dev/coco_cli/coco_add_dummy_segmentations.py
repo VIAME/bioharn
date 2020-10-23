@@ -50,6 +50,7 @@ class CocoDummyAddSegmentationsCLI:
             'live sea scallop',
             'swimming sea scallop',
             'dead sea scallop',
+            'scallop',
         ]
 
         for dset in datasets:

@@ -58,3 +58,39 @@ python -m bioharn.detect_fit \
     --num_batches=2000 \
     --balance=None \
     --bstep=8
+
+
+python ~/code/bioharn/dev/coco_cli/coco_add_dummy_segmentations.py \
+    --src $HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_vali.mscoco.json \
+    --dst $HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_vali_dummy_sseg.kwcoco.json
+
+python ~/code/bioharn/dev/coco_cli/coco_add_dummy_segmentations.py \
+    --src $HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_train.mscoco.json \
+    --dst $HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_train_dummy_sseg.kwcoco.json
+
+python -m bioharn.detect_fit \
+    --nice=bioharn-det-hrmask18-rgb-coi-v1 \
+    --workdir=$HOME/work/bioharn \
+    --train_dataset=$HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_vali_dummy_sseg.kwcoco.json \
+    --vali_dataset=$HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_train_dummy_sseg.kwcoco.json \
+    "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+    --channels="rgb,disparity" \
+    --window_dims=768,768 \
+    --input_dims=window \
+    --window_overlap=0.5 \
+    --arch=MM_HRNetV2_w18_MaskRCNN \
+    --schedule=ReduceLROnPlateau-p5-c5 \
+    --max_epoch=400 \
+    --augment=complex \
+    --init=noop \
+    --optim=AdaBelief \
+    --lr=1e-3 \
+    --multiscale=False \
+    --normalize_inputs=imagenet \
+    --backbone_init=url \
+    --workers=8 \
+    --xpu=auto \
+    --batch_size=4 \
+    --num_batches=2000 \
+    --balance=None \
+    --bstep=8
