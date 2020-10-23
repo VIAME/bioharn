@@ -1720,8 +1720,12 @@ class EfficientDet(nn.Module):
                 input_stats = {
                     chan_keys[0]: input_stats,
                 }
-        if len(input_stats) != 1:
-            raise ValueError('this model can only do early fusion')
+            if len(input_stats) != 1:
+                print('GOT input_stats = {!r}'.format(input_stats))
+                raise ValueError('this model can only do early fusion')
+            main_input_stats = ub.peek(input_stats.values())
+        else:
+            main_input_stats = {}
         main_input_stats = ub.peek(input_stats.values())
         self.input_norm = nh.layers.InputNorm(**main_input_stats)
 

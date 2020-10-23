@@ -89,13 +89,6 @@ class MM_Detector_V3(nh.layers.Module):
     def demo_batch(self, bsize=3, h=256, w=256, with_mask=None):
         """
         Input data for testing this detector
-
-        Example:
-            >>> # xdoctest: +REQUIRES(module:mmdet)
-            >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
-            >>> self = MM_RetinaNet(classes)
-            >>> #globals().update(**xdev.get_func_kwargs(MM_Detector.demo_batch))
-            >>> self.demo_batch()
         """
         if with_mask is None:
             with_mask = getattr(self.detector, 'with_mask', False)

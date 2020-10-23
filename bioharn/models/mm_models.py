@@ -204,8 +204,8 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
         >>> batch = _demo_batch(bsize=4, with_mask=True, channels=channels)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
         >>> #
-        >>> batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=True)
-        >>> mm_inputs = _batch_to_mm_inputs(batch)
+        >>> #batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=True)
+        >>> #mm_inputs = _batch_to_mm_inputs(batch)
     """
     rng = kwarray.ensure_rng(0)
     from bioharn.data_containers import ItemContainer
@@ -734,6 +734,7 @@ class MM_Detector(nh.layers.Module):
 
         chan_keys = list(self.channels.keys())
         if len(chan_keys) != 1:
+            print('GOT chan_keys = {!r}'.format(chan_keys))
             raise ValueError('this model can only do early fusion')
         if len(input_stats):
             if chan_keys != list(input_stats.keys()):
@@ -742,9 +743,12 @@ class MM_Detector(nh.layers.Module):
                 input_stats = {
                     chan_keys[0]: input_stats,
                 }
-        if len(input_stats) != 1:
-            raise ValueError('this model can only do early fusion')
-        main_input_stats = ub.peek(input_stats.values())
+            if len(input_stats) != 1:
+                print('GOT input_stats = {!r}'.format(input_stats))
+                raise ValueError('this model can only do early fusion')
+            main_input_stats = ub.peek(input_stats.values())
+        else:
+            main_input_stats = {}
         self.input_norm = nh.layers.InputNorm(**main_input_stats)
 
         if train_cfg is not None:

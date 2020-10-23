@@ -189,9 +189,11 @@ class Yolo2(layers.AnalyticModule):
                 input_stats = {
                     chan_keys[0]: input_stats,
                 }
-        if len(input_stats) != 1:
-            raise ValueError('this model can only do early fusion')
-        main_input_stats = ub.peek(input_stats.values())
+            if len(input_stats) != 1:
+                raise ValueError('this model can only do early fusion')
+            main_input_stats = ub.peek(input_stats.values())
+        else:
+            main_input_stats = {}
 
         self.input_norm = layers.InputNorm(**main_input_stats)
 
