@@ -919,7 +919,7 @@ def preselect_regions(sampler, window_overlap, window_dims,
         if img.get('source', '') == 'habcam_2015_stereo':
             # Hack: todo, cannoncial way to get this effect
             full_dims = [img['height'], img['width'] // 2]
-            raise AssertionError('We should not do this hack anymore')
+            # raise AssertionError('We should not do this hack anymore')
         else:
             full_dims = [img['height'], img['width']]
 

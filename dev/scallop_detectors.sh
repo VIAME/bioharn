@@ -60,20 +60,27 @@ python -m bioharn.detect_fit \
     --bstep=8
 
 
-python ~/code/bioharn/dev/coco_cli/coco_add_dummy_segmentations.py \
-    --src $HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_vali.mscoco.json \
-    --dst $HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_vali_dummy_sseg.kwcoco.json
+--train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
+--vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
 
 python ~/code/bioharn/dev/coco_cli/coco_add_dummy_segmentations.py \
-    --src $HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_train.mscoco.json \
-    --dst $HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_train_dummy_sseg.kwcoco.json
+    --src $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
+    --dst $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train_dummy_sseg.mscoco.json
+
+python ~/code/bioharn/dev/coco_cli/coco_add_dummy_segmentations.py \
+    --src $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
+    --dst $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json
+
+kwcoco stats --src $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json --annot_attrs=True
+
+kwcoco stats --src $HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train_dummy_sseg.mscoco.json --annot_attrs=True
 
 python -m bioharn.detect_fit \
-    --nice=bioharn-det-hrmask18-rgb-coi-v1 \
+    --nice=bioharn-det-hrmask18-rgb-disp-habcam-v2 \
     --workdir=$HOME/work/bioharn \
-    --train_dataset=$HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_vali_dummy_sseg.kwcoco.json \
-    --vali_dataset=$HOME/remote/namek/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_train_dummy_sseg.kwcoco.json \
-    "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
+    --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train_dummy_sseg.mscoco.json \
+    --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
+    "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish" \
     --channels="rgb,disparity" \
     --window_dims=768,768 \
     --input_dims=window \
@@ -86,7 +93,7 @@ python -m bioharn.detect_fit \
     --optim=AdaBelief \
     --lr=1e-3 \
     --multiscale=False \
-    --normalize_inputs=imagenet \
+    --normalize_inputs=True \
     --backbone_init=url \
     --workers=8 \
     --xpu=auto \
