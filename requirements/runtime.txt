@@ -1,14 +1,14 @@
 imgaug
-torch 
+torch
 six
-numpy 
-opencv_python 
+numpy
+opencv_python
 kwarray >= 0.5.8
 kwplot
-kwimage 
+kwimage
 seaborn
-ndsampler 
-netharn 
+ndsampler
+netharn
 scriptconfig
 ubelt
 torch_liberator >= 0.0.4
