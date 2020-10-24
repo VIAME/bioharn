@@ -86,7 +86,7 @@ class ClfConfig(scfg.Config):
         'timeout': scfg.Value(
             float('inf'), help='maximum number of seconds to wait for training'),
 
-        'allow_unicode': scfg.Value(not ub.WIN32, help=(
+        'allow_unicode': scfg.Value(False, help=(
             'allow for unicode characters in messages, otherwise '
             ' we approximate them with ascii')),
 
@@ -768,4 +768,8 @@ if __name__ == '__main__':
             --batch_size=32 \
             --num_batches=auto --num_vali_batches=auto
     """
-    main()
+    try:
+        main()
+    except IndexError:
+        print( "ERROR: Category is missing from validation set.\n" )
+        print( "This usually happens when you don't have enough labels for one category\n" )

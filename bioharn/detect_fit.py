@@ -3,6 +3,10 @@ This example code trains a baseline object detection algorithm given mscoco
 inputs.
 """
 from os.path import join
+
+import matplotlib
+matplotlib.use('Agg')
+
 import netharn as nh
 import numpy as np
 import os
