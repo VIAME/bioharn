@@ -67,6 +67,87 @@ from bioharn.models.mm_models import _ensure_unwrapped_and_mounted
 
 # import torch
 
+
+MMCV_MONKEY_PATCH = 1
+if MMCV_MONKEY_PATCH:
+
+    def build_norm_layer_hack(cfg, num_features, postfix=''):
+        """Build normalization layer.
+
+        Args:
+            cfg (dict): The norm layer config, which should contain:
+
+                - type (str): Layer type.
+                - layer args: Args needed to instantiate a norm layer.
+                - requires_grad (bool, optional): Whether stop gradient updates.
+            num_features (int): Number of input channels.
+            postfix (int | str): The postfix to be appended into norm abbreviation
+                to create named layer.
+
+        Returns:
+            (str, nn.Module): The first element is the layer name consisting of
+                abbreviation and postfix, e.g., bn1, gn. The second element is the
+                created norm layer.
+        """
+        from mmcv.cnn.bricks.registry import NORM_LAYERS
+        from mmcv.cnn.bricks.norm import infer_abbr
+        if not isinstance(cfg, dict):
+            raise TypeError('cfg must be a dict')
+        if 'type' not in cfg:
+            raise KeyError('the cfg dict must contain the key "type"')
+        cfg_ = cfg.copy()
+
+        layer_type = cfg_.pop('type')
+        if layer_type not in NORM_LAYERS:
+            raise KeyError(f'Unrecognized norm type {layer_type}')
+
+        norm_layer = NORM_LAYERS.get(layer_type)
+        abbr = infer_abbr(norm_layer)
+
+        assert isinstance(postfix, (int, str))
+        name = abbr + str(postfix)
+
+        requires_grad = cfg_.pop('requires_grad', True)
+        cfg_.setdefault('eps', 1e-5)
+        if layer_type != 'GN':
+            layer = norm_layer(num_features, **cfg_)
+            if layer_type == 'SyncBN':
+                layer._specify_ddp_gpu_num(1)
+        else:
+            assert 'num_groups' in cfg_
+            if cfg_['num_groups'] == 'auto':
+                valid_num_groups = [
+                    factor for factor in range(1, num_features)
+                    if num_features % factor == 0
+                ]
+                infos = [
+                    {'ng': ng, 'nc': num_features / ng}
+                    for ng in valid_num_groups
+                ]
+                ideal = num_features ** (0.5)
+                for item in infos:
+                    item['heuristic'] = abs(ideal - item['ng']) * abs(ideal - item['nc'])
+                chosen = sorted(infos, key=lambda x: (x['heuristic'], 1 - x['ng']))[0]
+                cfg_['num_groups'] = chosen['ng']
+
+            layer = norm_layer(num_channels=num_features, **cfg_)
+
+        for param in layer.parameters():
+            param.requires_grad = requires_grad
+
+        return name, layer
+
+    from mmcv.cnn.bricks import norm  # NOQA
+    from mmdet.models.backbones import hrnet
+    from mmdet.models.backbones import resnet
+    from mmdet.models.utils import res_layer
+    from bioharn.models import new_backbone
+    norm.build_norm_layer = build_norm_layer_hack
+    hrnet.build_norm_layer = build_norm_layer_hack
+    resnet.build_norm_layer = build_norm_layer_hack
+    res_layer.build_norm_layer = build_norm_layer_hack
+    new_backbone.build_norm_layer = build_norm_layer_hack
+
 BYTES_PER_FLOAT = 4
 # TODO: This memory limit may be too much or too little. It would be better to
 # determine it based on available resources.
@@ -248,11 +329,12 @@ class LateFusionPyramidBackbone(nn.Module):
 
     Ignore:
         >>> from bioharn.models.new_models_v1 import *  # NOQA
+        >>> from bioharn.models.mm_models import _demo_batch  # NOQA
         >>> channels = ChannelSpec.coerce('rgb,mx|my')
         >>> self = LateFusionPyramidBackbone(channels=channels)
         >>> batch = _demo_batch(3, channels, 256, 256, packed=True)
         >>> inputs = batch['inputs']
-        >>> outputs = self.forward(inputs)
+        >>> fused_outputs = self.forward(inputs)
         >>> print(nh.data.data_containers.nestshape(fused_outputs))
         [torch.Size([4, 18, 64, 64]), torch.Size([4, 36, 32, 32]),
          torch.Size([4, 72, 16, 16]), torch.Size([4, 144, 8, 8])]
@@ -265,6 +347,9 @@ class LateFusionPyramidBackbone(nn.Module):
         chann_norm = channels.normalize()
         if input_stats is not None:
             assert set(input_stats.keys()) == set(chann_norm.keys())
+
+        # norm_cfg = {'type': 'BN'}
+
         chan_backbones = {}
         for chan_key, chan_labels in chann_norm.items():
             if input_stats is None:
@@ -281,32 +366,33 @@ class LateFusionPyramidBackbone(nn.Module):
                         'num_blocks': (4,),
                         'num_branches': 1,
                         'num_channels': (64,),
-                        'num_modules': 1
+                        'num_modules': 1,
                     },
                     'stage2': {
                         'block': 'BASIC',
                         'num_blocks': (4, 4),
                         'num_branches': 2,
                         'num_channels': (18, 36),
-                        'num_modules': 1
+                        'num_modules': 1,
                     },
                     'stage3': {
                         'block': 'BASIC',
                         'num_blocks': (4, 4, 4),
                         'num_branches': 3,
                         'num_channels': (18, 36, 72),
-                        'num_modules': 4
+                        'num_modules': 4,
                     },
                     'stage4': {
                         'block': 'BASIC',
                         'num_blocks': (4, 4, 4, 4),
                         'num_branches': 4,
                         'num_channels': (18, 36, 72, 144),
-                        'num_modules': 3
+                        'num_modules': 3,
                     }
                 },
                 'in_channels': len(chan_labels),
                 'input_stats': chan_input_stats,
+                'norm_cfg': {'type': 'GN', 'num_groups': 'auto'},
                 'type': HRNet_V2
             }
             chan_backbone = build_backbone(hrnet_backbone_config)
@@ -393,6 +479,106 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
         classes = kwcoco.CategoryTree.coerce(classes)
         channels = ChannelSpec.coerce(channels)
 
+        rpn_head_v1 = {
+            'anchor_generator': {
+                'ratios': [0.5, 1.0, 2.0],
+                'scales': [8],
+                'strides': [4, 8, 16, 32, 64],
+                'type': 'AnchorGenerator'
+            },
+            'bbox_coder': {
+                'target_means': [0.0, 0.0, 0.0, 0.0],
+                'target_stds': [1.0, 1.0, 1.0, 1.0],
+                'type': 'DeltaXYWHBBoxCoder'
+            },
+            'feat_channels': 256,
+            'in_channels': 256,
+            'loss_bbox': {'loss_weight': 1.0, 'type': 'L1Loss'},
+            'loss_cls': {'loss_weight': 1.0, 'type': 'CrossEntropyLoss', 'use_sigmoid': True},
+            'type': 'RPNHead'
+        }
+
+        rpn_train_cfg_v1 = {
+            'allowed_border': -1,
+            'assigner': {
+                'ignore_iof_thr': -1,
+                'match_low_quality': True,
+                'min_pos_iou': 0.3,
+                'neg_iou_thr': 0.3,
+                'pos_iou_thr': 0.7,
+                'type': 'MaxIoUAssigner'},
+            'debug': False,
+            'pos_weight': -1,
+            'sampler': {
+                'add_gt_as_proposals': False,
+                'neg_pos_ub': -1,
+                'num': 256,
+                'pos_fraction': 0.5,
+                'type': 'RandomSampler'}
+        }
+
+        rpn_head_v2 = dict(
+            # _delete_=True,
+            type='GARPNHead',
+            in_channels=256,
+            feat_channels=256,
+            approx_anchor_generator=dict(
+                type='AnchorGenerator',
+                octave_base_scale=8,
+                scales_per_octave=3,
+                ratios=[0.5, 1.0, 2.0],
+                strides=[4, 8, 16, 32, 64]),
+            square_anchor_generator=dict(
+                type='AnchorGenerator',
+                ratios=[1.0],
+                scales=[8],
+                strides=[4, 8, 16, 32, 64]),
+            anchor_coder=dict(
+                type='DeltaXYWHBBoxCoder',
+                target_means=[.0, .0, .0, .0],
+                target_stds=[0.07, 0.07, 0.14, 0.14]),
+            bbox_coder=dict(
+                type='DeltaXYWHBBoxCoder',
+                target_means=[.0, .0, .0, .0],
+                target_stds=[0.07, 0.07, 0.11, 0.11]),
+            loc_filter_thr=0.01,
+            loss_loc=dict(
+                type='FocalLoss',
+                use_sigmoid=True,
+                gamma=2.0,
+                alpha=0.25,
+                loss_weight=1.0),
+            loss_shape=dict(type='BoundedIoULoss', beta=0.2, loss_weight=1.0),
+            loss_cls=dict(
+                type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+            loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
+
+        rpn_train_cfg_v2 = dict(
+            ga_assigner=dict(
+                type='ApproxMaxIoUAssigner',
+                pos_iou_thr=0.7,
+                neg_iou_thr=0.3,
+                min_pos_iou=0.3,
+                ignore_iof_thr=-1),
+            assigner=dict(
+                type='ApproxMaxIoUAssigner',
+                pos_iou_thr=0.7,
+                neg_iou_thr=0.3,
+                min_pos_iou=0.3,
+                ignore_iof_thr=-1),
+            ga_sampler=dict(
+                type='RandomSampler',
+                num=256,
+                pos_fraction=0.5,
+                neg_pos_ub=-1,
+                add_gt_as_proposals=False),
+            allowed_border=-1,
+            center_ratio=0.2,
+            ignore_ratio=0.5)
+
+        rpn_train_cfg = rpn_train_cfg_v1
+        rpn_head = rpn_head_v1
+
         mm_cfg = mmcv.Config({
             'model': {
                 'backbone': {
@@ -403,25 +589,9 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
                     'in_channels': [18, 36, 72, 144],
                     'out_channels': 256,
                     'type': HRFPN_V2,
+                    'norm_cfg': {'type': 'GN', 'num_groups': 32},
                 },
-                'rpn_head': {
-                    'anchor_generator': {
-                        'ratios': [0.5, 1.0, 2.0],
-                        'scales': [8],
-                        'strides': [4, 8, 16, 32, 64],
-                        'type': 'AnchorGenerator'
-                    },
-                    'bbox_coder': {
-                        'target_means': [0.0, 0.0, 0.0, 0.0],
-                        'target_stds': [1.0, 1.0, 1.0, 1.0],
-                        'type': 'DeltaXYWHBBoxCoder'
-                    },
-                    'feat_channels': 256,
-                    'in_channels': 256,
-                    'loss_bbox': {'loss_weight': 1.0, 'type': 'L1Loss'},
-                    'loss_cls': {'loss_weight': 1.0, 'type': 'CrossEntropyLoss', 'use_sigmoid': True},
-                    'type': 'RPNHead'
-                },
+                'rpn_head': rpn_head,
                 'roi_head': {
                     'bbox_roi_extractor': {
                         'featmap_strides': [4, 8, 16, 32],
@@ -448,7 +618,8 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
                         'classes': classes,
                         'reg_class_agnostic': False,
                         'roi_feat_size': 7,
-                        'type': Shared2FCBBoxHead_V2
+                        'norm_cfg': {'type': 'GN', 'num_groups': 32},
+                        'type': Shared2FCBBoxHead_V2,
                     },
                     'mask_head': {
                         'conv_out_channels': 256,
@@ -457,6 +628,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
                         'classes': classes,
                         'num_convs': 4,
                         'type': FCNMaskHead_V2,
+                        'norm_cfg': {'type': 'GN', 'num_groups': 32},
                     },
                     'type': StandardRoIHead_V2,
                 },
@@ -475,6 +647,15 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
                         'nms_pre': 1000, 'nms_thr': 0.7}
             },
             'train_cfg': {
+                'rpn': rpn_train_cfg,
+                'rpn_proposal': {
+                    'max_num': 1000,
+                    'min_bbox_size': 0,
+                    'nms_across_levels': False,
+                    'nms_post': 1000,
+                    'nms_pre': 2000,
+                    'nms_thr': 0.7
+                },
                 'rcnn': {
                     'assigner': {
                         'ignore_iof_thr': -1,
@@ -491,30 +672,9 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
                         'neg_pos_ub': -1,
                         'num': 512,
                         'pos_fraction': 0.25,
-                        'type': 'RandomSampler'}
+                        'type': 'RandomSampler'
+                    }
                 },
-                'rpn': {
-                    'allowed_border': -1,
-                    'assigner': {
-                        'ignore_iof_thr': -1,
-                        'match_low_quality': True,
-                        'min_pos_iou': 0.3,
-                        'neg_iou_thr': 0.3,
-                        'pos_iou_thr': 0.7,
-                        'type': 'MaxIoUAssigner'},
-                    'debug': False,
-                    'pos_weight': -1,
-                    'sampler': {
-                        'add_gt_as_proposals': False,
-                        'neg_pos_ub': -1,
-                        'num': 256,
-                        'pos_fraction': 0.5,
-                        'type': 'RandomSampler'}
-                },
-                'rpn_proposal': {
-                    'max_num': 1000, 'min_bbox_size': 0,
-                    'nms_across_levels': False, 'nms_post': 1000,
-                    'nms_pre': 2000, 'nms_thr': 0.7}
             }
         })
 
