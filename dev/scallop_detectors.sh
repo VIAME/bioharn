@@ -151,7 +151,7 @@ python -m bioharn.detect_fit \
     --normalize_inputs=True \
     --backbone_init=url \
     --workers=8 \
-    --xpu=auto \
+    --xpu=1 \
     --batch_size=2 \
     --num_batches=2000 \
     --balance=None \
@@ -178,7 +178,7 @@ python -m bioharn.detect_fit \
     --normalize_inputs=True \
     --backbone_init=url \
     --workers=8 \
-    --xpu=auto \
+    --xpu=0 \
     --batch_size=2 \
     --num_batches=2000 \
     --balance=None \

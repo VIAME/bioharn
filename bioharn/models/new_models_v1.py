@@ -159,6 +159,7 @@ class MM_Detector_V3(nh.layers.Module):
     Wraps mm detectors. Attempt to include logic for late fusion.
     """
     __BUILTIN_CRITERION__ = True
+    _mmdet_is_version_1x = False  # needed to prevent autoconvert
 
     def __init__(self, detector=None, classes=None, channels=None):
         super().__init__()

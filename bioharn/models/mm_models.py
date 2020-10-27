@@ -717,6 +717,7 @@ class MM_Coder(object):
 class MM_Detector(nh.layers.Module):
     """
     """
+    _mmdet_is_version_1x = False  # needed to prevent autoconvert
     __BUILTIN_CRITERION__ = True
 
     def __init__(self, mm_model, train_cfg=None, test_cfg=None,
