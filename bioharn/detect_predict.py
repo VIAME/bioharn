@@ -153,11 +153,28 @@ class DetectPredictor(object):
         >>> final2 = final.compress(final.scores > .0)
         >>> final2.draw()
 
+    Ignore:
         >>> deployed_fpath = ub.grabdata(
         >>>     'https://data.kitware.com/api/v1/file/5ee93f639014a6d84ec52b7f/download',
         >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3_mm2x.zip',
         >>>     appname='viame', hasher='sha512',
         >>>     hash_prefix='63b7c3981b3446b079c1d83541a5666c496f6148', verbose=3)
+
+        >>> from bioharn.detect_predict import *  # NOQA
+        >>> deployed_fpath = ub.grabdata(
+        >>>     'https://data.kitware.com/api/v1/file/5f99c37c50a41e3d1918fdbe/download',
+        >>>     fname='trained_detector_for_jc.zip',
+        >>>     appname='viame', hasher='sha512',
+        >>>     hash_prefix='73250a9f2bdc4b746f1edf1baec1593403229c4d7972863', verbose=3)
+        >>> config = dict(
+        >>>     deployed=deployed_fpath,
+        >>> )
+        >>> predictor = DetectPredictor(config)
+        >>> predictor._ensure_mounted_model()
+        >>> inputs = {'rgb': (np.random.rand(512, 512, 3) * 255).astype(np.uint8),
+        >>>           'disparity': (np.random.rand(512, 512, 1) * 255).astype(np.uint8)}
+        >>> #inputs = {'rgb|disparity': np.random.rand(512, 512, 4)}
+        >>> final = predictor.predict(inputs)
     """
     def __init__(predictor, config):
         predictor.config = DetectPredictConfig(config)
@@ -492,7 +509,13 @@ class DetectPredictor(object):
         else:
             pad_offset_rc = np.array([0, 0])
 
-        pad_value = 127  # todo: parametarize / use known mean if possible
+        if 0:
+            if getattr(predictor.raw_model, 'input_norm', None) is not None:
+                # todo: use known mean if possible
+                # input_norm = predictor.raw_model.input_norm
+                pass
+        else:
+            pad_value = 127
 
         full_inputs = {}
         for chan_key, imdata in inputs.items():
@@ -501,9 +524,11 @@ class DetectPredictor(object):
                 if ndims_all > ndims_spti:
                     # Handle channels
                     extra = [(0, 0)] * (ndims_all - ndims_spti)
-                    pad_width = pad_width + extra
+                    pad_width_ = pad_width + extra
+                else:
+                    pad_width_ = pad_width
                 full_imdata = np.pad(
-                    imdata, pad_width, mode='constant',
+                    imdata, pad_width_, mode='constant',
                     constant_values=pad_value)
             else:
                 full_imdata = imdata
@@ -527,7 +552,8 @@ class DetectPredictor(object):
         if input_dims == 'full' or input_dims == window_dims:
             input_dims = None
 
-        slider_dataset = SingleImageDataset(full_inputs, slider, input_dims)
+        slider_dataset = SingleImageDataset(full_inputs, slider, input_dims,
+                                            channels=native['channels'])
         return slider_dataset
 
     @profile
@@ -693,6 +719,11 @@ class SingleImageDataset(torch_data.Dataset):
         return self.slider.n_total
 
     def __getitem__(self, index):
+        """
+        Ignore:
+            self = slider_dataset
+            index = 0
+        """
         # Lookup the window location
         slider = self.slider
         basis_idx = np.unravel_index(index, slider.basis_shape)
