@@ -17,7 +17,9 @@ import scriptconfig as scfg
 class DetectFitConfig(scfg.Config):
     default = {
         # Personal Preference
-        'nice': scfg.Value(
+        'nice': scfg.Value(None, help=('deprecated use name instead')),
+
+        'name': scfg.Value(
             'untitled',
             help=('a human readable tag for your experiment (we also keep a '
                   'failsafe computer readable tag in case you update hyperparams, '
@@ -126,6 +128,11 @@ class DetectFitConfig(scfg.Config):
     }
 
     def normalize(self):
+        if self['nice'] is not None:
+            import warnings
+            warnings.warn('Using "nice" is deprecated use "name" instead', DeprecationWarning)
+            self['name'] = self['nice']
+
         if self['pretrained'] in ['null', 'None']:
             self['pretrained'] = None
 
@@ -357,7 +364,7 @@ class DetectHarn(nh.FitHarn):
             >>> from bioharn.detect_fit import *  # NOQA
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
             >>> harn = setup_harn(
-            >>>     nice='overfit_test', batch_size=8,
+            >>>     name='overfit_test', batch_size=8,
             >>>     # datasets='special:voc',
             >>>     train_dataset='special:vidshapes8',
             >>>     # train_dataset=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json'),
@@ -631,7 +638,7 @@ class DetectHarn(nh.FitHarn):
             python -m netharn.data.grab_voc
 
             python -m bioharn.detect_fit \
-                --nice=bioharn_shape_example \
+                --name=bioharn_shape_example \
                 --datasets=special:shapes1024 \
                 --schedule=step-60-80 \
                 --augment=simple \
@@ -1010,7 +1017,7 @@ def setup_harn(cmdline=True, **kw):
     import sys
 
     hyper = nh.HyperParams(**{
-        'name': config['nice'],
+        'name': config['name'],
         'workdir': config['workdir'],
 
         'datasets': torch_datasets,
@@ -1043,7 +1050,7 @@ def setup_harn(cmdline=True, **kw):
             # extra params specific to your algorithm, and still have them
             # logged in the hyperparam structure. For YOLO this is `ovthresh`.
             'batch_size': config['batch_size'],
-            'nice': config['nice'],
+            'name': config['name'],
             'ovthresh': config['ovthresh'],  # used in mAP computation
         },
         'extra': {
@@ -1116,7 +1123,7 @@ if __name__ == '__main__':
 
     CommandLine:
         python -m bioharn.detect_fit \
-            --nice=bioharn_shapes_example \
+            --name=bioharn_shapes_example \
             --datasets=special:shapes256 \
             --schedule=step-10-30 \
             --augment=complex \
@@ -1134,7 +1141,7 @@ if __name__ == '__main__':
         kwcoco toydata --key vidshapes8-aux --dst auxvali.json
 
         python -m bioharn.detect_fit \
-            --nice=bioharn_shapes_example3 \
+            --name=bioharn_shapes_example3 \
             --train_dataset=vidshapes32-aux \
             --vali_dataset=vidshapes8-aux \
             --augment=simple \
@@ -1155,7 +1162,7 @@ if __name__ == '__main__':
             --max_epoch=10
 
         python -m bioharn.detect_fit \
-            --nice=bioharn_shapes_example3 \
+            --name=bioharn_shapes_example3 \
             --train_dataset=vidshapes32-aux \
             --vali_dataset=vidshapes8-aux \
             --augment=simple \
