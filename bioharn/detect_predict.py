@@ -612,16 +612,20 @@ class DetectPredictor(object):
             det = det.numpy()
             det = det.compress(det.scores > predictor.config['conf_thresh'])
 
+            # Ensure that masks are transformed into polygons for transformation efficiency
+            if det.data.get('segmentations', None) is not None:
+                det.data['segmentations'] = det.data['segmentations'].to_polygon_list()
+
             if True and len(det) and np.all(det.boxes.width <= 1) and len(batch['inputs']) == 1:
                 # HACK FOR YOLO
                 # TODO: decode should return detections in batch input space
                 # assert len(batch['inputs']) == 1
                 im = ub.peek(batch['inputs'].values())
                 inp_size = np.array(im.shape[-2:][::-1])
-                det = det.scale(inp_size)
+                det = det.scale(inp_size, inplace=True)
 
-            det = det.scale(item_scale_xy)
-            det = det.translate(item_shift_xy)
+            det = det.scale(item_scale_xy, inplace=True)
+            det = det.translate(item_shift_xy, inplace=True)
             # Fix type issue
             if 'class_idxs' in det.data:
                 det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
