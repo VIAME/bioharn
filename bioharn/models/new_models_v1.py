@@ -70,6 +70,7 @@ from bioharn.models.mm_models import _ensure_unwrapped_and_mounted
 
 MMCV_MONKEY_PATCH = 1
 if MMCV_MONKEY_PATCH:
+    # FIXME: need to inject into deploy files
 
     def build_norm_layer_hack(cfg, num_features, postfix=''):
         """Build normalization layer.

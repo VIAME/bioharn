@@ -121,7 +121,7 @@ class DetectFitConfig(scfg.Config):
 
         'ensure_background_class': scfg.Value(False, help='ensure a background category exists'),
         'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
-        'test_on_finish': False,
+        'test_on_finish': True,
         'vali_intervals': 1,
     }
 

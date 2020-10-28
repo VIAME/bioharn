@@ -208,8 +208,6 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
         >>> #mm_inputs = _batch_to_mm_inputs(batch)
     """
     rng = kwarray.ensure_rng(0)
-    from bioharn.data_containers import ItemContainer
-    from bioharn.data_containers import container_collate
     if isinstance(bsize, list):
         item_sizes = bsize
         bsize = len(item_sizes)
@@ -263,18 +261,18 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
 
         dets = dets.tensor()
         label = {
-            'tlbr': ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
-            'class_idxs': ItemContainer(dets.class_idxs, stack=False),
-            'weight': ItemContainer(torch.FloatTensor(rng.rand(len(dets))), stack=False)
+            'tlbr': data_containers.ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
+            'class_idxs': data_containers.ItemContainer(dets.class_idxs, stack=False),
+            'weight': data_containers.ItemContainer(torch.FloatTensor(rng.rand(len(dets))), stack=False)
         }
 
         if with_mask:
-            label['class_masks'] = ItemContainer(class_masks, stack=False)
-            label['has_mask'] = ItemContainer(has_mask, stack=False)
+            label['class_masks'] = data_containers.ItemContainer(class_masks, stack=False)
+            label['has_mask'] = data_containers.ItemContainer(has_mask, stack=False)
 
         item = {
             'inputs': {
-                key: ItemContainer(vals[bx], stack=True)
+                key: data_containers.ItemContainer(vals[bx], stack=True)
                 for key, vals in inputs.items()
             },
             'label': label,
@@ -283,7 +281,7 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
 
     # import netharn as nh
     # from bioharn.data_containers import container_collate
-    batch = container_collate(batch_items, num_devices=1)
+    batch = data_containers.container_collate(batch_items, num_devices=1)
     # batch = nh.data.collate.padded_collate(batch_items)
 
     if packed:

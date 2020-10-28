@@ -183,3 +183,28 @@ python -m bioharn.detect_fit \
     --num_batches=2000 \
     --balance=None \
     --bstep=8
+
+
+python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=4 --batch_size=8 --draw=0 --verbose=3 --sampler_backend=cog \
+    --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
+    --deployed="[\
+        $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5/bcifnsvt/deploy_MM_HRNetV2_w18_MaskRCNN_bcifnsvt_029_KYHMWC.zip, \
+        $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-disp-habcam-v4/sydbgnxj/deploy_MM_HRNetV2_w18_MaskRCNN_sydbgnxj_023_RLQZTH.zip, \
+    ]"
+
+vim $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5/bcifnsvt/deploy_MM_HRNetV2_w18_MaskRCNN_bcifnsvt_029_KYHMWC.zip
+
+vim $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-disp-habcam-v4/sydbgnxj/deploy_MM_HRNetV2_w18_MaskRCNN_sydbgnxj_023_RLQZTH.zip
+
+
+zipedit(){
+    __heredoc__='
+    https://superuser.com/questions/647674/is-there-a-way-to-edit-files-inside-of-a-zip-file-without-explicitly-extracting/647795
+    '
+    ARCHIVE_FPATH=$1
+    FNAME=$2
+    TMP_DPATH=/tmp
+    echo "Usage: zipedit archive.zip file.txt"
+    unzip "$ARCHIVE_FPATH" "$FNAME" -d $TMP_DPATH
+    vim "$TMP_DPATH/$FNAME" && zip -j --update "$ARCHIVE"  "$TMP_DPATH/$FNAME" 
+}

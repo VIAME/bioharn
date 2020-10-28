@@ -42,6 +42,13 @@ from netharn.data.data_containers import ContainerXPU
 import os
 
 
+try:
+    import xdev
+    profile = xdev.profile
+except Exception:
+    profile = ub.identity
+
+
 ENABLE_BIOHARN_WARNINGS = os.environ.get('ENABLE_BIOHARN_WARNINGS', '')
 
 
@@ -258,6 +265,7 @@ class DetectPredictor(object):
             # hack to prevent multiple XPU data checks
             predictor.model._ensured_mount = True
 
+    @profile
     def predict(predictor, inputs):
         """
         Predict on a single large image using a sliding window_dims
@@ -334,6 +342,7 @@ class DetectPredictor(object):
         predictor.info('Finished prediction')
         return final_dets
 
+    @profile
     def predict_sampler(predictor, sampler, gids=None):
         """
         Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
@@ -420,6 +429,7 @@ class DetectPredictor(object):
             for gid, dets in predictor._finalize_dets(ready_dets, ready_gids):
                 yield gid, dets
 
+    @profile
     def _finalize_dets(predictor, ready_dets, ready_gids):
         """ Helper for predict_sampler """
         gid_to_ready_dets = ub.group_items(ready_dets, ready_gids)
@@ -520,6 +530,7 @@ class DetectPredictor(object):
         slider_dataset = SingleImageDataset(full_inputs, slider, input_dims)
         return slider_dataset
 
+    @profile
     def _predict_batch(predictor, batch):
         """
         Runs the torch network on a single batch and postprocesses the outputs
@@ -1023,6 +1034,7 @@ def _coerce_sampler(config):
     return sampler
 
 
+@profile
 def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
                     draw=False, enable_cache=True, async_buffer=False,
                     verbose=1, draw_truth=True):
