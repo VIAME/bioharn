@@ -1063,7 +1063,7 @@ def setup_harn(cmdline=True, **kw):
         'eager_dump_tensorboard': True,
         'deploy_after_error': True,
         'timeout': config['timeout'],
-        'allow_unicode': not ub.WIN32,
+        'allow_unicode': True,
     })
     harn.intervals.update({
         'log_iter_train': 1000,
@@ -1071,9 +1071,6 @@ def setup_harn(cmdline=True, **kw):
         'vali': config['vali_intervals'],
     })
     harn.script_config = config
-
-    if ub.WIN32:
-        ub.util_colors.NO_COLOR = True
 
     print('harn = {!r}'.format(harn))
     print('samplers = {!r}'.format(samplers))
