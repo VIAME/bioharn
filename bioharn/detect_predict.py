@@ -770,7 +770,9 @@ class SingleImageDataset(torch_data.Dataset):
             chip_hwc = full_imdata[slice_]
 
             # TODO: be careful what we do here based on the channel info
-            chip_hwc = kwimage.ensure_float01(chip_hwc, dtype=np.float32)
+            import xdev
+            xdev.embed()
+            # chip_hwc = kwimage.ensure_float01(chip_hwc, dtype=np.float32)
 
             if needs_resize:
                 # Resize the image
