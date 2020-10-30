@@ -772,9 +772,6 @@ class SingleImageDataset(torch_data.Dataset):
             chip_hwc = full_imdata[slice_]
 
             # TODO: be careful what we do here based on the channel info
-            x = 1
-            import xdev
-            xdev.embed()
             chip_hwc = kwimage.ensure_float01(chip_hwc, dtype=np.float32)
 
             if needs_resize:
@@ -909,6 +906,15 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
         assert 'rgb' in unique_channels
         sample = self.sampler.load_sample(tr, with_annots=False)
+
+        # ndsampler should interact with the network's ChannelSpec to know if
+        # it needs to coerce grayscale images to 3 channel to pass them to an
+        # RGB network.
+
+        if 0:
+            if 'rgb' in self.channels.unique():
+                chip_hwc = kwimage.atleast_3channels(sample['im'])
+
         chip_hwc = kwimage.atleast_3channels(sample['im'])
 
         chip_dims = tuple(chip_hwc.shape[0:2])
@@ -932,31 +938,23 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             shift = [0, 0]
             scale = [1, 1]
         scale_xy = torch.FloatTensor(scale)
+        offset_xy = torch.FloatTensor([slices[1].start, slices[0].start])
 
         # TODO: UNIFY WITH SingleImageDataset.__getitem__
-
-        x = 2
-        import xdev
-        xdev.embed()
+        # TODO: ndsampler should contain the correct logic to sample fused
+        # streams that includes the rgb sampling.
 
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
-        tensor_rgb = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
-        offset_xy = torch.FloatTensor([slices[1].start, slices[0].start])
+        chip_chw = np.ascontiguousarray(chip_chw)
+        chip_chw = kwimage.ensure_float01(chip_chw, dtype=np.float32)
+        tensor_rgb = torch.from_numpy(chip_chw) / 255.0
 
         # To apply a transform we first scale then shift
         tf_full_to_chip = {
             'scale_xy': torch.FloatTensor(scale_xy),
             'shift_xy': torch.FloatTensor(shift) - (offset_xy * scale_xy),
         }
-
-        if False:
-            tf_mat = np.array([
-                [tf_full_to_chip['scale_xy'][0], 0, tf_full_to_chip['shift_xy'][0]],
-                [0, tf_full_to_chip['scale_xy'][1], tf_full_to_chip['shift_xy'][1]],
-                [0, 0, 1],
-            ])
-            np.linalg.inv(tf_mat)
 
         # This transform will bring us from chip space back to full img space
         tf_chip_to_full = {
@@ -973,31 +971,10 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
         sampler = self.sampler
 
-        # if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
-        # if 'disparity' in unique_channels:
-        #     from ndsampler.utils import util_gdal
-        #     disp_fpath = sampler.dset.get_auxiliary_fpath(gid, 'disparity')
-        #     disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
-        #     data_dims = disp_frame.shape[0:2]
-        #     pad = 0
-        #     data_slice, extra_padding, st_dims = sampler._rectify_tr(
-        #         tr, data_dims, window_dims=None, pad=pad)
-        #     # Load the image data
-        #     disp_im = disp_frame[data_slice]
-        #     if extra_padding:
-        #         if disp_im.ndim != len(extra_padding):
-        #             extra_padding = extra_padding + [(0, 0)]  # Handle channels
-        #         disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
-        #     if letterbox is not None:
-        #         disp_im = letterbox.augment_image(disp_im)
-        #     if len(disp_im.shape) == 2:
-        #         disp_im = disp_im[None, :, :]
-        #     else:
-        #         disp_im = disp_im.transpose(2, 0, 1)
-        #     components['disparity'] = torch.FloatTensor(disp_im)
-
         if self.want_aux:
+
             from bioharn.detect_dataset import load_sample_auxiliary
+
             sampler = self.sampler
 
             want_aux = self.want_aux
