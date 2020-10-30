@@ -1189,7 +1189,8 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
     if enable_cache:
         pred_fpaths = [gid_to_pred_fpath[gid] for gid in have_gids]
-        cached_dets = _load_dets(pred_fpaths, workers=6)
+        load_workers = 0
+        cached_dets = _load_dets(pred_fpaths, workers=load_workers)
         assert have_gids == [d.meta['gid'] for d in cached_dets]
         gid_to_cached = ub.dzip(have_gids, cached_dets)
         gid_to_pred.update(gid_to_cached)
@@ -1197,7 +1198,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
     return gid_to_pred, gid_to_pred_fpath
 
 
-def _load_dets(pred_fpaths, workers=6):
+def _load_dets(pred_fpaths, workers=0):
     # Process mode is much faster than thread.
     from kwcoco.util import util_futures
     jobs = util_futures.JobPool(mode='process', max_workers=workers)
