@@ -1279,6 +1279,7 @@ def detect_cli(config={}):
     sampler = _coerce_sampler(config)
     print('prepare frames')
     gids = config['gids']
+    gids = [gids] if isinstance(gids, int) else gids
     sampler.frames.prepare(workers=config['workers'], gids=gids)
 
     print('Create predictor')
