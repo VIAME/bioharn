@@ -1180,10 +1180,11 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
                                                                 dset=coco_dset)
                 true_dets.draw_on(image, alpha=None, color='green')
 
-            flags = dets.scores > .2
-            flags[kwarray.argmaxima(dets.scores, num=10)] = True
-            top_dets = dets.compress(flags)
-            toshow = top_dets.draw_on(image, alpha=None)
+            # flags = dets.scores > .2
+            # flags[kwarray.argmaxima(dets.scores, num=10)] = True
+            # show_dets = dets.compress(flags)
+            show_dets = dets
+            toshow = show_dets.draw_on(image, alpha=None)
             # kwplot.imshow(toshow)
             kwimage.imwrite(viz_fpath, toshow, space='rgb')
 
