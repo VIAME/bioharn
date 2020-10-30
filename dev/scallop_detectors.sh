@@ -197,6 +197,12 @@ vim $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habca
 vim $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-disp-habcam-v4/sydbgnxj/deploy_MM_HRNetV2_w18_MaskRCNN_sydbgnxj_023_RLQZTH.zip
 
 
+python ~/code/bioharn/bioharn/detect_predict.py \
+    --xpu=1 --workers=4 --batch_size=8 --draw=0 --verbose=3 --sampler_backend=cog \
+    --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
+    --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5/bcifnsvt/deploy_MM_HRNetV2_w18_MaskRCNN_bcifnsvt_029_KYHMWC.zip \
+    --out_dpath="./tmp"
+
 zipedit(){
     __heredoc__='
     https://superuser.com/questions/647674/is-there-a-way-to-edit-files-inside-of-a-zip-file-without-explicitly-extracting/647795

@@ -1236,6 +1236,7 @@ class DetectPredictCLIConfig(scfg.Config):
             'workdir': scfg.Path('~/work/bioharn', help='work directory for sampler if needed'),
 
             'async_buffer': scfg.Value(False, help="I've seen this increase prediction rate from 2.0Hz to 2.3Hz, but it increases instability, unsure of the reason"),
+            'gids': scfg.Value(None, help='if specified only predict on these image-ids (only applicable to coco input)'),
         },
         DetectPredictConfig.default
     )
@@ -1277,7 +1278,8 @@ def detect_cli(config={}):
 
     sampler = _coerce_sampler(config)
     print('prepare frames')
-    sampler.frames.prepare(workers=config['workers'])
+    gids = config['gids']
+    sampler.frames.prepare(workers=config['workers'], gids=gids)
 
     print('Create predictor')
     pred_config = ub.dict_subset(config, DetectPredictConfig.default)
@@ -1290,19 +1292,24 @@ def detect_cli(config={}):
     async_buffer = config['async_buffer']
 
     gid_to_pred, gid_to_pred_fpath = _cached_predict(
-        predictor, sampler, out_dpath=out_dpath, gids=None,
-        draw=config['draw'], enable_cache=config['enable_cache'], async_buffer=async_buffer)
+        predictor, sampler, out_dpath=out_dpath, gids=gids,
+        draw=config['draw'], enable_cache=config['enable_cache'],
+        async_buffer=async_buffer)
 
-    import ndsampler
-    coco_dsets = []
-    for gid, pred_fpath in gid_to_pred_fpath.items():
-        single_img_coco = ndsampler.CocoDataset(pred_fpath)
-        coco_dsets.append(single_img_coco)
+    if gids is None:
+        # Each image produces its own kwcoc files in the "pred" subfolder.
+        # Union all of those to make a single coco file that contains all
+        # predictions.
+        import ndsampler
+        coco_dsets = []
+        for gid, pred_fpath in gid_to_pred_fpath.items():
+            single_img_coco = ndsampler.CocoDataset(pred_fpath)
+            coco_dsets.append(single_img_coco)
 
-    pred_dset = ndsampler.CocoDataset.union(*coco_dsets)
-    pred_fpath = join(det_outdir, 'detections.mscoco.json')
-    print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
-    pred_dset.dump(pred_fpath, newlines=True)
+        pred_dset = ndsampler.CocoDataset.union(*coco_dsets)
+        pred_fpath = join(det_outdir, 'detections.mscoco.json')
+        print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
+        pred_dset.dump(pred_fpath, newlines=True)
 
 
 if __name__ == '__main__':
