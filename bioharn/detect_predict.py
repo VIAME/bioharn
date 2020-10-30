@@ -749,6 +749,8 @@ class SingleImageDataset(torch_data.Dataset):
             shift = [0, 0]
             scale = [1, 1]
 
+        # TODO: UNIFY WITH WindowedSamplerDataset.__getitem__
+
         scale_xy = torch.FloatTensor(scale)
         offset_xy = torch.FloatTensor([slice_[1].start, slice_[0].start])
 
@@ -770,9 +772,10 @@ class SingleImageDataset(torch_data.Dataset):
             chip_hwc = full_imdata[slice_]
 
             # TODO: be careful what we do here based on the channel info
+            x = 1
             import xdev
             xdev.embed()
-            # chip_hwc = kwimage.ensure_float01(chip_hwc, dtype=np.float32)
+            chip_hwc = kwimage.ensure_float01(chip_hwc, dtype=np.float32)
 
             if needs_resize:
                 # Resize the image
@@ -929,6 +932,12 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             shift = [0, 0]
             scale = [1, 1]
         scale_xy = torch.FloatTensor(scale)
+
+        # TODO: UNIFY WITH SingleImageDataset.__getitem__
+
+        x = 2
+        import xdev
+        xdev.embed()
 
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
