@@ -961,7 +961,10 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
         chip_chw = np.ascontiguousarray(chip_chw)
-        chip_chw = kwimage.ensure_float01(chip_chw, dtype=np.float32)
+        print('chip_chw.dtype = {!r}'.format(chip_chw.dtype))
+
+        # chip_chw = kwimage.ensure_float01(chip_chw, dtype=np.float32)
+        # tensor_rgb = torch.from_numpy(chip_chw)
         tensor_rgb = torch.from_numpy(chip_chw) / 255.0
 
         # To apply a transform we first scale then shift
