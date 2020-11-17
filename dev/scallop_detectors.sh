@@ -198,10 +198,18 @@ vim $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-disp-habca
 
 
 python ~/code/bioharn/bioharn/detect_predict.py \
-    --xpu=1 --batch_size=1 --draw=0 --verbose=3 --sampler_backend=cog \
+    --xpu=1 --batch_size=1 --verbose=3 --sampler_backend=cog \
     --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
     --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5/bcifnsvt/deploy_MM_HRNetV2_w18_MaskRCNN_bcifnsvt_029_KYHMWC.zip \
     --out_dpath="./tmp/tmp-pred" --enable_cache=False --gids=744, --draw=True --workers=0
+
+python ~/code/bioharn/bioharn/detect_predict.py \
+    --xpu=1 --batch_size=1 --verbose=3 --sampler_backend=cog \
+    --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/cog/201503.20150520.062618682.308000_left.cog.tif \
+    --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5/bcifnsvt/deploy_MM_HRNetV2_w18_MaskRCNN_bcifnsvt_029_KYHMWC.zip \
+    --out_dpath="./tmp/tmp-pred" --enable_cache=False --draw=True --workers=0
+
+
 
 zipedit(){
     __heredoc__='
