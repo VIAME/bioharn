@@ -934,11 +934,18 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         chip_dims = tuple(chip_hwc.shape[0:2])
 
         # Resize the image patch if necessary
-        if self.input_dims != 'window':
-            if isinstance(self.input_dims, str):
+        print('self.input_dims = {!r}'.format(self.input_dims))
+        print('chip_dims = {!r}'.format(chip_dims))
+
+        if isinstance(self.input_dims, str) or self.input_dims is None:
+            if self.input_dims is not None and self.input_dims != 'window':
                 raise TypeError(
                     'input dims is a non-window string but should '
                     'have been resolved before this!')
+            letterbox = None
+            shift = [0, 0]
+            scale = [1, 1]
+        else:
             letterbox = nh.data.transforms.Resize(None, mode='letterbox')
             letterbox.target_size = self.input_dims[::-1]
             # Record the inverse transformation
@@ -947,10 +954,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             shift, scale, embed_size = letterbox._letterbox_transform(chip_size, input_size)
             # Resize the image
             chip_hwc = letterbox.augment_image(chip_hwc)
-        else:
-            letterbox = None
-            shift = [0, 0]
-            scale = [1, 1]
+
         scale_xy = torch.FloatTensor(scale)
         offset_xy = torch.FloatTensor([slices[1].start, slices[0].start])
 
