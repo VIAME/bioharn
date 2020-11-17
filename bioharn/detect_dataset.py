@@ -4,7 +4,7 @@ import torch
 import ubelt as ub
 import kwarray
 import kwimage
-import torch.utils.data.sampler as torch_sampler
+import torch.utils.data.sampler
 from netharn.data.channel_spec import ChannelSpec
 from netharn.data.data_containers import ItemContainer
 from netharn.data.data_containers import container_collate
@@ -60,6 +60,18 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         if input_dims == 'window':
             input_dims = window_dims
+
+        if input_dims == 'full':
+            widths = set(sampler.dset.images().width)
+            heights = set(sampler.dset.images().height)
+            if len(widths) != 1 and len(heights) != 1:
+                raise AssertionError((
+                    'Must specify a consistent input size when using full '
+                    'image windows. Images have variable widths={} '
+                    'and heights={}'
+                ).format(widths, heights))
+            else:
+                input_dims = (ub.peek(heights), ub.peek(widths))
 
         self.use_segmentation = use_segmentation
         self.channels = ChannelSpec.coerce(channels)
@@ -515,14 +527,41 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>>     shapes.add(inputs.data[0].shape[-1])
             >>>     if len(shapes) > 1:
             >>>         break
+
+        Example:
+            >>> from bioharn.detect_dataset import *  # NOQA
+            >>> import pytest
+            >>> self = DetectFitDataset.demo('shapes8')
+            >>> with pytest.raises(IndexError):
+            >>>     loader = self.make_loader(batch_size=3, num_batches=1000, shuffle=True)
         """
-        # dataset = self
-        assert len(self) > 0, 'must have some data'
-        if shuffle:
-            sampler = RandomSampler(self, num_samples=(
-                None if num_batches == 'auto' else num_batches * batch_size))
-        else:
-            sampler = torch_sampler.SequentialSampler(self)
+        if len(self) == 0:
+            raise ValueError('must have some data')
+
+        if balance != 'tfidf':
+            # The case where where replacement is not allowed
+            if num_batches == 'auto':
+                num_samples = None
+            else:
+                num_samples = num_batches * batch_size
+
+            if shuffle:
+                item_sampler = RandomSampler(self, num_samples=num_samples)
+            else:
+                if num_samples is not None:
+                    raise NotImplementedError('TODO: subset sampler')
+                item_sampler = torch.utils.data.sampler.SequentialSampler(self)
+
+            if num_samples is not None:
+                # If num_batches is too big, what should the behavior be?
+                #   1. Sample with replacement to achieve the requested num_batches
+                #   2. Clip num_batches so it can't exceed (num_items // batch_size)
+                # ✓ 3. Error
+                # We could implement other strategies via configuration options if needed
+                if num_samples > len(self):
+                    raise IndexError(
+                        'num_samples={} is greater than the number '
+                        'of data items {}. Try setting num_batches=auto?'.format(num_samples, len(self)))
 
         if balance == 'tfidf':
             if not shuffle:
@@ -556,11 +595,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
             batch_sampler._balance_report()
         elif multiscale:
             batch_sampler = MultiScaleBatchSampler2(
-                sampler, batch_size=batch_size, drop_last=drop_last,
+                item_sampler, batch_size=batch_size, drop_last=drop_last,
                 factor=32, scales=[-9, 1])
         else:
             batch_sampler = torch.utils.data.BatchSampler(
-                sampler, batch_size=batch_size, drop_last=drop_last)
+                item_sampler, batch_size=batch_size, drop_last=drop_last)
 
         if ub.WIN32:
             # Hack for win32 because of pickle loading issues with local vars
@@ -660,7 +699,7 @@ def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
     return aux_components
 
 
-class RandomSampler(torch_sampler.RandomSampler):
+class RandomSampler(torch.utils.data.sampler.RandomSampler):
     r"""
     Extends torch RandomSampler allow num_samples when replacement=False
 
@@ -701,7 +740,7 @@ def reseed_(auger, rng):
         return auger.reseed(rng)
 
 
-class MultiScaleBatchSampler2(torch_sampler.BatchSampler):
+class MultiScaleBatchSampler2(torch.utils.data.sampler.BatchSampler):
     """
     Indicies returned in the batch are tuples indicating data index and scale
     index. Requires that dataset has a `multi_scale_inp_size` attribute.
@@ -724,9 +763,9 @@ class MultiScaleBatchSampler2(torch_sampler.BatchSampler):
         >>>         return 1000
         >>> batch_size = 16
         >>> data_source = DummyDatset()
-        >>> sampler = sampler1 = torch_sampler.RandomSampler(data_source)
+        >>> sampler = sampler1 = torch.utils.data.sampler.RandomSampler(data_source)
         >>> self = rand = MultiScaleBatchSampler2(sampler1, resample_freq=10)
-        >>> sampler2 = torch_sampler.SequentialSampler(data_source)
+        >>> sampler2 = torch.utils.data.sampler.SequentialSampler(data_source)
         >>> seq = MultiScaleBatchSampler2(sampler2, resample_freq=None)
         >>> rand_idxs = list(iter(rand))
         >>> seq_idxs = list(iter(seq))

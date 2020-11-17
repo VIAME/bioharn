@@ -907,15 +907,25 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         assert 'rgb' in unique_channels
         sample = self.sampler.load_sample(tr, with_annots=False)
 
-        # ndsampler should interact with the network's ChannelSpec to know if
-        # it needs to coerce grayscale images to 3 channel to pass them to an
-        # RGB network.
-
         if 0:
+            # ndsampler should interact with the network's ChannelSpec to know
+            # if it needs to coerce grayscale images to 3 channel to pass them
+            # to an RGB network.
+            #
+            # Outline:
+            #     - [ ] we should be given `self.channels` which defines the
+            #     network input early-fused streams.
+            #         - [ ] perhaps this can store input mean / std values for
+            #               pre-processing? We can measure speedup from doing
+            #               this on CPU.
+            #     - [ ] Given the sampler "frames" object specify the window
+            #           region and the resize region the early fused inputs and
+            #           optionally resize and renormalize.
+            #
             if 'rgb' in self.channels.unique():
                 chip_hwc = kwimage.atleast_3channels(sample['im'])
-
-        chip_hwc = kwimage.atleast_3channels(sample['im'])
+        else:
+            chip_hwc = kwimage.atleast_3channels(sample['im'])
 
         chip_dims = tuple(chip_hwc.shape[0:2])
 
