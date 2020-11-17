@@ -966,6 +966,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         # chip_chw = kwimage.ensure_float01(chip_chw, dtype=np.float32)
         # tensor_rgb = torch.from_numpy(chip_chw)
         tensor_rgb = torch.from_numpy(chip_chw).float() / 255.0
+        print(kwarray.stats_dict(tensor_rgb))
 
         # To apply a transform we first scale then shift
         tf_full_to_chip = {
