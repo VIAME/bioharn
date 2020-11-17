@@ -817,7 +817,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         gids : images to sample from, if None use all of them
     """
 
-    def __init__(self, sampler, window_dims='full', input_dims='native',
+    def __init__(self, sampler, window_dims='full', input_dims='window',
                  window_overlap=0.0, gids=None, channels='rgb'):
         self.sampler = sampler
         self.input_dims = input_dims
@@ -850,7 +850,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
         Ignore:
             window_dims = (512, 512)
-            input_dims = 'native'
+            input_dims = 'window'
             window_overlap = 0
         """
         import netharn as nh
@@ -934,7 +934,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         chip_dims = tuple(chip_hwc.shape[0:2])
 
         # Resize the image patch if necessary
-        if self.input_dims != 'native' and self.input_dims != 'window':
+        if self.input_dims != 'window':
             if isinstance(self.input_dims, str):
                 raise TypeError(
                     'input dims is a non-window string but should '
@@ -1011,6 +1011,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
                     aux_im.transpose(2, 0, 1))
 
         item['inputs'] = self.channels.encode(components, axis=0)
+        print(item['inputs'])
         return item
 
 
