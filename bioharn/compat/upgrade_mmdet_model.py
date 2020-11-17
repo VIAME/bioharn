@@ -218,6 +218,9 @@ def upgrade_deployed_mmdet_model(config):
 
     # checkpoint = torch.load(in_file)
     out_file = ub.augpath(temp_fpath, suffix='_upgrade2x')
+
+    print('num_classes_old = {!r}'.format(num_classes_old))
+    print('new_classes = {!r}'.format(new_classes))
     convert(in_file, out_file, num_classes_old + 1)
 
     input_stats = model_initkw['input_stats']

@@ -1301,12 +1301,15 @@ class MM_CascadeRCNN(MM_Detector):
         import kwcoco
         classes = kwcoco.CategoryTree.coerce(classes)
 
-        # if 'background' in classes:
-        #     # Mmdet changed its "background category" conventions
-        #     # https://mmdetection.readthedocs.io/en/latest/compatibility.html#codebase-conventions
-        #     if classes.node_to_idx['background'] != len(classes) - 1:
-        #         raise AssertionError('mmdet 2.x needs background to be the last class')
-        #     num_classes = len(classes) - 1
+        if 'background' in classes:
+            # Mmdet changed its "background category" conventions
+            # https://mmdetection.readthedocs.io/en/latest/compatibility.html#codebase-conventions
+            if classes.node_to_idx['background'] != len(classes) - 1:
+                raise AssertionError('mmdet 2.x needs background to be the last class')
+            num_classes = len(classes) - 1
+        else:
+            num_classes = len(classes)
+
         # else:
         #     num_classes = len(classes)
         # if 'background' in classes:
@@ -1314,7 +1317,6 @@ class MM_CascadeRCNN(MM_Detector):
         #     num_classes = len(classes)
         # else:
         #     num_classes = len(classes) + 1
-        num_classes = len(classes)
 
         self.channels = ChannelSpec.coerce(channels)
 
