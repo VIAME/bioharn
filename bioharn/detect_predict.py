@@ -935,8 +935,8 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         chip_dims = tuple(chip_hwc.shape[0:2])
 
         # Resize the image patch if necessary
-        print('self.input_dims = {!r}'.format(self.input_dims))
-        print('chip_dims = {!r}'.format(chip_dims))
+        # print('self.input_dims = {!r}'.format(self.input_dims))
+        # print('chip_dims = {!r}'.format(chip_dims))
 
         if isinstance(self.input_dims, str) or self.input_dims is None:
             if self.input_dims is not None and self.input_dims != 'window':
@@ -966,12 +966,12 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
         chip_chw = np.ascontiguousarray(chip_chw)
-        print('chip_chw.dtype = {!r}'.format(chip_chw.dtype))
+        # print('chip_chw.dtype = {!r}'.format(chip_chw.dtype))
 
         # chip_chw = kwimage.ensure_float01(chip_chw, dtype=np.float32)
         # tensor_rgb = torch.from_numpy(chip_chw)
         tensor_rgb = torch.from_numpy(chip_chw).float() / 255.0
-        print(kwarray.stats_dict(tensor_rgb))
+        # print(kwarray.stats_dict(tensor_rgb))
 
         # To apply a transform we first scale then shift
         tf_full_to_chip = {
