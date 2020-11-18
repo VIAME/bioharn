@@ -1016,7 +1016,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
                     aux_im.transpose(2, 0, 1))
 
         item['inputs'] = self.channels.encode(components, axis=0)
-        print(item['inputs'])
+        # print(item['inputs'])
         return item
 
 
