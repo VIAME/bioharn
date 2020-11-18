@@ -196,6 +196,39 @@ vim $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habca
 
 vim $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-disp-habcam-v4/sydbgnxj/deploy_MM_HRNetV2_w18_MaskRCNN_sydbgnxj_023_RLQZTH.zip
 
+
+# Adapt the network because the monkeypatch didnt work right
+python -m bioharn.detect_fit \
+    --nice=bioharn-det-hrmask18-rgb-only-habcam-v5-adapt \
+    --workdir=$HOME/work/bioharn \
+    --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train_dummy_sseg.mscoco.json \
+    --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
+    "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish" \
+    --channels="rgb" \
+    --window_dims=768,768 \
+    --input_dims=window \
+    --window_overlap=0.5 \
+    --arch=MM_HRNetV2_w18_MaskRCNN \
+    --schedule=step-12-22 \
+    --max_epoch=400 \
+    --augment=complex \
+    --init=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5/bcifnsvt/deploy_MM_HRNetV2_w18_MaskRCNN_bcifnsvt_029_KYHMWC.zip \
+    --optim=sgd \
+    --lr=1e-3 \
+    --multiscale=False \
+    --normalize_inputs=True \
+    --backbone_init=url \
+    --workers=8 \
+    --xpu=0 \
+    --batch_size=2 \
+    --num_batches=100 \
+    --balance=None \
+    --bstep=8
+
+
+# SANITY CHECK
+# download a known "good" model and ensure tha tit predicts correctly
+xdoctest -m bioharn.detect_predict DetectPredictor --network
 python -m bioharn.detect_predict \
     --xpu=1 --batch_size=1 --verbose=3 --sampler_backend=cog \
     --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
@@ -204,6 +237,8 @@ python -m bioharn.detect_predict \
 
 
 
+# NEW MODEL CHECK:
+# This should work, but it doesn't seem like it is
 python -m bioharn.detect_predict \
     --xpu=1 --batch_size=1 --verbose=3 --sampler_backend=cog \
     --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
@@ -222,6 +257,13 @@ python -m bioharn.detect_predict \
     --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5/bcifnsvt/deploy_MM_HRNetV2_w18_MaskRCNN_bcifnsvt_029_KYHMWC.zip \
     --out_dpath="./tmp/tmp-pred" --enable_cache=False --draw=True --workers=0
 
+python -m bioharn.detect_predict \
+    --xpu=1 --batch_size=1 --verbose=3 --sampler_backend=None \
+    --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/cog/201503.20150621.005549952.129166_left.cog.tif \
+    --deployed=$HOME/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5-adapt/udmzrkmb/deploy_MM_HRNetV2_w18_MaskRCNN_udmzrkmb_003_FKJTWB.zip \
+    --out_dpath="./tmp/tmp-pred" --enable_cache=False --draw=True --workers=0
+                                     
+
 
 
 zipedit(){
@@ -234,4 +276,73 @@ zipedit(){
     echo "Usage: zipedit archive.zip file.txt"
     unzip "$ARCHIVE_FPATH" "$FNAME" -d $TMP_DPATH
     vim "$TMP_DPATH/$FNAME" && zip -j --update "$ARCHIVE"  "$TMP_DPATH/$FNAME" 
+}
+
+
+test-predict-quality(){
+    python -m bioharn.detect_fit \
+        --nice=bioharn-det-hrmask18-rgb-only-shapes \
+        --workdir=$HOME/work/bioharn \
+        --train_dataset=special:shapes256 \
+        --channels="rgb" \
+        --window_dims=768,768 \
+        --input_dims=window \
+        --window_overlap=0.5 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=step-12-22 \
+        --max_epoch=400 \
+        --augment=complex \
+        --init=noop \
+        --optim=sgd \
+        --lr=1e-3 \
+        --multiscale=False \
+        --normalize_inputs=True \
+        --backbone_init=url \
+        --workers=8 \
+        --xpu=0 \
+        --batch_size=2 \
+        --num_batches=auto \
+        --balance=None \
+        --bstep=8
+
+    
+    cd $HOME/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-shapes/nchuyhmv
+    python -m bioharn.detect_predict \
+        --xpu=auto --batch_size=1 --verbose=3 --sampler_backend=cog \
+        --dataset=$HOME/.cache/kwcoco/toy_dset/shapes_8_cbdda30a08151dc32feab1479be073368c8e325b/images/img_00002.png \
+        --deployed=deploy.zip \
+        --out_dpath="./tmp/tmp-pred" --enable_cache=False --draw=True --workers=0
+
+    python -m bioharn.detect_fit \
+        --nice=bioharn-det-hrmask18-rgb-only-shapes-v2 \
+        --workdir=$HOME/work/bioharn \
+        --train_dataset=special:shapes256 \
+        --channels="rgb" \
+        --window_dims=768,768 \
+        --input_dims=window \
+        --window_overlap=0.5 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=step-12-22 \
+        --max_epoch=400 \
+        --augment=complex \
+        --init=$HOME/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-shapes/nchuyhmv/deploy.zip \
+        --optim=sgd \
+        --lr=1e-3 \
+        --multiscale=False \
+        --normalize_inputs=True \
+        --backbone_init=url \
+        --workers=8 \
+        --xpu=0 \
+        --batch_size=2 \
+        --num_batches=auto \
+        --balance=None \
+        --bstep=8
+
+    cd $HOME/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-shapes-v2/gycvxcfv
+    python -m bioharn.detect_predict \
+        --xpu=auto --batch_size=1 --verbose=3 --sampler_backend=cog \
+        --dataset=$HOME/.cache/kwcoco/toy_dset/shapes_8_cbdda30a08151dc32feab1479be073368c8e325b/images/img_00002.png \
+        --deployed=deploy.zip \
+        --out_dpath="./tmp/tmp-pred" --enable_cache=False --draw=True --workers=0
+
 }

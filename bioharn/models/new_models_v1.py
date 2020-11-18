@@ -65,11 +65,12 @@ from bioharn.models.mm_models import _load_mmcv_weights
 from bioharn.models.mm_models import _hack_numpy_gt_masks
 from bioharn.models.mm_models import _ensure_unwrapped_and_mounted
 
-# import torch
 
-
-MMCV_MONKEY_PATCH = 1
-if MMCV_MONKEY_PATCH:
+def monkeypatch_build_norm_layer():
+    """
+    NOTE: This is structured in a very particular way so torch-liberator
+    correctly carries the monkey patch with it.
+    """
     # FIXME: need to inject into deploy files
 
     def build_norm_layer_hack(cfg, num_features, postfix=''):
@@ -138,16 +139,37 @@ if MMCV_MONKEY_PATCH:
 
         return name, layer
 
+    from mmcv import cnn as mm_cnn  # NOQA
     from mmcv.cnn.bricks import norm  # NOQA
-    from mmdet.models.backbones import hrnet
-    from mmdet.models.backbones import resnet
-    from mmdet.models.utils import res_layer
-    from bioharn.models import new_backbone
-    norm.build_norm_layer = build_norm_layer_hack
-    hrnet.build_norm_layer = build_norm_layer_hack
-    resnet.build_norm_layer = build_norm_layer_hack
-    res_layer.build_norm_layer = build_norm_layer_hack
-    new_backbone.build_norm_layer = build_norm_layer_hack
+    from mmdet.models.backbones import hrnet  # NOQA
+    from mmdet.models.backbones import resnet  # NOQA
+    from mmdet.models.utils import res_layer  # NOQA
+
+    # norm.build_norm_layer = build_norm_layer_hack
+    # hrnet.build_norm_layer = build_norm_layer_hack
+    # resnet.build_norm_layer = build_norm_layer_hack
+    # res_layer.build_norm_layer = build_norm_layer_hack
+    # mm_cnn.build_norm_layer = build_norm_layer_hack
+
+    def find_modules_with_function(func):
+        import gc
+        dependants = gc.get_referrers(func)
+        for dependant in dependants:
+            if isinstance(dependant, dict) and '__name__' in dependant:
+                yield dependant
+
+    func = mm_cnn.build_norm_layer
+    for mod_dict in find_modules_with_function(func):
+        if func.__name__ in mod_dict:
+            mod_dict[func.__name__] = build_norm_layer_hack
+
+    # from bioharn.models import new_backbone
+    # new_backbone.build_norm_layer = build_norm_layer_hack
+
+# MMCV_MONKEY_PATCH = 1
+# if MMCV_MONKEY_PATCH:
+#     monkeypatch_build_norm_layer()
+
 
 BYTES_PER_FLOAT = 4
 # TODO: This memory limit may be too much or too little. It would be better to
@@ -480,6 +502,9 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
     def __init__(self, classes=None, input_stats=None, channels='rgb'):
         classes = kwcoco.CategoryTree.coerce(classes)
         channels = ChannelSpec.coerce(channels)
+
+        # ensure torch-liberator takes the monkey patch
+        monkeypatch_build_norm_layer()
 
         rpn_head_v1 = {
             'anchor_generator': {

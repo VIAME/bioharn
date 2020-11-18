@@ -12,11 +12,12 @@ Ignore:
 from mmdet.models.backbones.resnet import BasicBlock
 from mmdet.models.backbones.resnet import Bottleneck
 from torch.nn.modules.batchnorm import _BatchNorm
-from mmcv.cnn import build_conv_layer
-from mmcv.cnn import build_norm_layer
-from mmcv.cnn import constant_init
+from mmcv import cnn as mm_cnn
+# from mmcv.cnn import build_conv_layer
+# from mmcv.cnn import build_norm_layer
+# from mmcv.cnn import constant_init
+# from mmcv.cnn import kaiming_init
 from mmdet.utils import get_root_logger
-from mmcv.cnn import kaiming_init
 from mmcv.runner import load_checkpoint
 import torch.nn as nn
 
@@ -84,14 +85,14 @@ class HRModule(nn.Module):
                 self.in_channels[branch_index] != \
                 num_channels[branch_index] * block.expansion:
             downsample = nn.Sequential(
-                build_conv_layer(
+                mm_cnn.build_conv_layer(
                     self.conv_cfg,
                     self.in_channels[branch_index],
                     num_channels[branch_index] * block.expansion,
                     kernel_size=1,
                     stride=stride,
                     bias=False),
-                build_norm_layer(self.norm_cfg, num_channels[branch_index] *
+                mm_cnn.build_norm_layer(self.norm_cfg, num_channels[branch_index] *
                                  block.expansion)[1])
 
         layers = []
@@ -140,7 +141,7 @@ class HRModule(nn.Module):
                 if j > i:
                     fuse_layer.append(
                         nn.Sequential(
-                            build_conv_layer(
+                            mm_cnn.build_conv_layer(
                                 self.conv_cfg,
                                 in_channels[j],
                                 in_channels[i],
@@ -148,7 +149,7 @@ class HRModule(nn.Module):
                                 stride=1,
                                 padding=0,
                                 bias=False),
-                            build_norm_layer(self.norm_cfg, in_channels[i])[1],
+                            mm_cnn.build_norm_layer(self.norm_cfg, in_channels[i])[1],
                             nn.Upsample(
                                 scale_factor=2**(j - i), mode='nearest')))
                 elif j == i:
@@ -159,7 +160,7 @@ class HRModule(nn.Module):
                         if k == i - j - 1:
                             conv_downsamples.append(
                                 nn.Sequential(
-                                    build_conv_layer(
+                                    mm_cnn.build_conv_layer(
                                         self.conv_cfg,
                                         in_channels[j],
                                         in_channels[i],
@@ -167,12 +168,12 @@ class HRModule(nn.Module):
                                         stride=2,
                                         padding=1,
                                         bias=False),
-                                    build_norm_layer(self.norm_cfg,
+                                    mm_cnn.build_norm_layer(self.norm_cfg,
                                                      in_channels[i])[1]))
                         else:
                             conv_downsamples.append(
                                 nn.Sequential(
-                                    build_conv_layer(
+                                    mm_cnn.build_conv_layer(
                                         self.conv_cfg,
                                         in_channels[j],
                                         in_channels[j],
@@ -180,7 +181,7 @@ class HRModule(nn.Module):
                                         stride=2,
                                         padding=1,
                                         bias=False),
-                                    build_norm_layer(self.norm_cfg,
+                                    mm_cnn.build_norm_layer(self.norm_cfg,
                                                      in_channels[j])[1],
                                     nn.ReLU(inplace=False)))
                     fuse_layer.append(nn.Sequential(*conv_downsamples))
@@ -293,10 +294,10 @@ class HRNet_V2(nn.Module):
         self.input_norm = nh.layers.InputNorm(**input_stats)
 
         # stem net
-        self.norm1_name, norm1 = build_norm_layer(self.norm_cfg, 64, postfix=1)
-        self.norm2_name, norm2 = build_norm_layer(self.norm_cfg, 64, postfix=2)
+        self.norm1_name, norm1 = mm_cnn.build_norm_layer(self.norm_cfg, 64, postfix=1)
+        self.norm2_name, norm2 = mm_cnn.build_norm_layer(self.norm_cfg, 64, postfix=2)
 
-        self.conv1 = build_conv_layer(
+        self.conv1 = mm_cnn.build_conv_layer(
             self.conv_cfg,
             in_channels,
             64,
@@ -306,7 +307,7 @@ class HRNet_V2(nn.Module):
             bias=False)
 
         self.add_module(self.norm1_name, norm1)
-        self.conv2 = build_conv_layer(
+        self.conv2 = mm_cnn.build_conv_layer(
             self.conv_cfg,
             64,
             64,
@@ -385,7 +386,7 @@ class HRNet_V2(nn.Module):
                 if num_channels_cur_layer[i] != num_channels_pre_layer[i]:
                     transition_layers.append(
                         nn.Sequential(
-                            build_conv_layer(
+                            mm_cnn.build_conv_layer(
                                 self.conv_cfg,
                                 num_channels_pre_layer[i],
                                 num_channels_cur_layer[i],
@@ -393,7 +394,7 @@ class HRNet_V2(nn.Module):
                                 stride=1,
                                 padding=1,
                                 bias=False),
-                            build_norm_layer(self.norm_cfg,
+                            mm_cnn.build_norm_layer(self.norm_cfg,
                                              num_channels_cur_layer[i])[1],
                             nn.ReLU(inplace=True)))
                 else:
@@ -406,7 +407,7 @@ class HRNet_V2(nn.Module):
                         if j == i - num_branches_pre else in_channels
                     conv_downsamples.append(
                         nn.Sequential(
-                            build_conv_layer(
+                            mm_cnn.build_conv_layer(
                                 self.conv_cfg,
                                 in_channels,
                                 out_channels,
@@ -414,7 +415,7 @@ class HRNet_V2(nn.Module):
                                 stride=2,
                                 padding=1,
                                 bias=False),
-                            build_norm_layer(self.norm_cfg, out_channels)[1],
+                            mm_cnn.build_norm_layer(self.norm_cfg, out_channels)[1],
                             nn.ReLU(inplace=True)))
                 transition_layers.append(nn.Sequential(*conv_downsamples))
 
@@ -424,14 +425,14 @@ class HRNet_V2(nn.Module):
         downsample = None
         if stride != 1 or inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                build_conv_layer(
+                mm_cnn.build_conv_layer(
                     self.conv_cfg,
                     inplanes,
                     planes * block.expansion,
                     kernel_size=1,
                     stride=stride,
                     bias=False),
-                build_norm_layer(self.norm_cfg, planes * block.expansion)[1])
+                mm_cnn.build_norm_layer(self.norm_cfg, planes * block.expansion)[1])
 
         layers = []
         layers.append(
@@ -497,16 +498,16 @@ class HRNet_V2(nn.Module):
         elif pretrained is None:
             for m in self.modules():
                 if isinstance(m, nn.Conv2d):
-                    kaiming_init(m)
+                    mm_cnn.kaiming_init(m)
                 elif isinstance(m, (_BatchNorm, nn.GroupNorm)):
-                    constant_init(m, 1)
+                    mm_cnn.constant_init(m, 1)
 
             if self.zero_init_residual:
                 for m in self.modules():
                     if isinstance(m, Bottleneck):
-                        constant_init(m.norm3, 0)
+                        mm_cnn.constant_init(m.norm3, 0)
                     elif isinstance(m, BasicBlock):
-                        constant_init(m.norm2, 0)
+                        mm_cnn.constant_init(m.norm2, 0)
         else:
             raise TypeError('pretrained must be a str or None')
 
