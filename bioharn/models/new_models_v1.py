@@ -610,6 +610,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
             'model': {
                 'backbone': {
                     'channels': channels,
+                    'input_stats': input_stats,
                     'type': LateFusionPyramidBackbone
                 },
                 'neck': {

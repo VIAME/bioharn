@@ -184,6 +184,32 @@ python -m bioharn.detect_fit \
     --balance=None \
     --bstep=8
 
+python -m bioharn.detect_fit \
+    --nice=bioharn-det-hrmask18-rgb-only-habcam-v6 \
+    --workdir=$HOME/work/bioharn \
+    --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train_dummy_sseg.mscoco.json \
+    --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
+    --channels="rgb" \
+    --window_dims=768,768 \
+    --input_dims=window \
+    --window_overlap=0.5 \
+    --arch=MM_HRNetV2_w18_MaskRCNN \
+    --schedule=step-12-22 \
+    --max_epoch=400 \
+    --augment=complex \
+    --init=noop \
+    --optim=sgd \
+    --lr=1e-3 \
+    --multiscale=False \
+    --normalize_inputs=True \
+    --backbone_init=url \
+    --workers=8 \
+    --xpu=0,1 \
+    --batch_size=4 \
+    --num_batches=2000 \
+    --balance=None \
+    --bstep=1
+
 
 python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=4 --batch_size=8 --draw=0 --verbose=3 --sampler_backend=cog \
     --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
@@ -263,7 +289,7 @@ python -m bioharn.detect_predict \
     --xpu=1 --batch_size=1 --verbose=3 --sampler_backend=None \
     --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train_dummy_sseg.mscoco.json \
     --deployed=$HOME/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5-adapt/udmzrkmb/deploy_MM_HRNetV2_w18_MaskRCNN_udmzrkmb_003_FKJTWB.zip \
-    --out_dpath="./tmp/tmp-pred" --enable_cache=False --gids=744, --draw=True --workers=0
+    --out_dpath="./tmp/tmp-pred" --enable_cache=False --gids=1, --draw=True --workers=0
                                      
 
 
