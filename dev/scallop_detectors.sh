@@ -257,11 +257,13 @@ python -m bioharn.detect_predict \
     --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5/bcifnsvt/deploy_MM_HRNetV2_w18_MaskRCNN_bcifnsvt_029_KYHMWC.zip \
     --out_dpath="./tmp/tmp-pred" --enable_cache=False --draw=True --workers=0
 
+    #--dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/cog/201503.20150621.005549952.129166_left.cog.tif \
+
 python -m bioharn.detect_predict \
     --xpu=1 --batch_size=1 --verbose=3 --sampler_backend=None \
-    --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/cog/201503.20150621.005549952.129166_left.cog.tif \
+    --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train_dummy_sseg.mscoco.json \
     --deployed=$HOME/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5-adapt/udmzrkmb/deploy_MM_HRNetV2_w18_MaskRCNN_udmzrkmb_003_FKJTWB.zip \
-    --out_dpath="./tmp/tmp-pred" --enable_cache=False --draw=True --workers=0
+    --out_dpath="./tmp/tmp-pred" --enable_cache=False --gids=744, --draw=True --workers=0
                                      
 
 
