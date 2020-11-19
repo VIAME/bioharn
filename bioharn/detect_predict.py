@@ -1160,7 +1160,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         # for cat in coco_dset.cats.values():
         #     single_img_coco.add_category(**cat)
 
-        for ann in dets.to_coco():
+        for ann in dets.to_coco(style='new'):
             ann['image_id'] = gid
             if 'category_name' in ann:
                 catname = ann['category_name']

@@ -290,6 +290,14 @@ python -m bioharn.detect_predict \
     --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train_dummy_sseg.mscoco.json \
     --deployed=$HOME/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5-adapt/udmzrkmb/deploy_MM_HRNetV2_w18_MaskRCNN_udmzrkmb_003_FKJTWB.zip \
     --out_dpath="./tmp/tmp-pred" --enable_cache=False --gids=1, --draw=True --workers=0
+
+
+python -m bioharn.detect_predict \
+    --xpu=1 --batch_size=1 --verbose=3 --sampler_backend=None \
+    --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train_dummy_sseg.mscoco.json \
+    --deployed=$HOME/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v6/hldsgogn/deploy_MM_HRNetV2_w18_MaskRCNN_hldsgogn_032_FURHIT.zip \
+    --out_dpath="./tmp/tmp-pred" --enable_cache=False --gids=1, --draw=True --workers=0
+
                                      
 
 
