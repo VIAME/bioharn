@@ -836,12 +836,16 @@ def setup_harn(cmdline=True, **kw):
         # Get stats on the dataset (todo: nice way to disable augmentation temporarilly for this)
         _dset = torch_datasets['train']
         num = config['normalize_inputs']
-        num = 1000 if not num else num
+        num = num if isinstance(num, int) and num is not True else 1000
         stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(num, len(_dset))]
-
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
 
-        cacher = ub.Cacher('dset_mean', cfgstr=_dset.input_id + 'v4')
+        depends = ub.odict([
+            ('input_id', _dset.input_id),
+            ('num', num),
+        ])
+        cfgstr = ub.hash_data(depends)
+        cacher = ub.Cacher('dset_mean', cfgstr=cfgstr + 'v8')
         input_stats = cacher.tryload()
         if input_stats is None:
             # Use parallel workers to load data faster
@@ -858,7 +862,7 @@ def setup_harn(cmdline=True, **kw):
                 shuffle=True, batch_size=config['batch_size'])
 
             # Track moving average of each fused channel stream
-            channel_stats = {key: nh.util.RunningStats()
+            channel_stats = {key: kwarray.RunningStats()
                              for key in channels.keys()}
 
             for batch in ub.ProgIter(loader, desc='estimate mean/std'):
@@ -872,8 +876,7 @@ def setup_harn(cmdline=True, **kw):
 
             input_stats = {}
             for key, running in channel_stats.items():
-                running = ub.peek(channel_stats.values())
-                perchan_stats = running.simple(axis=(1, 2))
+                perchan_stats = running.summarize(axis=(1, 2))
                 input_stats[key] = {
                     'std': perchan_stats['mean'].round(3),
                     'mean': perchan_stats['std'].round(3),
@@ -883,6 +886,7 @@ def setup_harn(cmdline=True, **kw):
             _dset.disable_augmenter = False  # hack
     else:
         input_stats = None
+
     print('input_stats = {!r}'.format(input_stats))
 
     initializer_ = nh.Initializer.coerce(

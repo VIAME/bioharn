@@ -92,8 +92,9 @@ class HRModule(nn.Module):
                     kernel_size=1,
                     stride=stride,
                     bias=False),
-                mm_cnn.build_norm_layer(self.norm_cfg, num_channels[branch_index] *
-                                 block.expansion)[1])
+                mm_cnn.build_norm_layer(
+                    self.norm_cfg, num_channels[branch_index] *
+                    block.expansion)[1])
 
         layers = []
         layers.append(
@@ -168,8 +169,8 @@ class HRModule(nn.Module):
                                         stride=2,
                                         padding=1,
                                         bias=False),
-                                    mm_cnn.build_norm_layer(self.norm_cfg,
-                                                     in_channels[i])[1]))
+                                    mm_cnn.build_norm_layer(
+                                        self.norm_cfg, in_channels[i])[1]))
                         else:
                             conv_downsamples.append(
                                 nn.Sequential(
@@ -181,8 +182,8 @@ class HRModule(nn.Module):
                                         stride=2,
                                         padding=1,
                                         bias=False),
-                                    mm_cnn.build_norm_layer(self.norm_cfg,
-                                                     in_channels[j])[1],
+                                    mm_cnn.build_norm_layer(
+                                        self.norm_cfg, in_channels[j])[1],
                                     nn.ReLU(inplace=False)))
                     fuse_layer.append(nn.Sequential(*conv_downsamples))
             fuse_layers.append(nn.ModuleList(fuse_layer))
@@ -394,8 +395,8 @@ class HRNet_V2(nn.Module):
                                 stride=1,
                                 padding=1,
                                 bias=False),
-                            mm_cnn.build_norm_layer(self.norm_cfg,
-                                             num_channels_cur_layer[i])[1],
+                            mm_cnn.build_norm_layer(
+                                self.norm_cfg, num_channels_cur_layer[i])[1],
                             nn.ReLU(inplace=True)))
                 else:
                     transition_layers.append(None)

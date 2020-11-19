@@ -166,9 +166,9 @@ def monkeypatch_build_norm_layer():
     # from bioharn.models import new_backbone
     # new_backbone.build_norm_layer = build_norm_layer_hack
 
-# MMCV_MONKEY_PATCH = 1
-# if MMCV_MONKEY_PATCH:
-#     monkeypatch_build_norm_layer()
+MMCV_MONKEY_PATCH = 1
+if MMCV_MONKEY_PATCH:
+    monkeypatch_build_norm_layer()
 
 
 BYTES_PER_FLOAT = 4
@@ -354,7 +354,7 @@ class LateFusionPyramidBackbone(nn.Module):
     Ignore:
         >>> from bioharn.models.new_models_v1 import *  # NOQA
         >>> from bioharn.models.mm_models import _demo_batch  # NOQA
-        >>> channels = ChannelSpec.coerce('rgb,mx|my')
+        >>> channels = ChannelSpec.coerce('rgb,mx|my,disparity')
         >>> self = LateFusionPyramidBackbone(channels=channels)
         >>> batch = _demo_batch(3, channels, 256, 256, packed=True)
         >>> inputs = batch['inputs']
