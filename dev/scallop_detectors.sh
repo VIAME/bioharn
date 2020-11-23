@@ -230,7 +230,7 @@ python -m bioharn.detect_fit \
     --normalize_inputs=True \
     --backbone_init=url \
     --workers=0 \
-    --xpu=1 \
+    --xpu=1,0 \
     --batch_size=4 \
     --num_batches=2000 \
     --balance=None \
@@ -288,6 +288,15 @@ python -m bioharn.detect_predict \
     --out_dpath="./tmp/tmp-pred" --enable_cache=False --gids=744, --draw=True --workers=0
 
 
+ls $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v6
+ls $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-disp-habcam-v7/odcvldiy/deploy_MM_HRNetV2_w18_MaskRCNN_odcvldiy_031_EUEOKJ.zip
+
+ $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v6/hldsgogn/deploy_MM_HRNetV2_w18_MaskRCNN_hldsgogn_032_FURHIT.zip
+
+
+
+ 
+
 
 # NEW MODEL CHECK:
 # This should work, but it doesn't seem like it is
@@ -300,7 +309,13 @@ python -m bioharn.detect_predict \
 python -m bioharn.detect_predict \
     --xpu=1 --batch_size=1 --verbose=3 --sampler_backend=cog \
     --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
-    --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5/bcifnsvt/checkpoints/_epoch_00000010.pt \
+    --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v6/hldsgogn/deploy_MM_HRNetV2_w18_MaskRCNN_hldsgogn_032_FURHIT.zip \
+    --out_dpath="./tmp/tmp-pred" --enable_cache=False --gids=744, --draw=True --workers=0
+
+python -m bioharn.detect_predict \
+    --xpu=1 --batch_size=1 --verbose=3 --sampler_backend=cog \
+    --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
+    --deployed=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-disp-habcam-v7/odcvldiy/deploy_MM_HRNetV2_w18_MaskRCNN_odcvldiy_031_EUEOKJ.zip \
     --out_dpath="./tmp/tmp-pred" --enable_cache=False --gids=744, --draw=True --workers=0
 
 python -m bioharn.detect_predict \
@@ -331,6 +346,8 @@ python -m bioharn.detect_predict \
 zipedit(){
     __heredoc__='
     https://superuser.com/questions/647674/is-there-a-way-to-edit-files-inside-of-a-zip-file-without-explicitly-extracting/647795
+
+    You can just vim a zip file directly
     '
     ARCHIVE_FPATH=$1
     FNAME=$2
@@ -411,7 +428,7 @@ test-predict-quality(){
     python -m bioharn.detect_fit \
         --nice=bioharn-det-hrmask18-rgb-disp-shapes-v3 \
         --workdir=$HOME/work/bioharn \
-        --train_dataset=special:shapes256 \
+        --train_dataset=special:vidshapes256-aux \
         --channels="rgb,disparity" \
         --window_dims=768,768 \
         --input_dims=window \
@@ -425,7 +442,7 @@ test-predict-quality(){
         --multiscale=False \
         --normalize_inputs=True \
         --backbone_init=url \
-        --workers=8 \
+        --workers=0 \
         --xpu=0 \
         --batch_size=2 \
         --num_batches=auto \

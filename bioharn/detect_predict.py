@@ -781,9 +781,10 @@ class SingleImageDataset(torch_data.Dataset):
 
             if needs_resize:
                 # Resize the image
-                chip_hwc = kwimage.imresize(
-                    chip_hwc, dsize=letterbox.target_size,
-                    letterbox=True)
+                if letterbox is not None:
+                    chip_hwc = kwimage.imresize(
+                        chip_hwc, dsize=letterbox.target_size,
+                        letterbox=True)
                 chip_hwc = kwarray.atleast_nd(chip_hwc, n=3, front=False)
 
             chip_chw = np.transpose(chip_hwc, (2, 0, 1))
@@ -1006,9 +1007,10 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             # note: the letterbox augment doesn't handle floats well
             # use the kwimage.imresize instead
             for auxkey, aux_im in aux_components.items():
-                aux_components[auxkey] = kwimage.imresize(
-                    aux_im, dsize=letterbox.target_size,
-                    letterbox=True).clip(0, 1)
+                if letterbox is not None:
+                    aux_components[auxkey] = kwimage.imresize(
+                        aux_im, dsize=letterbox.target_size,
+                        letterbox=True).clip(0, 1)
 
             for auxkey, aux_im in aux_components.items():
                 aux_im = kwarray.atleast_nd(aux_im, 3)
