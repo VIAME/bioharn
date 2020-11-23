@@ -229,8 +229,8 @@ def evaluate_models(cmdline=True, **kw):
         row = {}
         row['model_tag'] = metrics['meta']['model_tag']
         row['predcfg_tag'] = metrics['meta']['predcfg_tag']
-        row['ap'] = metrics['measures']['ap']
-        row['auc'] = metrics['measures']['auc']
+        row['ap'] = metrics['nocls_measures']['ap']
+        row['auc'] = metrics['nocls_measures']['auc']
 
         # Hack to get train config params
         # train_config = ast.literal_eval(metrics['train_info']['extra']['config'])
