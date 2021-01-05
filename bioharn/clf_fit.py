@@ -655,7 +655,7 @@ def main():
     harn = setup_harn()
     harn.initialize()
 
-    if ub.argflag('--lrtest'):
+    if ub.argflag('--lrtest') or ub.argflag('--lrauto'):
         # Undocumented hidden feature,
         # Perform an LR-test, then resetup the harness. Optionally draw the
         # results using matplotlib.
@@ -668,6 +668,11 @@ def main():
             plt = kwplot.autoplt()
             result.draw()
             plt.show()
+
+        if ub.argflag('--lrtest'):
+            # If we are just testing, simply return
+            return
+
         # Recreate a new version of the harness with the recommended LR.
         config = harn.script_config.asdict()
         config['lr'] = (result.recommended_lr * 10)
