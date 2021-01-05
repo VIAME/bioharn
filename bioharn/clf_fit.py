@@ -82,6 +82,16 @@ class ClfConfig(scfg.Config):
         'draw_per_batch': scfg.Value(32, help='Number of items to draw within each batch'),
 
         'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
+
+        'eager_dump_tensorboard': scfg.Value(True, help=(
+            'If True, logs tensorboard within inner iteration '
+            '(experimental). No effect if dump_tensorboard is True')
+        ),
+
+        'dump_tensorboard': scfg.Value(True, help=(
+            'If True, tensorboard information is visualized with '
+            'matplotlib and dumped as an image',
+        ),
     }
 
     def normalize(self):
@@ -633,7 +643,10 @@ def setup_harn(cmdline=True, **kw):
         'num_keep': 3,
         'keep_freq': 10,
         'tensorboard_groups': ['loss'],
-        'eager_dump_tensorboard': True,
+
+        'eager_dump_tensorboard': config['eager_dump_tensorboard'],
+        'dump_tensorboard': config['dump_tensorboard'],
+
         'timeout': config['timeout'],
         'colored': not ub.WIN32,
         'allow_unicode': not ub.WIN32,
