@@ -560,8 +560,10 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 # We could implement other strategies via configuration options if needed
                 if num_samples > len(self):
                     raise IndexError(
-                        'num_samples={} is greater than the number '
-                        'of data items {}. Try setting num_batches=auto?'.format(num_samples, len(self)))
+                        'num_batches={} and batch_size={} causes '
+                        'num_samples={} to be greater than the number '
+                        'of data items {}. Try setting num_batches=auto?'.format(
+                            num_batches, batch_size, num_samples, len(self)))
 
         if balance == 'tfidf':
             if not shuffle:

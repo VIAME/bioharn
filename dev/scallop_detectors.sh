@@ -246,8 +246,9 @@ python -m bioharn.detect_fit \
 python ~/code/bioharn/bioharn/detect_eval.py --xpu=1 --workers=4 --batch_size=8 --draw=0 --verbose=3 --sampler_backend=cog \
     --dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali_dummy_sseg.mscoco.json \
     --deployed="[\
+        $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v6/hldsgogn/deploy_MM_HRNetV2_w18_MaskRCNN_hldsgogn_032_FURHIT.zip, \
+        $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-disp-habcam-v7/odcvldiy/deploy_MM_HRNetV2_w18_MaskRCNN_odcvldiy_031_EUEOKJ.zip, \
         $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-disp-habcam-v4/sydbgnxj/deploy_MM_HRNetV2_w18_MaskRCNN_sydbgnxj_023_RLQZTH.zip, \
-        $HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-hrmask18-rgb-only-habcam-v5/bcifnsvt/deploy_MM_HRNetV2_w18_MaskRCNN_bcifnsvt_029_KYHMWC.zip, \
     ]"
 
 

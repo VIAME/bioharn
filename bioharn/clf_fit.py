@@ -494,7 +494,14 @@ def setup_harn(cmdline=True, **kw):
 
     channels = ChannelSpec.coerce(config['channels'])
 
-    if config['normalize_inputs']:
+    if config['normalize_inputs'] == 'imagenet':
+        input_stats = {
+            'rgb': {
+                'mean':  torch.Tensor([[[[0.4850]], [[0.4560]], [[0.4060]]]]),
+                'std':  torch.Tensor([[[[0.2290]], [[0.2240]], [[0.2250]]]]),
+            }
+        }['rgb']  # TODO: handle channels
+    elif config['normalize_inputs']:
         # Get stats on the dataset (todo: turn off augmentation for this)
         _dset = torch_datasets['train']
         prev = _dset.disable_augmenter
