@@ -46,8 +46,15 @@ class ClfConfig(scfg.Config):
 
         'min_dim': scfg.Value(64, help='absolute minimum window size'),
         'input_dims': scfg.Value((224, 224), help='Window size to input to the network'),
-        'normalize_inputs': scfg.Value(True, help=(
-            'if True, precompute training mean and std for data whitening')),
+
+        'normalize_inputs': scfg.Value('imagenet', help=ub.paragraph(
+            '''
+            Specification for the mean and std for data whitening.
+
+            If True, precompute using 1000 unaugmented training images.
+            If an integer, use that many unaugmented training images.
+            If 'imagenet' use standard mean/std values (default).
+            ''')),
 
         'balance': scfg.Value(None, help='balance strategy. Can be classes or None'),
 
