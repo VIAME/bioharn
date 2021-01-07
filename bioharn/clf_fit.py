@@ -393,6 +393,7 @@ class ClfHarn(nh.FitHarn):
             >>> harn.on_epoch()
         """
         from kwcoco.metrics import clf_report
+        import pandas as pd
         dset = harn.datasets[harn.current_tag]
 
         probs = np.vstack(harn._accum_confusion_vectors['probs'])
@@ -410,14 +411,27 @@ class ClfHarn(nh.FitHarn):
 
         # ovr_cfsn = cfsn_vecs.binarize_ovr()
         # Compute multiclass metrics (new way!)
+
+        mc_y_true = y_true
+        mc_probs = probs
         target_names = dset.classes
+        sample_weight = None
+        remove_unsupported = True
+        metrics = [
+            'ap', 'auc', 'f1', 'acc', 'mcc', 'brier',
+        ]
+
         ovr_report = clf_report.ovr_classification_report(
-            y_true, probs, target_names=target_names, metrics=[
-                'auc', 'ap', 'mcc', 'brier', 'f1',
-            ])
+            mc_y_true, mc_probs, target_names=target_names,
+            sample_weight=sample_weight, metrics=metrics,
+            remove_unsupported=remove_unsupported,
+            verbose=0,
+        )
 
         ovr_metrics = ovr_report['ovr']
-        print(ovr_metrics)
+        weighted_ave = ovr_report['ave']
+        print('ovr_metrics')
+        print(pd.concat([ovr_metrics, weighted_ave.to_frame('__accum__').T]))
 
         # percent error really isn't a great metric, but its easy and standard.
         errors = (y_true != y_pred)
@@ -733,6 +747,9 @@ if __name__ == '__main__':
             --normalize_inputs=False \
             --workers=0 \
             --xpu=auto \
-            --batch_size=32 --num_batches=4 --num_vali_batches=1
+            --batch_size=32 \
+            --num_batches=auto --num_vali_batches=auto
     """
+    import xdev
+    xdev.make_warnings_print_tracebacks()
     main()
