@@ -168,9 +168,12 @@ class ClfDataset(torch_data.Dataset):
 
         if balance == 'sequential':
             if shuffle:
-                loaderkw['shuffle'] = shuffle
-                loaderkw['batch_size'] = batch_size
-                loaderkw['drop_last'] = drop_last
+                # Handle the case where num batches is specified
+                sampler = PatchedRandomSampler(self)
+                batch_sampler = PatchedBatchSampler(
+                    sampler, batch_size, drop_last,
+                    num_batches=num_batches)
+                loaderkw['batch_sampler'] = batch_sampler
             else:
                 # When in sequential mode, stratify categories uniformly
                 # This makes the first few validation batches more informative
@@ -182,8 +185,10 @@ class ClfDataset(torch_data.Dataset):
                 idx_groups = sorted(cid_to_idxs.values(), key=len)
                 sortx = list(roundrobin(*idx_groups))
                 idx_sampler = SubsetSampler(sortx)
-                batch_sampler = torch_data.BatchSampler(
-                    idx_sampler, batch_size=batch_size, drop_last=drop_last)
+                batch_sampler = PatchedBatchSampler(
+                    idx_sampler, batch_size=batch_size, drop_last=drop_last,
+                    num_batches=num_batches)
+
                 loaderkw['batch_sampler'] = batch_sampler
         elif balance == 'classes':
             from netharn.data.batch_samplers import BalancedBatchSampler
@@ -209,6 +214,65 @@ def _worker_init_fn(worker_id, augmenter=None):
     if augmenter:
         rng = kwarray.ensure_rng(None)
         augmenter.seed_(rng)
+
+
+class PatchedBatchSampler(torch_data.BatchSampler):
+    """
+    Adds support for num_batches
+    """
+    def __init__(self, sampler, batch_size, drop_last, num_batches='auto'):
+        super().__init__(sampler, batch_size, drop_last)
+        self.num_batches = num_batches
+
+    def __len__(self):
+        if self.drop_last:
+            max_num_batches = len(self.sampler) // self.batch_size  # type: ignore
+        else:
+            max_num_batches = (len(self.sampler) + self.batch_size - 1) // self.batch_size  # type: ignore
+        if self.num_batches == 'auto':
+            num_batches = max_num_batches
+        else:
+            num_batches = min(max_num_batches, self.num_batches)
+        return num_batches
+
+    def __iter__(self):
+        num_batches = len(self)
+        for bx, batch in zip(range(num_batches), super().__iter__()):
+            yield batch
+
+
+class PatchedRandomSampler(torch_data.Sampler):
+    r"""
+    See: https://github.com/pytorch/pytorch/pull/39214
+    """
+
+    def __init__(self, data_source, replacement=False, num_samples=None):
+        self.data_source = data_source
+        self.replacement = replacement
+        self._num_samples = num_samples
+
+        if not isinstance(self.replacement, bool):
+            raise ValueError("replacement should be a boolean value, but got "
+                             "replacement={}".format(self.replacement))
+
+        if not isinstance(self.num_samples, int) or self.num_samples <= 0:
+            raise ValueError("num_samples should be a positive integer "
+                             "value, but got num_samples={}".format(self.num_samples))
+
+    @property
+    def num_samples(self):
+        # dataset size might change at runtime
+        n = len(self.data_source)
+        return n if self._num_samples is None or self._num_samples > n else self._num_samples
+
+    def __iter__(self):
+        n = len(self.data_source)
+        if self.replacement:
+            return iter(torch.randint(high=n, size=(self.num_samples,), dtype=torch.int64).tolist())
+        return iter(torch.randperm(n).tolist()[:self.num_samples])
+
+    def __len__(self):
+        return self.num_samples
 
 
 class SubsetSampler(torch_data.Sampler):

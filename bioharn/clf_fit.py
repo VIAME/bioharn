@@ -63,6 +63,7 @@ class ClfConfig(scfg.Config):
 
         'batch_size': scfg.Value(3, help='number of items per batch'),
         'num_batches': scfg.Value('auto', help='Number of batches per epoch (mainly for balanced batch sampling)'),
+        'num_vali_batches': scfg.Value('auto', help='number of val batches per epoch'),
 
         'max_epoch': scfg.Value(140, help='Maximum number of epochs'),
         'patience': scfg.Value(140, help='Maximum "bad" validation epochs before early stopping'),
@@ -391,7 +392,7 @@ class ClfHarn(nh.FitHarn):
             >>> harn._demo_epoch('vali', max_iter=10)
             >>> harn.on_epoch()
         """
-        from netharn.metrics import clf_report
+        from kwcoco.metrics import clf_report
         dset = harn.datasets[harn.current_tag]
 
         probs = np.vstack(harn._accum_confusion_vectors['probs'])
@@ -412,8 +413,11 @@ class ClfHarn(nh.FitHarn):
         target_names = dset.classes
         ovr_report = clf_report.ovr_classification_report(
             y_true, probs, target_names=target_names, metrics=[
-                'auc', 'ap', 'mcc', 'brier'
+                'auc', 'ap', 'mcc', 'brier', 'f1',
             ])
+
+        ovr_metrics = ovr_report['ovr']
+        print(ovr_metrics)
 
         # percent error really isn't a great metric, but its easy and standard.
         errors = (y_true != y_pred)
@@ -582,7 +586,8 @@ def setup_harn(cmdline=True, **kw):
     torch_loaders = {
         tag: dset.make_loader(
             batch_size=config['batch_size'],
-            num_batches=config['num_batches'],
+            # TODO: num_train_batches, num_test_batches
+            num_batches=config['num_batches'] if tag == 'train' else config['num_vali_batches'],
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
             balance=(config['balance'] if tag == 'train' else None),
@@ -601,8 +606,8 @@ def setup_harn(cmdline=True, **kw):
     model = ClfModel(**modelkw)
     model._initkw = modelkw
 
-    initializer_ = nh.Initializer.coerce(config, association='prefix-hack')
-    # initializer_ = nh.Initializer.coerce(config, association='embedding')
+    # initializer_ = nh.Initializer.coerce(config, association='prefix-hack')
+    initializer_ = nh.Initializer.coerce(config, association='embedding')
 
     hyper = nh.HyperParams(
         name=config['name'],
@@ -714,97 +719,11 @@ if __name__ == '__main__':
         - [ ] Student Teacher
 
     Example:
-        python -m bioharn.clf_fit \
-            --name=bioharn-clf-rgb-v001 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=complex \
-            --init=noop \
-            --workdir=$HOME/work/bioharn \
-            --arch=resnext101 \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=256,256 \
-            --normalize_inputs=True \
-            --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x8d-8ba56ff5.pth \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=32 \
-            --num_batches=2000 \
-            --balance=classes
-
-
 
         python -m bioharn.clf_fit \
-            --name=bioharn-clf-rgb-v002 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=complex \
-            --init=noop \
-            --workdir=$HOME/work/bioharn \
-            --arch=resnext101 \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=256,256 \
-            --normalize_inputs=True \
-            --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x8d-8ba56ff5.pth \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=32 \
-            --balance=None
-
-        python -m bioharn.clf_fit \
-            --name=bioharn-clf-rgb-v003 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=simple \
-            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-clf-rgb-v001/nrorbmcb/deploy_ClfModel_nrorbmcb_051_UFCIUU.zip \
-            --workdir=$HOME/work/bioharn \
-            --arch=resnext101 \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=256,256 \
-            --normalize_inputs=True \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=32 \
-            --balance=None
-
-
-        python -m bioharn.clf_fit \
-            --name=bioharn-clf-rgb-hard-v004 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train_hardbg1.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_hardbg1.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=simple \
-            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip \
-            --workdir=$HOME/work/bioharn \
-            --arch=resnext101 \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=256,256 \
-            --normalize_inputs=True \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=32 \
-            --balance=classes
-
-        python -m bioharn.clf_fit \
-            --name=test-start-from-pretrained-pt \
+            --name=simple_demo \
             --train_dataset=special:shapes32 \
             --vali_dataset=special:shapes8 \
-            --pretrained=/home/joncrall/.cache/torch/checkpoints/resnet50-19c8e357.pth \
             --workdir=$HOME/work/test \
             --arch=resnet50 \
             --channels="rgb" \
@@ -814,6 +733,6 @@ if __name__ == '__main__':
             --normalize_inputs=False \
             --workers=0 \
             --xpu=auto \
-            --batch_size=32
+            --batch_size=32 --num_batches=4 --num_vali_batches=1
     """
     main()
