@@ -50,7 +50,7 @@ python -m bioharn.clf_fit \
     --workdir=$HOME/work/bioharn \
     --arch=resnet50 \
     --channels="rgb" \
-    --optim=AdaBelief \
+    --optim=SGD \
     --augmenter=complex \
     --input_dims=256,256 \
     --normalize_inputs=imagenet \
@@ -65,3 +65,26 @@ python -m bioharn.clf_fit \
     --batch_size=224 --lr=0.0005
 
     --pretrained=/home/joncrall/.cache/torch/checkpoints/resnet50-19c8e357.pth \
+
+
+srun --gres=gpu:rtx6000:1 --cpus-per-task=5 --partition=priority --account=noaa --mem 10000 \
+python -m bioharn.clf_fit \
+    --name=test-basic-fullframe-clf \
+    --train_dataset=$TRAIN_FPATH \
+    --vali_dataset=$VALI_FPATH \
+    --workdir=$HOME/work/bioharn \
+    --arch=resnext101 \
+    --channels="rgb" \
+    --optim=SGD \
+    --augmenter=simple \
+    --input_dims=256,256 \
+    --normalize_inputs=imagenet \
+    --workers=4 \
+    --xpu=auto \
+    --schedule=ReduceLROnPlateau-p10-c10 \
+    --sampler_backend=None \
+    --eager_dump_tensorboard=False \
+    --dump_tensorboard=False \
+    --balance=None \
+    --num_batches=200 \
+    --batch_size=224 --lrtest

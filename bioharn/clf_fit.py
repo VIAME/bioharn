@@ -418,7 +418,7 @@ class ClfHarn(nh.FitHarn):
         sample_weight = None
         remove_unsupported = True
         metrics = [
-            'ap', 'auc', 'f1', 'acc', 'mcc', 'brier',
+            'ap', 'auc', 'f1', 'mcc', 'brier',
         ]
 
         ovr_report = clf_report.ovr_classification_report(
@@ -426,6 +426,13 @@ class ClfHarn(nh.FitHarn):
             sample_weight=sample_weight, metrics=metrics,
             remove_unsupported=remove_unsupported,
             verbose=0,
+        )
+
+        report = clf_report.classification_report(
+            y_true, y_pred, target_names=target_names,
+            sample_weight=sample_weight,
+            remove_unsupported=remove_unsupported,
+            verbose=1
         )
 
         ovr_metrics = ovr_report['ovr']
@@ -750,6 +757,4 @@ if __name__ == '__main__':
             --batch_size=32 \
             --num_batches=auto --num_vali_batches=auto
     """
-    import xdev
-    xdev.make_warnings_print_tracebacks()
     main()
