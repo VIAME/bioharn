@@ -59,7 +59,7 @@ python -m bioharn.clf_fit \
     --schedule=ReduceLROnPlateau-p10-c10 \
     --sampler_backend=None \
     --eager_dump_tensorboard=False \
-    --dump_tensorboard=False \
+    --dump_tensorboard=True \
     --balance=classes \
     --num_batches=200 \
     --batch_size=224 --lr=0.0005
@@ -67,9 +67,9 @@ python -m bioharn.clf_fit \
     --pretrained=/home/joncrall/.cache/torch/checkpoints/resnet50-19c8e357.pth \
 
 
-srun --gres=gpu:rtx6000:1 --cpus-per-task=5 --partition=priority --account=noaa --mem 10000 \
+srun --gres=gpu:rtx6000:1 --cpus-per-task=2 --partition=priority --account=noaa --mem 7000 \
 python -m bioharn.clf_fit \
-    --name=test-basic-fullframe-clf \
+    --name=test-basic-fullframe-clf-v5 \
     --train_dataset=$TRAIN_FPATH \
     --vali_dataset=$VALI_FPATH \
     --workdir=$HOME/work/bioharn \
@@ -79,12 +79,32 @@ python -m bioharn.clf_fit \
     --augmenter=simple \
     --input_dims=256,256 \
     --normalize_inputs=imagenet \
-    --workers=4 \
+    --workers=1 \
     --xpu=auto \
     --schedule=ReduceLROnPlateau-p10-c10 \
     --sampler_backend=None \
     --eager_dump_tensorboard=False \
-    --dump_tensorboard=False \
+    --dump_tensorboard=True \
     --balance=None \
-    --num_batches=200 \
-    --batch_size=224 --lrtest
+    --batch_size=128 --lr=0.009
+
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 8000 \
+python -m bioharn.clf_fit \
+    --name=test-basic-fullframe-clf-v4 \
+    --train_dataset=$TRAIN_FPATH \
+    --vali_dataset=$VALI_FPATH \
+    --workdir=$HOME/work/bioharn \
+    --arch=resnext101 \
+    --channels="rgb" \
+    --optim=SGD \
+    --augmenter=simple \
+    --input_dims=512,512 \
+    --normalize_inputs=imagenet \
+    --workers=2 \
+    --xpu=auto \
+    --schedule=ReduceLROnPlateau-p10-c10 \
+    --sampler_backend=None \
+    --eager_dump_tensorboard=False \
+    --dump_tensorboard=True \
+    --balance=None \
+    --batch_size=32 --lr=0.003

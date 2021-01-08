@@ -425,20 +425,20 @@ class ClfHarn(nh.FitHarn):
             mc_y_true, mc_probs, target_names=target_names,
             sample_weight=sample_weight, metrics=metrics,
             remove_unsupported=remove_unsupported,
-            verbose=0,
+            verbose=1, log=harn.info
         )
 
-        report = clf_report.classification_report(
+        clf_report.classification_report(
             y_true, y_pred, target_names=target_names,
             sample_weight=sample_weight,
             remove_unsupported=remove_unsupported,
-            verbose=1
+            verbose=1, log=harn.info
         )
 
-        ovr_metrics = ovr_report['ovr']
-        weighted_ave = ovr_report['ave']
-        print('ovr_metrics')
-        print(pd.concat([ovr_metrics, weighted_ave.to_frame('__accum__').T]))
+        # ovr_metrics = ovr_report['ovr']
+        # weighted_ave = ovr_report['ave']
+        # print('ovr_metrics')
+        # print(pd.concat([ovr_metrics, weighted_ave.to_frame('__accum__').T]))
 
         # percent error really isn't a great metric, but its easy and standard.
         errors = (y_true != y_pred)
