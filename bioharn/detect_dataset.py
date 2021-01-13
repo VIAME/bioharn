@@ -546,11 +546,15 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 num_samples = num_batches * batch_size
 
             if shuffle:
-                item_sampler = RandomSampler(self, num_samples=num_samples)
+                from netharn.data.batch_samplers import PatchedRandomSampler
+                item_sampler = PatchedRandomSampler(self, num_samples=num_samples)
             else:
-                if num_samples is not None:
-                    raise NotImplementedError('TODO: subset sampler')
-                item_sampler = torch.utils.data.sampler.SequentialSampler(self)
+                if num_samples is None:
+                    item_sampler = torch.utils.data.sampler.SequentialSampler(self)
+                else:
+                    from netharn.data.batch_samplers import SubsetSampler
+                    stats_idxs = (np.arange(num_samples) % len(self))
+                    item_sampler = SubsetSampler(stats_idxs)
 
             if num_samples is not None:
                 # If num_batches is too big, what should the behavior be?
@@ -600,8 +604,12 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 item_sampler, batch_size=batch_size, drop_last=drop_last,
                 factor=32, scales=[-9, 1])
         else:
-            batch_sampler = torch.utils.data.BatchSampler(
-                item_sampler, batch_size=batch_size, drop_last=drop_last)
+            # batch_sampler = torch.utils.data.BatchSampler(
+            #     item_sampler, batch_size=batch_size, drop_last=drop_last)
+            from netharn.data.batch_samplers import PatchedBatchSampler
+            batch_sampler = PatchedBatchSampler(
+                item_sampler, batch_size=batch_size, drop_last=drop_last,
+                num_batches=num_batches)
 
         if ub.WIN32:
             # Hack for win32 because of pickle loading issues with local vars

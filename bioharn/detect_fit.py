@@ -83,7 +83,9 @@ class DetectFitConfig(scfg.Config):
 
         'optim': scfg.Value('sgd', help='torch optimizer, sgd, adam, adamw, etc...'),
         'batch_size': scfg.Value(4, help='number of images that run through the network at a time'),
-        'num_batches': scfg.Value('auto', help='number of batches per epoch'),
+
+        'num_batches': scfg.Value('auto', help='Number of batches per epoch (mainly for balanced batch sampling)'),
+        'num_vali_batches': scfg.Value('auto', help='number of val batches per epoch'),
 
         'bstep': scfg.Value(8, help='num batches before stepping'),
         'lr': scfg.Value(1e-3, help='learning rate'),  # 1e-4,
@@ -809,7 +811,8 @@ def setup_harn(cmdline=True, **kw):
     loaders_ = {
         tag: dset.make_loader(
             batch_size=config['batch_size'],
-            num_batches=config['num_batches'] if tag == 'train' else 'auto',
+            # num_batches=config['num_batches'] if tag == 'train' else 'auto',
+            num_batches=config['num_batches'] if tag == 'train' else config['num_vali_batches'],
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
             balance=(tag == 'train' and config['balance']),
@@ -1137,9 +1140,9 @@ if __name__ == '__main__':
             --input_dims=window \
             --window_dims=128,128 \
             --window_overlap=0.0 \
-            --normalize_inputs=True \
+            --normalize_inputs=imagenet \
             --workers=4 --xpu=0 --batch_size=8 --bstep=1 \
-            --sampler_backend=cog
+            --sampler_backend=None
 
         kwcoco toydata --key vidshapes32-aux --dst auxtrain.json
         kwcoco toydata --key vidshapes8-aux --dst auxvali.json
@@ -1186,7 +1189,7 @@ if __name__ == '__main__':
             --num_batches=10 \
             --max_epoch=10
     """
-    if 1:
+    if 0:
         def make_warnings_print_tracebacks():
             import warnings
             import traceback
