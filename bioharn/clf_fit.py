@@ -82,7 +82,13 @@ class ClfConfig(scfg.Config):
         'draw_interval': scfg.Value(1, help='Minutes to wait between drawing'),
         'draw_per_batch': scfg.Value(32, help='Number of items to draw within each batch'),
 
-        'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
+
+        'timeout': scfg.Value(
+            float('inf'), help='maximum number of seconds to wait for training'),
+
+        'allow_unicode': scfg.Value(not ub.WIN32, help=(
+            'allow for unicode characters in messages, otherwise '
+            ' we approximate them with ascii')),
 
         'eager_dump_tensorboard': scfg.Value(True, help=(
             'If True, logs tensorboard within inner iteration '
@@ -93,6 +99,7 @@ class ClfConfig(scfg.Config):
             'If True, tensorboard information is visualized with '
             'matplotlib and dumped as an image',
         )),
+
     }
 
     def normalize(self):
@@ -670,12 +677,16 @@ def setup_harn(cmdline=True, **kw):
         'keep_freq': 10,
         'tensorboard_groups': ['loss'],
 
-        'eager_dump_tensorboard': config['eager_dump_tensorboard'],
-        'dump_tensorboard': config['dump_tensorboard'],
+        # 'eager_dump_tensorboard': config['eager_dump_tensorboard'],
+        # 'dump_tensorboard': config['dump_tensorboard'],
+
+        'colored': not ub.WIN32,
+        # 'allow_unicode': not ub.WIN32,
 
         'timeout': config['timeout'],
-        'colored': not ub.WIN32,
-        'allow_unicode': not ub.WIN32,
+        'allow_unicode': config['allow_unicode'],
+        'eager_dump_tensorboard': config['eager_dump_tensorboard'],
+        'dump_tensorboard': config['dump_tensorboard'],
     })
 
     if ub.WIN32:

@@ -124,9 +124,26 @@ class DetectFitConfig(scfg.Config):
         'collapse_classes': scfg.Value(False, help='force one-class detector'),
 
         'ensure_background_class': scfg.Value(False, help='ensure a background category exists'),
-        'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
         'test_on_finish': True,
         'vali_intervals': 1,
+
+        'timeout': scfg.Value(
+            float('inf'), help='maximum number of seconds to wait for training'),
+
+        'allow_unicode': scfg.Value(not ub.WIN32, help=(
+            'allow for unicode characters in messages, otherwise '
+            ' we approximate them with ascii')),
+
+        'eager_dump_tensorboard': scfg.Value(True, help=(
+            'If True, logs tensorboard within inner iteration '
+            '(experimental). No effect if dump_tensorboard is True')
+        ),
+
+        'dump_tensorboard': scfg.Value(True, help=(
+            'If True, tensorboard information is visualized with '
+            'matplotlib and dumped as an image',
+        )),
+
     }
 
     def normalize(self):
@@ -1074,10 +1091,12 @@ def setup_harn(cmdline=True, **kw):
         'export_modules': ['bioharn'],  # TODO
         'prog_backend': 'progiter',  # alternative: 'tqdm'
         'keyboard_debug': False,
-        'eager_dump_tensorboard': True,
         'deploy_after_error': True,
         'timeout': config['timeout'],
-        'allow_unicode': True,
+
+        'allow_unicode': config['allow_unicode'],
+        'eager_dump_tensorboard': config['eager_dump_tensorboard'],
+        'dump_tensorboard': config['dump_tensorboard'],
     })
     harn.intervals.update({
         'log_iter_train': 1000,
