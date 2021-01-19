@@ -81,6 +81,8 @@ class DetectFitConfig(scfg.Config):
             # choices=['yolo2']
         ),
 
+        'with_mask': scfg.Value(True, help='enables / disables mask heads for mask-detection models'),
+
         'optim': scfg.Value('sgd', help='torch optimizer, sgd, adam, adamw, etc...'),
         'batch_size': scfg.Value(4, help='number of images that run through the network at a time'),
 
@@ -809,7 +811,7 @@ def setup_harn(cmdline=True, **kw):
         tag: DetectFitDataset(
             sampler,
             classes_of_interest=config['classes_of_interest'],
-            use_segmentation='mask' in config['arch'].lower(),
+            with_mask='mask' in config['arch'].lower() and config['with_mask'],
             input_dims=config['input_dims'],
             window_dims=config['window_dims'],
             window_overlap=config['window_overlap'] if (tag == 'train') else 0.0,
@@ -945,6 +947,7 @@ def setup_harn(cmdline=True, **kw):
             classes=classes,
             channels=config['channels'],
             input_stats=input_stats,
+            with_mask=config['with_mask'],
         )
         model = new_models_v1.MM_HRNetV2_w18_MaskRCNN(**initkw)
         model._initkw = initkw

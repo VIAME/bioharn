@@ -122,7 +122,8 @@ __gdal_from_source(){
 python -c "import torch; print(torch.version.cuda)"
 
 
-MMCV_FULL_VERSION=$(python -c "
+MMCV_VERSION=1.2.5
+MMCV_URL=$(python -c "
 from distutils.version import LooseVersion
 import torch
 
@@ -133,7 +134,9 @@ else:
     # should be 1.3.0, 1.4.0, 1.5.0, 1.6.0 etc..
     torch_part = '.'.join(list(map(str, list(torch_version.version[0:2]) + [0])))
 
-if LooseVersion(torch.version.cuda) >= LooseVersion('10.2'):
+if torch.version.cuda is None:
+    cuda_part = 'cpu'
+elif LooseVersion(torch.version.cuda) >= LooseVersion('10.2'):
     cuda_part = 'cu102'
 elif LooseVersion(torch.version.cuda) >= LooseVersion('10.1'):
     cuda_part = 'cu101'
@@ -145,23 +148,22 @@ else:
     raise ValueError('unsupported torch version')
 
 # See https://github.com/open-mmlab/mmcv
-#mmcv_part = '1.0.5'
-#mmcv_part = '1.1.4'
-mmcv_part = '1.1.5'
-#mmcv_part = 'latest'
 
-mmcv_full_version = '+'.join([mmcv_part, 'torch' + torch_part, cuda_part])
-print(mmcv_full_version)
+dl_url_fmt = 'https://download.openmmlab.com/mmcv/dist/{cuda_part}/torch{torch_part}/index.html'
+
+mmcv_url = dl_url_fmt.format(cuda_part=cuda_part, torch_part=torch_part)
+print(mmcv_url)
 ")
-echo "MMCV_FULL_VERSION = $MMCV_FULL_VERSION"
+echo "MMCV_URL = $MMCV_URL"
 
-pip uninstall mmcv mmcv-full mmdet
-pip install mmcv-full==$MMCV_FULL_VERSION -f https://openmmlab.oss-accelerate.aliyuncs.com/mmcv/dist/index.html
+
+# mmcv is weird about resolving this
+#pip install pycocotools  
+pip install mmcv-full==$MMCV_VERSION -f $MMCV_URL
 #pip install mmcv-full==1.0.5+torch1.6.0+cu101 -f https://openmmlab.oss-accelerate.aliyuncs.com/mmcv/dist/index.html
 # pip install git+https://github.com/open-mmlab/mmdetection.git@595bf86e69ad7452498f32166ece985d9cc012be
-#pip install git+https://github.com/open-mmlab/mmdetection.git@v2.3.0
-#pip install git+https://github.com/open-mmlab/mmdetection.git@v2.4.0
-pip install git+https://github.com/open-mmlab/mmdetection.git@v2.5.0
+pip install mmdet==2.7.0
+
 
 #pip install mmdet
 # Install bioharn in developer mode

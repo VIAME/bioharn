@@ -51,7 +51,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
     """
     def __init__(self, sampler, augment='simple', window_dims=[512, 512],
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
-                 factor=32, use_segmentation=True, gravity=0.0,
+                 factor=32, with_mask=True, gravity=0.0,
                  classes_of_interest=None, channels='rgb',
                  blackout_ignore=True):
         super(DetectFitDataset, self).__init__()
@@ -73,7 +73,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             else:
                 input_dims = (ub.peek(heights), ub.peek(widths))
 
-        self.use_segmentation = use_segmentation
+        self.with_mask = with_mask
         self.channels = ChannelSpec.coerce(channels)
 
         self.factor = factor  # downsample factor of yolo grid
@@ -327,9 +327,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 # disp_im = np.zeros()
                 raise Exception('no auxiliary disparity')
 
-        _debug('self.use_segmentation = {!r}'.format(self.use_segmentation))
+        _debug('self.with_mask = {!r}'.format(self.with_mask))
         with_annots = ['boxes']
-        if self.use_segmentation:
+        if self.with_mask:
             with_annots += ['segmentation']
 
         # NOTE: using the gdal backend samples HABCAM images in 16ms, and no
@@ -454,7 +454,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     sly = slice(int(tl_y), int(br_y))
                     chw01[:, sly, slx] = 0
 
-        if 'segmentations' in dets.data and self.use_segmentation:
+        if 'segmentations' in dets.data and self.with_mask:
             # Convert segmentations to masks
             has_mask_list = []
             class_mask_list = []

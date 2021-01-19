@@ -163,6 +163,9 @@ def _ensure_unwrapped_and_mounted(mm_inputs, xpu):
     from kwcoco.util.util_json import IndexableWalker
     walker = IndexableWalker(mm_inputs)
     for path, val in walker:
+        if isinstance(val, dict):
+            walker[path] = val.copy()
+
         if isinstance(val, data_containers.BatchContainer):
             if len(val.data) != 1:
                 raise ValueError('data not scattered correctly')
@@ -814,11 +817,16 @@ class MM_Detector(nh.layers.Module):
             Dict: containing results and losses depending on if return_loss and
                 return_result were specified.
         """
+
+        # print(batch
+        print(type(batch['inputs']['rgb']))
         if 'img_metas' in batch and 'imgs' in batch:
             # already in mm_inputs format
             orig_mm_inputs = batch
         else:
             orig_mm_inputs = _batch_to_mm_inputs(batch)
+        print(type(batch['inputs']['rgb']))
+        raise Exception
 
         mm_inputs = orig_mm_inputs.copy()
 

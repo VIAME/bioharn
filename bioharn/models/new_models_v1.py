@@ -237,6 +237,7 @@ class MM_Detector_V3(nh.layers.Module):
             Dict: containing results and losses depending on if return_loss and
                 return_result were specified.
         """
+        print(type(batch['inputs']['rgb']))
         if 'img_metas' in batch and ('inputs' in batch or 'imgs' in batch):
             # already in mm_inputs format
             orig_mm_inputs = batch
@@ -281,11 +282,10 @@ class MM_Detector_V3(nh.layers.Module):
                     trainkw['gt_masks'] = _hack_numpy_gt_masks(mm_inputs['gt_masks'])
 
             # Compute input normalization
-            losses = self.detector.forward(inputs, img_metas,
-                                           gt_bboxes=gt_bboxes,
-                                           gt_labels=gt_labels,
-                                           gt_bboxes_ignore=gt_bboxes_ignore,
-                                           return_loss=True, **trainkw)
+            losses = self.detector(inputs, img_metas, gt_bboxes=gt_bboxes,
+                                   gt_labels=gt_labels,
+                                   gt_bboxes_ignore=gt_bboxes_ignore,
+                                   return_loss=True, **trainkw)
             loss_parts = OrderedDict()
             for loss_name, loss_value in losses.items():
                 if 'loss' in loss_name:
@@ -317,11 +317,12 @@ class MM_Detector_V3(nh.layers.Module):
                 # same time.
                 batch_results = []
                 for one_input, one_meta in zip(hack_inputs, img_metas):
-                    result = self.detector.forward([one_input], [[one_meta]],
+                    result = self.detector([one_input], [[one_meta]],
                                                    return_loss=False)
                     batch_results.append(result)
                 outputs['batch_results'] = data_containers.BatchContainer(
                     batch_results, stack=False, cpu_only=True)
+
         return outputs
 
     def _init_backbone_from_pretrained(self, filename):
@@ -358,7 +359,7 @@ class LateFusionPyramidBackbone(nn.Module):
         >>> self = LateFusionPyramidBackbone(channels=channels)
         >>> batch = _demo_batch(3, channels, 256, 256, packed=True)
         >>> inputs = batch['inputs']
-        >>> fused_outputs = self.forward(inputs)
+        >>> fused_outputs = self(inputs)
         >>> print(nh.data.data_containers.nestshape(fused_outputs))
         [torch.Size([4, 18, 64, 64]), torch.Size([4, 36, 32, 32]),
          torch.Size([4, 72, 16, 16]), torch.Size([4, 144, 8, 8])]
@@ -428,7 +429,7 @@ class LateFusionPyramidBackbone(nn.Module):
         for chan_key in inputs.keys():
             chan_imgs = inputs[chan_key]
             chan_backbone = self.chan_backbones[chan_key]
-            chan_outputs = chan_backbone.forward(chan_imgs)
+            chan_outputs = chan_backbone(chan_imgs)
             # chan_outputs is a list for each pyramid level
             for level, lvl_out in enumerate(chan_outputs):
                 prefused_outputs[level][chan_key] = lvl_out
@@ -474,7 +475,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
         >>> self.to(0)
         >>> batch = self.demo_batch()
         >>> print('batch = {!r}'.format(batch))
-        >>> outputs = self.forward(batch)
+        >>> outputs = self(batch)
         >>> batch_dets = self.coder.decode_batch(outputs)
         >>> print('batch_dets = {!r}'.format(batch_dets))
 
@@ -493,13 +494,23 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
         >>> self.to(0)
         >>> batch = self.demo_batch()
         >>> print('batch = {!r}'.format(batch))
-        >>> outputs = self.forward(batch)
+        >>> outputs = self(batch)
         >>> batch_dets = self.coder.decode_batch(outputs)
         >>> print('batch_dets = {!r}'.format(batch_dets))
+
+    Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
+        >>> # xdoctest: +REQUIRES(--cuda)
+        >>> from bioharn.models.new_models_v1 import *  # NOQA
+        >>> channels = ChannelSpec.coerce('rgb')
+        >>> input_stats = None
+        >>> self = MM_HRNetV2_w18_MaskRCNN(classes=3, channels=channels, with_mask=False)
+        >>> print('self.detector.with_mask = {!r}'.format(self.detector.with_mask))
     """
     pretrained_url = 'open-mmlab://msra/hrnetv2_w18'
 
-    def __init__(self, classes=None, input_stats=None, channels='rgb'):
+    def __init__(self, classes=None, input_stats=None, channels='rgb',
+                 with_mask=True):
         classes = kwcoco.CategoryTree.coerce(classes)
         channels = ChannelSpec.coerce(channels)
 
@@ -544,67 +555,80 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
                 'type': 'RandomSampler'}
         }
 
-        rpn_head_v2 = dict(
-            # _delete_=True,
-            type='GARPNHead',
-            in_channels=256,
-            feat_channels=256,
-            approx_anchor_generator=dict(
-                type='AnchorGenerator',
-                octave_base_scale=8,
-                scales_per_octave=3,
-                ratios=[0.5, 1.0, 2.0],
-                strides=[4, 8, 16, 32, 64]),
-            square_anchor_generator=dict(
-                type='AnchorGenerator',
-                ratios=[1.0],
-                scales=[8],
-                strides=[4, 8, 16, 32, 64]),
-            anchor_coder=dict(
-                type='DeltaXYWHBBoxCoder',
-                target_means=[.0, .0, .0, .0],
-                target_stds=[0.07, 0.07, 0.14, 0.14]),
-            bbox_coder=dict(
-                type='DeltaXYWHBBoxCoder',
-                target_means=[.0, .0, .0, .0],
-                target_stds=[0.07, 0.07, 0.11, 0.11]),
-            loc_filter_thr=0.01,
-            loss_loc=dict(
-                type='FocalLoss',
-                use_sigmoid=True,
-                gamma=2.0,
-                alpha=0.25,
-                loss_weight=1.0),
-            loss_shape=dict(type='BoundedIoULoss', beta=0.2, loss_weight=1.0),
-            loss_cls=dict(
-                type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-            loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
+        # rpn_head_v2 = dict(
+        #     # _delete_=True,
+        #     type='GARPNHead',
+        #     in_channels=256,
+        #     feat_channels=256,
+        #     approx_anchor_generator=dict(
+        #         type='AnchorGenerator',
+        #         octave_base_scale=8,
+        #         scales_per_octave=3,
+        #         ratios=[0.5, 1.0, 2.0],
+        #         strides=[4, 8, 16, 32, 64]),
+        #     square_anchor_generator=dict(
+        #         type='AnchorGenerator',
+        #         ratios=[1.0],
+        #         scales=[8],
+        #         strides=[4, 8, 16, 32, 64]),
+        #     anchor_coder=dict(
+        #         type='DeltaXYWHBBoxCoder',
+        #         target_means=[.0, .0, .0, .0],
+        #         target_stds=[0.07, 0.07, 0.14, 0.14]),
+        #     bbox_coder=dict(
+        #         type='DeltaXYWHBBoxCoder',
+        #         target_means=[.0, .0, .0, .0],
+        #         target_stds=[0.07, 0.07, 0.11, 0.11]),
+        #     loc_filter_thr=0.01,
+        #     loss_loc=dict(
+        #         type='FocalLoss',
+        #         use_sigmoid=True,
+        #         gamma=2.0,
+        #         alpha=0.25,
+        #         loss_weight=1.0),
+        #     loss_shape=dict(type='BoundedIoULoss', beta=0.2, loss_weight=1.0),
+        #     loss_cls=dict(
+        #         type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+        #     loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
 
-        rpn_train_cfg_v2 = dict(
-            ga_assigner=dict(
-                type='ApproxMaxIoUAssigner',
-                pos_iou_thr=0.7,
-                neg_iou_thr=0.3,
-                min_pos_iou=0.3,
-                ignore_iof_thr=-1),
-            assigner=dict(
-                type='ApproxMaxIoUAssigner',
-                pos_iou_thr=0.7,
-                neg_iou_thr=0.3,
-                min_pos_iou=0.3,
-                ignore_iof_thr=-1),
-            ga_sampler=dict(
-                type='RandomSampler',
-                num=256,
-                pos_fraction=0.5,
-                neg_pos_ub=-1,
-                add_gt_as_proposals=False),
-            allowed_border=-1,
-            center_ratio=0.2,
-            ignore_ratio=0.5)
+        # rpn_train_cfg_v2 = dict(
+        #     ga_assigner=dict(
+        #         type='ApproxMaxIoUAssigner',
+        #         pos_iou_thr=0.7,
+        #         neg_iou_thr=0.3,
+        #         min_pos_iou=0.3,
+        #         ignore_iof_thr=-1),
+        #     assigner=dict(
+        #         type='ApproxMaxIoUAssigner',
+        #         pos_iou_thr=0.7,
+        #         neg_iou_thr=0.3,
+        #         min_pos_iou=0.3,
+        #         ignore_iof_thr=-1),
+        #     ga_sampler=dict(
+        #         type='RandomSampler',
+        #         num=256,
+        #         pos_fraction=0.5,
+        #         neg_pos_ub=-1,
+        #         add_gt_as_proposals=False),
+        #     allowed_border=-1,
+        #     center_ratio=0.2,
+        #     ignore_ratio=0.5)
 
         rpn_train_cfg = rpn_train_cfg_v1
         rpn_head = rpn_head_v1
+
+        if with_mask:
+            mask_head = {
+                'conv_out_channels': 256,
+                'in_channels': 256,
+                'loss_mask': {'loss_weight': 1.0, 'type': 'CrossEntropyLoss', 'use_mask': True},
+                'classes': classes,
+                'num_convs': 4,
+                'type': FCNMaskHead_V2,
+                'norm_cfg': {'type': 'GN', 'num_groups': 32},
+            }
+        else:
+            mask_head = None
 
         mm_cfg = mmcv.Config({
             'model': {
@@ -649,15 +673,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
                         'norm_cfg': {'type': 'GN', 'num_groups': 32},
                         'type': Shared2FCBBoxHead_V2,
                     },
-                    'mask_head': {
-                        'conv_out_channels': 256,
-                        'in_channels': 256,
-                        'loss_mask': {'loss_weight': 1.0, 'type': 'CrossEntropyLoss', 'use_mask': True},
-                        'classes': classes,
-                        'num_convs': 4,
-                        'type': FCNMaskHead_V2,
-                        'norm_cfg': {'type': 'GN', 'num_groups': 32},
-                    },
+                    'mask_head': mask_head,
                     'type': StandardRoIHead_V2,
                 },
                 'pretrained': None,
