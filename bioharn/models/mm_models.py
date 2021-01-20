@@ -817,16 +817,11 @@ class MM_Detector(nh.layers.Module):
             Dict: containing results and losses depending on if return_loss and
                 return_result were specified.
         """
-
-        # print(batch
-        print(type(batch['inputs']['rgb']))
         if 'img_metas' in batch and 'imgs' in batch:
             # already in mm_inputs format
             orig_mm_inputs = batch
         else:
             orig_mm_inputs = _batch_to_mm_inputs(batch)
-        print(type(batch['inputs']['rgb']))
-        raise Exception
 
         mm_inputs = orig_mm_inputs.copy()
 

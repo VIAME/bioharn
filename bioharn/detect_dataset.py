@@ -658,6 +658,7 @@ def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
         - [ ] Improve efficiency of creating the disk_fusion channel spec
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:gdal)
         >>> import ndsampler
         >>> from netharn.data.channel_spec import ChannelSpec
         >>> want_aux = ChannelSpec.coerce('disparity,flowx|flowy').unique()
