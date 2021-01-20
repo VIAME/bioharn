@@ -1,2 +1,2 @@
 #!/bin/bash
-xdoctest bioharn --style=google all
+xdoctest bioharn --style=google all $@

@@ -57,7 +57,7 @@ class DetectEvaluateConfig(scfg.Config):
         'xpu': scfg.Value('auto', help='a CUDA device or a CPU'),
 
         'channels': scfg.Value(
-            'native',
+            'native', type=str,
             help='a specification of channels needed by this model. See ChannelSpec for details. '
             'Typically this can be inferred from the model'),
 
@@ -74,6 +74,46 @@ class DetectEvaluateConfig(scfg.Config):
         'classes_of_interest': scfg.Value([], help='if specified only these classes are given weight'),
 
         'async_buffer': scfg.Value(False, help="I've seen this increase prediction rate but it also increases instability, unsure of the reason"),
+
+        # kwcoco eval config overrides
+        'compat': scfg.Value(
+            value='all',
+            choices=['all', 'mutex', 'ancestors'],
+            help=ub.paragraph(
+                '''
+                Matching strategy for which true annots are allowed to match
+                which predicted annots.
+                `mutex` means true boxes can only match predictions where the
+                true class has highest probability (pycocotools setting).
+                `all` means any class can match any other class.
+                Dont use `ancestors`, it is broken.
+                ''')),
+
+        'monotonic_ppv': scfg.Value(False, help=ub.paragraph(
+            '''
+            if True forces precision to be monotonic. Defaults to True for
+            compatibility with pycocotools, but that might not be the best
+            option.
+            ''')),
+
+        'ap_method': scfg.Value('sklearn', help=ub.paragraph(
+            '''
+            Method for computing AP. Defaults to a setting comparable to
+            pycocotools. Can also be set to sklearn to use an alterative
+            method.
+            ''')),
+
+        'area_range': scfg.Value(
+            value=['all'],
+            # value='0-inf,0-32,32-96,96-inf',
+            help=(
+                'minimum and maximum object areas to consider. '
+                'may be specified as a comma-separated code: <min>-<max>. '
+                'also accepts keys all, small, medium, and large. '
+            )),
+
+        'iou_bias': scfg.Value(0, help=(
+            'pycocotools setting is 1, but 0 may be better')),
     }
 
 
@@ -161,16 +201,17 @@ def evaluate_models(cmdline=True, **kw):
 
             results = evaluator.evaluate()
 
-            small_results = {
-                'measures': results.measures.summary(),
-                'ovr_measures': results.ovr_measures.summary(),
-                'meta': results.meta,
-            }
             from kwcoco.util.util_json import ensure_json_serializable
+            import json
+            single_result = results['area_range=all,iou_thresh=0.5']
+            small_results = {
+                'nocls_measures': single_result.nocls_measures.summary(),
+                'ovr_measures': single_result.ovr_measures.summary(),
+                'meta': single_result.meta,
+            }
             small_results = ensure_json_serializable(small_results, normalize_containers=True)
             small_metrics_fpath = join(evaluator.paths['metrics'], 'small_metrics.json')
             print('small_metrics_fpath = {!r}'.format(small_metrics_fpath))
-            import json
             with open(small_metrics_fpath, 'w') as file:
                 json.dump(small_results, file, indent='    ')
             metric_fpaths.append(small_metrics_fpath)
@@ -188,8 +229,8 @@ def evaluate_models(cmdline=True, **kw):
         row = {}
         row['model_tag'] = metrics['meta']['model_tag']
         row['predcfg_tag'] = metrics['meta']['predcfg_tag']
-        row['ap'] = metrics['measures']['ap']
-        row['auc'] = metrics['measures']['auc']
+        row['ap'] = metrics['nocls_measures']['ap']
+        row['auc'] = metrics['nocls_measures']['auc']
 
         # Hack to get train config params
         # train_config = ast.literal_eval(metrics['train_info']['extra']['config'])
@@ -273,6 +314,7 @@ class DetectEvaluator(object):
             :class:`bioharn.detect_predict.DetectPredictConfig`.
 
     Example:
+        >>> # xdoctest: +REQUIRES(--slow)
         >>> from bioharn.detect_eval import *  # NOQA
         >>> # See DetectEvaluateConfig for config docs
         >>> config = DetectEvaluator.demo_config()
@@ -582,15 +624,21 @@ class DetectEvaluator(object):
             'true_dataset': truth_sampler,
             'classes_of_interest': classes_of_interest,
             'ignore_classes': ignore_classes,
-            'out_dpath': metrics_dpath,
-            'expt_title': expt_title,
-            'draw': False,  # hack while this still exists
+            # 'out_dpath': metrics_dpath,
+            # 'expt_title': expt_title,
+            # 'draw': False,  # hack while this still exists
         })
         print('coco_eval_config = {}'.format(ub.repr2(coco_eval_config, nl=1)))
         coco_eval_config['pred_dataset'] = gid_to_pred
         coco_eval = coco_evaluator.CocoEvaluator(coco_eval_config)
         coco_eval._init()
         results = coco_eval.evaluate()
+
+        eval_config = evaluator.config.asdict()
+
+        from kwcoco.util.util_json import ensure_json_serializable
+        eval_config = ensure_json_serializable(
+            eval_config, normalize_containers=True)
 
         extra_meta = {
             'dset_tag': evaluator.dset_tag,
@@ -599,22 +647,19 @@ class DetectEvaluator(object):
 
             'ignore_classes': sorted(ignore_classes),
 
-            'eval_config': evaluator.config.asdict(),
+            'eval_config': eval_config,
             'train_info': evaluator.train_info,
         }
-        results.meta.update(extra_meta)
+        # results.meta.update(extra_meta)
+        for subres in results.values():
+            subres.meta.update(extra_meta)
 
-        # small_results = {
-        #     'measures': results['measures'].summary(),
-        #     'ovr_measures': results['ovr_measures'].summary(),
-        # }
-
-        # TODO: we should likely not be dumping the results here
-        # It should be the caller responsibility.
         metrics_fpath = join(metrics_dpath, 'metrics.json')
         print('dumping metrics_fpath = {!r}'.format(metrics_fpath))
         results.dump(metrics_fpath, indent='    ')
-        results.dump_figures(metrics_dpath)
+        results.dump_figures(
+            out_dpath=metrics_dpath,
+            expt_title=expt_title)
 
         if True:
             print('Choosing representative truth images')

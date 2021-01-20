@@ -34,11 +34,19 @@ import numpy as np
 import torch
 import scriptconfig as scfg
 import kwimage
+import kwarray
 import warnings
 import torch_liberator
 from netharn.data.channel_spec import ChannelSpec
 from netharn.data.data_containers import ContainerXPU
 import os
+
+
+try:
+    import xdev
+    profile = xdev.profile
+except Exception:
+    profile = ub.identity
 
 
 ENABLE_BIOHARN_WARNINGS = os.environ.get('ENABLE_BIOHARN_WARNINGS', '')
@@ -59,7 +67,7 @@ class DetectPredictConfig(scfg.Config):
         'window_overlap': scfg.Value(0.0, help='overlap of the sliding window'),
 
         'channels': scfg.Value(
-            'native',
+            'native', type=str,
             help='list of channels needed by the model. '
             'Typically this can be inferred from the model'),
 
@@ -117,7 +125,9 @@ class DetectPredictor(object):
     """
     A detector API for bioharn trained models
 
+
     Example:
+        >>> # xdoctest: +REQUIRES(--network)
         >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> import ubelt as ub
         >>> from bioharn.detect_predict import *  # NOQA
@@ -130,24 +140,42 @@ class DetectPredictor(object):
         >>>     'https://data.kitware.com/api/v1/file/5dcf0d1faf2e2eed35fad5d1/download',
         >>>     fname='scallop.jpg', appname='viame', hasher='sha512',
         >>>     hash_prefix='3bd290526c76453bec7')
-        >>> path_or_image = full_rgb = kwimage.imread(image_fpath)
+        >>> rgb = kwimage.imread(image_fpath)
+        >>> inputs = {'rgb': rgb}
         >>> config = dict(
         >>>     deployed=deployed_fpath,
         >>> )
         >>> predictor = DetectPredictor(config)
-        >>> final = predictor.predict(full_rgb)
+        >>> final = predictor.predict(inputs)
         >>> # xdoc: +REQUIRES(--show)
         >>> import kwplot
         >>> kwplot.autompl()
-        >>> kwplot.imshow(full_rgb, doclf=True)
+        >>> kwplot.imshow(inputs['rgb'], doclf=True)
         >>> final2 = final.compress(final.scores > .0)
         >>> final2.draw()
 
+    Ignore:
         >>> deployed_fpath = ub.grabdata(
         >>>     'https://data.kitware.com/api/v1/file/5ee93f639014a6d84ec52b7f/download',
         >>>     fname='deploy_MM_CascadeRCNN_myovdqvi_035_MVKVVR_fix3_mm2x.zip',
         >>>     appname='viame', hasher='sha512',
         >>>     hash_prefix='63b7c3981b3446b079c1d83541a5666c496f6148', verbose=3)
+
+        >>> from bioharn.detect_predict import *  # NOQA
+        >>> deployed_fpath = ub.grabdata(
+        >>>     'https://data.kitware.com/api/v1/file/5f99c37c50a41e3d1918fdbe/download',
+        >>>     fname='trained_detector_for_jc.zip',
+        >>>     appname='viame', hasher='sha512',
+        >>>     hash_prefix='73250a9f2bdc4b746f1edf1baec1593403229c4d7972863', verbose=3)
+        >>> config = dict(
+        >>>     deployed=deployed_fpath,
+        >>> )
+        >>> predictor = DetectPredictor(config)
+        >>> predictor._ensure_mounted_model()
+        >>> inputs = {'rgb': (np.random.rand(512, 512, 3) * 255).astype(np.uint8),
+        >>>           'disparity': (np.random.rand(512, 512, 1) * 255).astype(np.uint8)}
+        >>> #inputs = {'rgb|disparity': np.random.rand(512, 512, 4)}
+        >>> final = predictor.predict(inputs)
     """
     def __init__(predictor, config):
         predictor.config = DetectPredictConfig(config)
@@ -255,14 +283,7 @@ class DetectPredictor(object):
             # hack to prevent multiple XPU data checks
             predictor.model._ensured_mount = True
 
-    def _rectify_image(predictor, path_or_image):
-        if isinstance(path_or_image, str):
-            predictor.info('Reading {!r}'.format(path_or_image))
-            full_rgb = kwimage.imread(path_or_image, space='rgb')
-        else:
-            full_rgb = path_or_image
-        return full_rgb
-
+    @profile
     def predict(predictor, inputs):
         """
         Predict on a single large image using a sliding window_dims
@@ -282,18 +303,21 @@ class DetectPredictor(object):
             predict, but it requires that your dataset is formatted as a
             sampler.
         """
-        predictor.info('Begin detection prediction')
+        predictor.info('Begin detection prediction (via predict)')
 
         # Ensure model is in prediction mode and disable gradients for speed
         predictor._ensure_mounted_model()
 
-        full_rgb = predictor._rectify_image(path_or_image)
-        predictor.info('Detect objects in image (shape={})'.format(full_rgb.shape))
+        inputs = predictor._ensure_inputs_dict(inputs)
+        predictor.info('Detect objects in image (shape={})'.format(
+            ub.map_vals(lambda x: x.shape, inputs)))
 
-        full_rgb, pad_offset_rc, window_dims = predictor._prepare_image(full_rgb)
-        pad_offset_xy = torch.FloatTensor(np.ascontiguousarray(pad_offset_rc[::-1], dtype=np.float32))
+        full_inputs, pad_offset_rc, window_dims = predictor._prepare_single_inputs(inputs)
 
-        slider_dataset = predictor._make_dataset(full_rgb, window_dims)
+        pad_offset_xy = torch.FloatTensor(
+            np.ascontiguousarray(pad_offset_rc[::-1], dtype=np.float32))
+
+        slider_dataset = predictor._make_dataset(full_inputs, window_dims)
 
         # Its typically faster to use num_workers=0 here because the full image
         # is already in memory. We only need to slice and cast to float32.
@@ -336,6 +360,7 @@ class DetectPredictor(object):
         predictor.info('Finished prediction')
         return final_dets
 
+    @profile
     def predict_sampler(predictor, sampler, gids=None):
         """
         Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
@@ -353,9 +378,12 @@ class DetectPredictor(object):
             predict_sampler. It only requires that you pass your data in as an
             image.
         """
+        predictor.info('Begin detection prediction (via predict_sampler)')
+
         predictor._ensure_mounted_model()
 
         native = predictor._infer_native(predictor.config)
+        predictor.info('native = {}'.format(ub.repr2(native, nl=1)))
         input_dims = native['input_dims']
         window_dims = native['window_dims']
         channels = native['channels']
@@ -422,6 +450,7 @@ class DetectPredictor(object):
             for gid, dets in predictor._finalize_dets(ready_dets, ready_gids):
                 yield gid, dets
 
+    @profile
     def _finalize_dets(predictor, ready_dets, ready_gids):
         """ Helper for predict_sampler """
         gid_to_ready_dets = ub.group_items(ready_dets, ready_gids)
@@ -438,8 +467,22 @@ class DetectPredictor(object):
                 dets = dets.take(keep)
             yield (gid, dets)
 
-    def _prepare_image(predictor, full_rgb):
-        full_dims = tuple(full_rgb.shape[0:2])
+    def _ensure_inputs_dict(predictor, inputs):
+        if isinstance(inputs, str):
+            # Assume inputs has been given as a single file path
+            fpath = inputs
+            predictor.info('Reading {!r}'.format(fpath))
+            inputs = kwimage.imread(fpath, space='rgb')
+        if isinstance(inputs, np.ndarray):
+            # Assume inputs has been given as a single rgb image
+            inputs = {'rgb': inputs}
+
+        if not isinstance(inputs, dict):
+            raise TypeError(type(inputs))
+
+        return inputs
+
+    def _prepare_single_inputs(predictor, inputs):
 
         if predictor.config['window_dims'] == 'native':
             native = predictor._infer_native(predictor.config)
@@ -447,38 +490,63 @@ class DetectPredictor(object):
         else:
             window_dims = predictor.config['window_dims']
 
+        inputs_dims = ub.map_vals(lambda x: tuple(x.shape[0:2]), inputs)
+        if not ub.allsame(inputs_dims.values()):
+            # TODO: handle non-aligned inputs
+            raise ValueError('inputs must have same spatial dims for now')
+
+        full_dims = ub.peek(inputs_dims.values())
+
         if window_dims == 'full':
             window_dims = full_dims
 
         # Pad small images to be at least the minimum window_dims size
         dims_delta = np.array(full_dims) - np.array(window_dims)
-        if np.any(dims_delta < 0):
+        needs_pad = np.any(dims_delta < 0)
+        if needs_pad:
             padding = np.maximum(-dims_delta, 0)
             lower_pad = padding // 2
             upper_pad = padding - lower_pad
             pad_width = list(zip(lower_pad, upper_pad))
-            ndims_all = len(full_rgb.shape)
             ndims_spti = len(padding)
-            if ndims_all > ndims_spti:
-                # Handle channels
-                extra = [(0, 0)] * (ndims_all - ndims_spti)
-                pad_width = pad_width + extra
-            full_rgb = np.pad(full_rgb, pad_width, mode='constant',
-                              constant_values=127)
-            full_dims = tuple(full_rgb.shape[0:2])
             pad_offset_rc = lower_pad[0:2]
         else:
             pad_offset_rc = np.array([0, 0])
 
-        return full_rgb, pad_offset_rc, window_dims
+        if 0:
+            if getattr(predictor.raw_model, 'input_norm', None) is not None:
+                # todo: use known mean if possible
+                # input_norm = predictor.raw_model.input_norm
+                pass
+        else:
+            pad_value = 127
 
-    def _make_dataset(predictor, full_rgb, window_dims):
+        full_inputs = {}
+        for chan_key, imdata in inputs.items():
+            if needs_pad:
+                ndims_all = len(imdata.shape)
+                if ndims_all > ndims_spti:
+                    # Handle channels
+                    extra = [(0, 0)] * (ndims_all - ndims_spti)
+                    pad_width_ = pad_width + extra
+                else:
+                    pad_width_ = pad_width
+                full_imdata = np.pad(
+                    imdata, pad_width_, mode='constant',
+                    constant_values=pad_value)
+            else:
+                full_imdata = imdata
+            full_inputs[chan_key] = full_imdata
+
+        return full_inputs, pad_offset_rc, window_dims
+
+    def _make_dataset(predictor, full_inputs, window_dims):
         """ helper for predict """
-        full_dims = tuple(full_rgb.shape[0:2])
+
+        full_dims = tuple(ub.peek(full_inputs.values()).shape[0:2])
 
         native = predictor._infer_native(predictor.config)
-
-        assert native['channels'] == 'rgb', 'cant handle non-rgb yet'
+        predictor.info('native = {}'.format(ub.repr2(native, nl=1)))
 
         # Break large images into chunks to fit on the GPU
         slider = nh.util.SlidingWindow(full_dims, window=window_dims,
@@ -489,9 +557,11 @@ class DetectPredictor(object):
         if input_dims == 'full' or input_dims == window_dims:
             input_dims = None
 
-        slider_dataset = SingleImageDataset(full_rgb, slider, input_dims)
+        slider_dataset = SingleImageDataset(full_inputs, slider, input_dims,
+                                            channels=native['channels'])
         return slider_dataset
 
+    @profile
     def _predict_batch(predictor, batch):
         """
         Runs the torch network on a single batch and postprocesses the outputs
@@ -530,9 +600,9 @@ class DetectPredictor(object):
                             'Normal mm-detection input failed. '
                             'Attempting to find backwards compatible solution')
             else:
-                assert len(batch['inputs']) == 1
+                # assert len(batch['inputs']) == 1
                 try:
-                    im = ub.peek(batch['inputs'].values())
+                    # im = ub.peek(batch['inputs'].values())
                     outputs = predictor.model.forward(batch['inputs'])
                 except Exception:
                     try:
@@ -573,16 +643,20 @@ class DetectPredictor(object):
             det = det.numpy()
             det = det.compress(det.scores > predictor.config['conf_thresh'])
 
-            if True and len(det) and np.all(det.boxes.width <= 1):
+            # Ensure that masks are transformed into polygons for transformation efficiency
+            if det.data.get('segmentations', None) is not None:
+                det.data['segmentations'] = det.data['segmentations'].to_polygon_list()
+
+            if True and len(det) and np.all(det.boxes.width <= 1) and len(batch['inputs']) == 1:
                 # HACK FOR YOLO
                 # TODO: decode should return detections in batch input space
-                assert len(batch['inputs']) == 1
+                # assert len(batch['inputs']) == 1
                 im = ub.peek(batch['inputs'].values())
                 inp_size = np.array(im.shape[-2:][::-1])
-                det = det.scale(inp_size)
+                det = det.scale(inp_size, inplace=True)
 
-            det = det.scale(item_scale_xy)
-            det = det.translate(item_shift_xy)
+            det = det.scale(item_scale_xy, inplace=True)
+            det = det.translate(item_shift_xy, inplace=True)
             # Fix type issue
             if 'class_idxs' in det.data:
                 det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
@@ -597,10 +671,50 @@ class SingleImageDataset(torch_data.Dataset):
 
     Calling __getitem__ will result in a dictionary containing a chip for a
     particular window and that chip's offset in the original image.
+
+    Args:
+        full_inputs (Dict[str, ndarray]):
+            mapping from channel names (e.g. rgb) to aligned ndarrays.
+            These arrays must be smaller than the slider window dimensions.
+
+        slider (nh.util.SlidingWindow):
+            the sliding window over this image
+
+        input_dims (Tuple[int, int]): height / width to resize to after window
+            sampling.
+
+        channels (ChannelSpec | str): channel spec needed by the network
+
+
+    Example:
+        >>> full_inputs = {
+        >>>     'rgb': kwimage.atleast_3channels(np.arange(0, 16 * 16).reshape(16, 16)),
+        >>>     'disparity': np.random.rand(16, 16, 1),
+        >>> }
+        >>> full_dims = full_inputs['rgb'].shape[0:2]
+        >>> window_dims = (8, 8)
+        >>> input_dims = (2, 2)
+        >>> channels = 'rgb|disparity'
+        >>> slider = nh.util.SlidingWindow(full_dims, window=window_dims,
+        >>>                                overlap=0,
+        >>>                                keepbound=True, allow_overshoot=True)
+        >>> self = SingleImageDataset(full_inputs, slider, input_dims, channels)
+        >>> index = 0
+        >>> item = self[index]
+        >>> item = self[1]
+
+        >>> channels = 'rgb,disparity|rgb,disparity'
+        >>> slider = nh.util.SlidingWindow(full_dims, window=window_dims,
+        >>>                                overlap=0,
+        >>>                                keepbound=True, allow_overshoot=True)
+        >>> self = SingleImageDataset(full_inputs, slider, input_dims, channels)
+        >>> index = 0
+        >>> item = self[index]
+        >>> item = self[1]
     """
 
-    def __init__(self, full_image, slider, input_dims, channels='rgb'):
-        self.full_image = full_image
+    def __init__(self, full_inputs, slider, input_dims, channels='rgb'):
+        self.full_inputs = full_inputs
         self.slider = slider
         self.input_dims = input_dims
         self.window_dims = self.slider.window
@@ -610,16 +724,20 @@ class SingleImageDataset(torch_data.Dataset):
         return self.slider.n_total
 
     def __getitem__(self, index):
+        """
+        Ignore:
+            self = slider_dataset
+            index = 0
+        """
         # Lookup the window location
         slider = self.slider
         basis_idx = np.unravel_index(index, slider.basis_shape)
         slice_ = tuple([bdim[i] for bdim, i in zip(slider.basis_slices, basis_idx)])
 
-        # Sample the image patch
-        chip_hwc = self.full_image[slice_]
-
         # Resize the image patch if necessary
-        if self.input_dims is not None and self.input_dims != 'window':
+        needs_resize = (self.input_dims is not None and
+                        self.input_dims != 'window')
+        if needs_resize:
             if isinstance(self.input_dims, str):
                 raise TypeError(
                     'input dims is a non-window string but should '
@@ -629,17 +747,16 @@ class SingleImageDataset(torch_data.Dataset):
             # Record the inverse transformation
             window_size = self.window_dims[::-1]
             input_size = self.input_dims[::-1]
-            shift, scale, embed_size = letterbox._letterbox_transform(window_size, input_size)
-            # Resize the image
-            chip_hwc = letterbox.augment_image(chip_hwc)
+            shift, scale, embed_size = letterbox._letterbox_transform(
+                window_size, input_size)
         else:
+            letterbox = None
             shift = [0, 0]
             scale = [1, 1]
-        scale_xy = torch.FloatTensor(scale)
 
-        # Assume 8-bit image inputs
-        chip_chw = np.transpose(chip_hwc, (2, 0, 1))
-        tensor_rgb = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
+        # TODO: UNIFY WITH WindowedSamplerDataset.__getitem__
+
+        scale_xy = torch.FloatTensor(scale)
         offset_xy = torch.FloatTensor([slice_[1].start, slice_[0].start])
 
         # To apply a transform we first scale then shift
@@ -648,24 +765,41 @@ class SingleImageDataset(torch_data.Dataset):
             'shift_xy': torch.FloatTensor(shift) - (offset_xy * scale_xy),
         }
 
-        if False:
-            tf_mat = np.array([
-                [tf_full_to_chip['scale_xy'][0], 0, tf_full_to_chip['shift_xy'][0]],
-                [0, tf_full_to_chip['scale_xy'][1], tf_full_to_chip['shift_xy'][1]],
-                [0, 0, 1],
-            ])
-            np.linalg.inv(tf_mat)
-
         # This transform will bring us from chip space back to full img space
         tf_chip_to_full = {
             'scale_xy': 1.0 / tf_full_to_chip['scale_xy'],
             'shift_xy': -tf_full_to_chip['shift_xy'] * (1.0 / tf_full_to_chip['scale_xy']),
         }
 
-        assert self.channels.spec == 'rgb'
+        components = {}
+        # Sample the image patch
+        for chan_key, full_imdata in self.full_inputs.items():
+            chip_hwc = full_imdata[slice_]
+
+            # TODO: be careful what we do here based on the channel info
+            chip_hwc = kwimage.ensure_float01(chip_hwc, dtype=np.float32)
+
+            if needs_resize:
+                # Resize the image
+                if letterbox is not None:
+                    chip_hwc = kwimage.imresize(
+                        chip_hwc, dsize=letterbox.target_size,
+                        letterbox=True)
+                chip_hwc = kwarray.atleast_nd(chip_hwc, n=3, front=False)
+
+            chip_chw = np.transpose(chip_hwc, (2, 0, 1))
+            chip_chw = np.ascontiguousarray(chip_chw)
+            tensor_chw = torch.from_numpy(chip_chw)
+            components[chan_key] = tensor_chw
+
+        # Do early fusion as specified by channels
+        # TODO: we need to ensure `encode` can handle the case where components
+        # are pre-fused. It should be able to so separate and refuse where
+        # necessary.
+        inputs = self.channels.encode(components, axis=0)
 
         return {
-            'inputs': {'rgb': tensor_rgb},
+            'inputs': inputs,
             'tf_chip_to_full': tf_chip_to_full,
         }
 
@@ -685,7 +819,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         gids : images to sample from, if None use all of them
     """
 
-    def __init__(self, sampler, window_dims='full', input_dims='native',
+    def __init__(self, sampler, window_dims='full', input_dims='window',
                  window_overlap=0.0, gids=None, channels='rgb'):
         self.sampler = sampler
         self.input_dims = input_dims
@@ -695,6 +829,8 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         self.subindex = None
         self.gids = gids
         self._build_sliders()
+
+        self.want_aux = self.channels.unique() - {'rgb'}
 
     @classmethod
     def demo(WindowedSamplerDataset, key='habcam', **kwargs):
@@ -716,7 +852,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
         Ignore:
             window_dims = (512, 512)
-            input_dims = 'native'
+            input_dims = 'window'
             window_overlap = 0
         """
         import netharn as nh
@@ -776,16 +912,42 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
         assert 'rgb' in unique_channels
         sample = self.sampler.load_sample(tr, with_annots=False)
-        chip_hwc = kwimage.atleast_3channels(sample['im'])
+
+        if 0:
+            # ndsampler should interact with the network's ChannelSpec to know
+            # if it needs to coerce grayscale images to 3 channel to pass them
+            # to an RGB network.
+            #
+            # Outline:
+            #     - [ ] we should be given `self.channels` which defines the
+            #     network input early-fused streams.
+            #         - [ ] perhaps this can store input mean / std values for
+            #               pre-processing? We can measure speedup from doing
+            #               this on CPU.
+            #     - [ ] Given the sampler "frames" object specify the window
+            #           region and the resize region the early fused inputs and
+            #           optionally resize and renormalize.
+            #
+            if 'rgb' in self.channels.unique():
+                chip_hwc = kwimage.atleast_3channels(sample['im'])
+        else:
+            chip_hwc = kwimage.atleast_3channels(sample['im'])
 
         chip_dims = tuple(chip_hwc.shape[0:2])
 
         # Resize the image patch if necessary
-        if self.input_dims != 'native' and self.input_dims != 'window':
-            if isinstance(self.input_dims, str):
+        # print('self.input_dims = {!r}'.format(self.input_dims))
+        # print('chip_dims = {!r}'.format(chip_dims))
+
+        if isinstance(self.input_dims, str) or self.input_dims is None:
+            if self.input_dims is not None and self.input_dims != 'window':
                 raise TypeError(
                     'input dims is a non-window string but should '
                     'have been resolved before this!')
+            letterbox = None
+            shift = [0, 0]
+            scale = [1, 1]
+        else:
             letterbox = nh.data.transforms.Resize(None, mode='letterbox')
             letterbox.target_size = self.input_dims[::-1]
             # Record the inverse transformation
@@ -794,30 +956,29 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
             shift, scale, embed_size = letterbox._letterbox_transform(chip_size, input_size)
             # Resize the image
             chip_hwc = letterbox.augment_image(chip_hwc)
-        else:
-            letterbox = None
-            shift = [0, 0]
-            scale = [1, 1]
+
         scale_xy = torch.FloatTensor(scale)
+        offset_xy = torch.FloatTensor([slices[1].start, slices[0].start])
+
+        # TODO: UNIFY WITH SingleImageDataset.__getitem__
+        # TODO: ndsampler should contain the correct logic to sample fused
+        # streams that includes the rgb sampling.
 
         # Assume 8-bit image inputs
         chip_chw = np.transpose(chip_hwc, (2, 0, 1))
-        tensor_rgb = torch.FloatTensor(np.ascontiguousarray(chip_chw)) / 255.0
-        offset_xy = torch.FloatTensor([slices[1].start, slices[0].start])
+        chip_chw = np.ascontiguousarray(chip_chw)
+        # print('chip_chw.dtype = {!r}'.format(chip_chw.dtype))
+
+        # chip_chw = kwimage.ensure_float01(chip_chw, dtype=np.float32)
+        # tensor_rgb = torch.from_numpy(chip_chw)
+        tensor_rgb = torch.from_numpy(chip_chw).float() / 255.0
+        # print(kwarray.stats_dict(tensor_rgb))
 
         # To apply a transform we first scale then shift
         tf_full_to_chip = {
             'scale_xy': torch.FloatTensor(scale_xy),
             'shift_xy': torch.FloatTensor(shift) - (offset_xy * scale_xy),
         }
-
-        if False:
-            tf_mat = np.array([
-                [tf_full_to_chip['scale_xy'][0], 0, tf_full_to_chip['shift_xy'][0]],
-                [0, tf_full_to_chip['scale_xy'][1], tf_full_to_chip['shift_xy'][1]],
-                [0, 0, 1],
-            ])
-            np.linalg.inv(tf_mat)
 
         # This transform will bring us from chip space back to full img space
         tf_chip_to_full = {
@@ -834,30 +995,30 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
         sampler = self.sampler
 
-        # if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
-        if 'disparity' in unique_channels:
-            from ndsampler.utils import util_gdal
-            disp_fpath = sampler.dset.get_auxillary_fpath(gid, 'disparity')
-            disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
-            data_dims = disp_frame.shape[0:2]
-            pad = 0
-            data_slice, extra_padding, st_dims = sampler._rectify_tr(
-                tr, data_dims, window_dims=None, pad=pad)
-            # Load the image data
-            disp_im = disp_frame[data_slice]
-            if extra_padding:
-                if disp_im.ndim != len(extra_padding):
-                    extra_padding = extra_padding + [(0, 0)]  # Handle channels
-                disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
-            if letterbox is not None:
-                disp_im = letterbox.augment_image(disp_im)
-            if len(disp_im.shape) == 2:
-                disp_im = disp_im[None, :, :]
-            else:
-                disp_im = disp_im.transpose(2, 0, 1)
-            components['disparity'] = torch.FloatTensor(disp_im)
+        if self.want_aux:
 
-        item['inputs'] = self.channels.encode(components)
+            from bioharn.detect_dataset import load_sample_auxiliary
+
+            sampler = self.sampler
+
+            want_aux = self.want_aux
+            aux_components = load_sample_auxiliary(sampler, tr, want_aux)
+
+            # note: the letterbox augment doesn't handle floats well
+            # use the kwimage.imresize instead
+            for auxkey, aux_im in aux_components.items():
+                if letterbox is not None:
+                    aux_components[auxkey] = kwimage.imresize(
+                        aux_im, dsize=letterbox.target_size,
+                        letterbox=True).clip(0, 1)
+
+            for auxkey, aux_im in aux_components.items():
+                aux_im = kwarray.atleast_nd(aux_im, 3)
+                components[auxkey] = torch.FloatTensor(
+                    aux_im.transpose(2, 0, 1))
+
+        item['inputs'] = self.channels.encode(components, axis=0)
+        # print(item['inputs'])
         return item
 
 
@@ -922,6 +1083,7 @@ def _coerce_sampler(config):
     return sampler
 
 
+@profile
 def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
                     draw=False, enable_cache=True, async_buffer=False,
                     verbose=1, draw_truth=True):
@@ -943,7 +1105,6 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
         >>>                                 backend=None)
     """
-    import kwarray
     import ndsampler
     from bioharn import util
     import tempfile
@@ -1001,7 +1162,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         # for cat in coco_dset.cats.values():
         #     single_img_coco.add_category(**cat)
 
-        for ann in dets.to_coco():
+        for ann in dets.to_coco(style='new'):
             ann['image_id'] = gid
             if 'category_name' in ann:
                 catname = ann['category_name']
@@ -1033,16 +1194,18 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
                                                                 dset=coco_dset)
                 true_dets.draw_on(image, alpha=None, color='green')
 
-            flags = dets.scores > .2
-            flags[kwarray.argmaxima(dets.scores, num=10)] = True
-            top_dets = dets.compress(flags)
-            toshow = top_dets.draw_on(image, alpha=None)
+            # flags = dets.scores > .2
+            # flags[kwarray.argmaxima(dets.scores, num=10)] = True
+            # show_dets = dets.compress(flags)
+            show_dets = dets
+            toshow = show_dets.draw_on(image, alpha=None)
             # kwplot.imshow(toshow)
             kwimage.imwrite(viz_fpath, toshow, space='rgb')
 
     if enable_cache:
         pred_fpaths = [gid_to_pred_fpath[gid] for gid in have_gids]
-        cached_dets = _load_dets(pred_fpaths, workers=6)
+        load_workers = 0
+        cached_dets = _load_dets(pred_fpaths, workers=load_workers)
         assert have_gids == [d.meta['gid'] for d in cached_dets]
         gid_to_cached = ub.dzip(have_gids, cached_dets)
         gid_to_pred.update(gid_to_cached)
@@ -1050,7 +1213,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
     return gid_to_pred, gid_to_pred_fpath
 
 
-def _load_dets(pred_fpaths, workers=6):
+def _load_dets(pred_fpaths, workers=0):
     # Process mode is much faster than thread.
     from kwcoco.util import util_futures
     jobs = util_futures.JobPool(mode='process', max_workers=workers)
@@ -1088,6 +1251,7 @@ class DetectPredictCLIConfig(scfg.Config):
             'workdir': scfg.Path('~/work/bioharn', help='work directory for sampler if needed'),
 
             'async_buffer': scfg.Value(False, help="I've seen this increase prediction rate from 2.0Hz to 2.3Hz, but it increases instability, unsure of the reason"),
+            'gids': scfg.Value(None, help='if specified only predict on these image-ids (only applicable to coco input)'),
         },
         DetectPredictConfig.default
     )
@@ -1129,7 +1293,9 @@ def detect_cli(config={}):
 
     sampler = _coerce_sampler(config)
     print('prepare frames')
-    sampler.frames.prepare(workers=config['workers'])
+    gids = config['gids']
+    gids = [gids] if isinstance(gids, int) else gids
+    sampler.frames.prepare(workers=config['workers'], gids=gids)
 
     print('Create predictor')
     pred_config = ub.dict_subset(config, DetectPredictConfig.default)
@@ -1142,19 +1308,24 @@ def detect_cli(config={}):
     async_buffer = config['async_buffer']
 
     gid_to_pred, gid_to_pred_fpath = _cached_predict(
-        predictor, sampler, out_dpath=out_dpath, gids=None,
-        draw=config['draw'], enable_cache=config['enable_cache'], async_buffer=async_buffer)
+        predictor, sampler, out_dpath=out_dpath, gids=gids,
+        draw=config['draw'], enable_cache=config['enable_cache'],
+        async_buffer=async_buffer)
 
-    import ndsampler
-    coco_dsets = []
-    for gid, pred_fpath in gid_to_pred_fpath.items():
-        single_img_coco = ndsampler.CocoDataset(pred_fpath)
-        coco_dsets.append(single_img_coco)
+    if gids is None:
+        # Each image produces its own kwcoc files in the "pred" subfolder.
+        # Union all of those to make a single coco file that contains all
+        # predictions.
+        import ndsampler
+        coco_dsets = []
+        for gid, pred_fpath in gid_to_pred_fpath.items():
+            single_img_coco = ndsampler.CocoDataset(pred_fpath)
+            coco_dsets.append(single_img_coco)
 
-    pred_dset = ndsampler.CocoDataset.union(*coco_dsets)
-    pred_fpath = join(det_outdir, 'detections.mscoco.json')
-    print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
-    pred_dset.dump(pred_fpath, newlines=True)
+        pred_dset = ndsampler.CocoDataset.union(*coco_dsets)
+        pred_fpath = join(det_outdir, 'detections.mscoco.json')
+        print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
+        pred_dset.dump(pred_fpath, newlines=True)
 
 
 if __name__ == '__main__':

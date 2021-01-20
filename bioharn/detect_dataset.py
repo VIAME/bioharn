@@ -4,15 +4,17 @@ import torch
 import ubelt as ub
 import kwarray
 import kwimage
-import torch.utils.data.sampler as torch_sampler
+import torch.utils.data.sampler
 from netharn.data.channel_spec import ChannelSpec
 from netharn.data.data_containers import ItemContainer
 from netharn.data.data_containers import container_collate
 from functools import partial
 import numbers
 
-# _debug = print
-_debug = ub.identity
+if 0:
+    _debug = print
+else:
+    _debug = ub.identity
 
 
 class DetectFitDataset(torch.utils.data.Dataset):
@@ -49,7 +51,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
     """
     def __init__(self, sampler, augment='simple', window_dims=[512, 512],
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
-                 factor=32, use_segmentation=True, gravity=0.0,
+                 factor=32, with_mask=True, gravity=0.0,
                  classes_of_interest=None, channels='rgb',
                  blackout_ignore=True):
         super(DetectFitDataset, self).__init__()
@@ -59,7 +61,19 @@ class DetectFitDataset(torch.utils.data.Dataset):
         if input_dims == 'window':
             input_dims = window_dims
 
-        self.use_segmentation = use_segmentation
+        if input_dims == 'full':
+            widths = set(sampler.dset.images().width)
+            heights = set(sampler.dset.images().height)
+            if len(widths) != 1 and len(heights) != 1:
+                raise AssertionError((
+                    'Must specify a consistent input size when using full '
+                    'image windows. Images have variable widths={} '
+                    'and heights={}'
+                ).format(widths, heights))
+            else:
+                input_dims = (ub.peek(heights), ub.peek(widths))
+
+        self.with_mask = with_mask
         self.channels = ChannelSpec.coerce(channels)
 
         self.factor = factor  # downsample factor of yolo grid
@@ -100,6 +114,13 @@ class DetectFitDataset(torch.utils.data.Dataset):
         # the aspect ratio.
         self.letterbox = nh.data.transforms.Resize(None, mode='letterbox')
 
+        self.want_aux = self.channels.unique() - {'rgb'}
+
+        # Storage for input statistics (populated after dataset creation ---
+        # because we need the dataset to compute it!), so we can fill with real
+        # mean values instead of zeros.
+        self.input_stats = None
+
     @ub.memoize_property
     def input_id(self):
         # Use the sampler to compute an input id
@@ -131,46 +152,66 @@ class DetectFitDataset(torch.utils.data.Dataset):
         self.chosen_regions = chosen_regions
 
     @classmethod
-    def demo(cls, key='habcam', augment='simple', channels='rgb', window_dims=(512, 512), **kw):
+    def demo(cls, key='shapes8', augment='simple', channels='rgb', window_dims=(512, 512), **kw):
         """
-        Ignore:
-            from bioharn.detect_dataset import *  # NOQA
-            self = DetectFitDataset.demo('habcam', augment='complex', channels='rgb|disparity')
-            index = 30
 
-            self.disable_augmenter = False
-            item = self[index]
-            # xdoc: +REQUIRES(--show)
-            import kwplot
-            kwplot.figure(doclf=True, fnum=1)
-            kwplot.autompl()  # xdoc: +SKIP
-            components = self.channels.decode(item['inputs'], axis=0)
-            rgb01 = components['rgb'].data.numpy().transpose(1, 2, 0)
-            boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
-            canvas_rgb = np.ascontiguousarray(kwimage.ensure_uint255(rgb01))
-            canvas_rgb = boxes.draw_on(canvas_rgb)
-            if 'disparity' in components:
-                disp = components['disparity'].data.numpy().transpose(1, 2, 0)
-                disp_canvs = np.ascontiguousarray(disp.copy())
-                disp_canvs = disp_canvs - disp_canvs.min()
-                disp_canvs = disp_canvs / disp_canvs.max()
-                disp_canvs = boxes.draw_on(disp_canvs)
-                kwplot.imshow(canvas_rgb, pnum=(1, 2, 1), fnum=1)
-                kwplot.imshow(disp_canvs, pnum=(1, 2, 2), fnum=1)
-            else:
-                kwplot.imshow(canvas_rgb, pnum=(1, 1, 1), fnum=1)
-            kwplot.show_if_requested()
+        Example:
+
+            channels = "rgb|disparity,flowx|flowy"
+
+            import sys, ubelt
+            sys.path.append(ubelt.expandpath('~/code/bioharn'))
+            from bioharn.detect_dataset import *  # NOQA
+            key = ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
+            cls = DetectFitDataset
+            self = DetectFitDataset.demo(key, augment='simple', channels='rgb', window_dims=(512, 512))
+
+            import xdev
+            globals().update(**xdev.get_func_kwargs(DetectFitDataset.demo))
+
+
+            loader = self.make_loader(batch_size=4, shuffle=True)
+            batch = ub.peek(loader)
+
+
+        Ignore:
+            >>> from bioharn.detect_dataset import *  # NOQA
+            >>> self = DetectFitDataset.demo('vidshapes8', augment='complex', channels='rgb|disparity,flowx|flowy')
+            >>> index = 1
+            >>> #
+            >>> self.disable_augmenter = False
+            >>> item = self[index]
+            >>> # xdoc: +REQUIRES(--show)
+            >>> import kwplot
+            >>> kwplot.figure(doclf=True, fnum=1)
+            >>> kwplot.autompl()  # xdoc: +SKIP
+            >>> components = self.channels.decode(item['inputs'], axis=0)
+            >>> rgb01 = components['rgb'].data.numpy().transpose(1, 2, 0)
+            >>> boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
+            >>> canvas_rgb = np.ascontiguousarray(kwimage.ensure_uint255(rgb01))
+            >>> canvas_rgb = boxes.draw_on(canvas_rgb)
+            >>> pnum_ = kwplot.PlotNums(nSubplots=len(components))
+            >>> kwplot.imshow(canvas_rgb, pnum=pnum_(), fnum=1, title='rgb')
+            >>> for aux_key, aux_im in ub.dict_diff(components, {'rgb'}).items():
+            >>>     aux_canvs = kwimage.normalize(aux_im.data.numpy().transpose(1, 2, 0))
+            >>>     aux_canvs = boxes.draw_on(aux_canvs)
+            >>>     kwplot.imshow(aux_canvs, pnum=pnum_(), fnum=1, title=aux_key)
+            >>> kwplot.show_if_requested()
         """
         import ndsampler
-        if key == 'habcam':
-            # fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
-            fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json')
-            dset = ndsampler.CocoDataset(fpath)
+        from os.path import exists
+
+        channels = ChannelSpec.coerce(channels)
+        if exists(key):
+            import kwcoco
+            dset = kwcoco.CocoDataset(key)
             from bioharn.detect_fit import DetectFitConfig
             config = DetectFitConfig()
             sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
         else:
-            sampler = ndsampler.CocoSampler.demo(key, aux='disparity', **kw)
+            aux = list(channels.difference(ChannelSpec.coerce('rgb')).keys())
+            sampler = ndsampler.CocoSampler.demo(key, aux=aux, **kw)
+
         self = cls(sampler, augment=augment, window_dims=window_dims, channels=channels)
         return self
 
@@ -185,7 +226,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
         Example:
             >>> # DISABLE_DOCTSET
             >>> from bioharn.detect_dataset import *  # NOQA
-            >>> torch_dset = self = DetectFitDataset.demo(key='shapes8', augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
+            >>> torch_dset = self = DetectFitDataset.demo(
+            >>>     key='vidshapes32', channels="rgb|disparity,flowx|flowy",
+            >>>     augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
             >>> index = 1
             >>> spec = {'index': index, 'input_dims': (120, 120)}
             >>> item = self[spec]
@@ -208,7 +251,10 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         Ignore:
             >>> from bioharn.detect_dataset import *  # NOQA
-            >>> self = DetectFitDataset.demo(key='habcam', augment='complex')
+            >>> fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
+            >>> fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json')
+            >>> fpath = ub.expandpath('$HOME/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json')
+            >>> self = DetectFitDataset.demo(key=fpath, augment='complex', channels='rgb|disparity')
             >>> spec = {'index': 954, 'input_dims': (300, 300)}
             >>> item = self[spec]
             >>> hwc01 = item['inputs']['rgb'].data.numpy().transpose(1, 2, 0)
@@ -267,40 +313,23 @@ class DetectFitDataset(torch.utils.data.Dataset):
         # after.
         pad = int((slices[0].stop - slices[0].start) * 0.3)
 
-        img = self.sampler.dset.imgs[gid]
-
-        disp_im = None
+        aux_components = None
         _debug('self.channels = {!r}'.format(self.channels))
-        if 'disparity' in self.channels:
 
+        if self.want_aux:
             sampler = self.sampler
-            # First check if the dataset defines a proper disparity channel
-            if 'auxillary' in img:
-                img['auxiliary'] = img['auxillary']  # Hack
-            if 'auxiliary' in img:
-                from ndsampler.utils import util_gdal
-                disp_fpath = sampler.dset.get_auxillary_fpath(gid, 'disparity')
-                disp_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
-                data_dims = disp_frame.shape[0:2]
-                data_slice, extra_padding, st_dims = self.sampler._rectify_tr(
-                    tr, data_dims, window_dims=None, pad=pad)
-                # Load the image data
-                disp_im = disp_frame[data_slice]
-                if extra_padding:
-                    if disp_im.ndim != len(extra_padding):
-                        extra_padding = extra_padding + [(0, 0)]  # Handle channels
-                    disp_im = np.pad(disp_im, extra_padding, **{'mode': 'constant'})
-
-                # if disp_im.max() > 1.0:
-                #     raise AssertionError('gid={} {}'.format(gid, ub.repr2(kwarray.stats_dict(disp_im))))
-
-            if disp_im is None:
+            want_aux = self.want_aux
+            aux_components = load_sample_auxiliary(
+                sampler, tr, want_aux, pad=pad)
+            # if disp_im.max() > 1.0:
+            #     raise AssertionError('gid={} {}'.format(gid, ub.repr2(kwarray.stats_dict(disp_im))))
+            if not aux_components:
+                # disp_im = np.zeros()
                 raise Exception('no auxiliary disparity')
-                disp_im = np.zeros()
 
+        _debug('self.with_mask = {!r}'.format(self.with_mask))
         with_annots = ['boxes']
-        _debug('self.use_segmentation = {!r}'.format(self.use_segmentation))
-        if self.use_segmentation:
+        if self.with_mask:
             with_annots += ['segmentation']
 
         # NOTE: using the gdal backend samples HABCAM images in 16ms, and no
@@ -328,17 +357,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 if catname.lower() not in self.classes_of_interest:
                     weights[idx] = 0
 
-        # TODO: remove anything marked as "negative"
-        HACK_SSEG = False
-        if HACK_SSEG:
-            if img.get('source', '') in ['habcam_2015_stereo', 'habcam_stereo']:
-                ssegs = []
-                for xy, w in zip(boxes.xy_center, boxes.width):
-                    r = w / 2.0
-                    circle = kwimage.Polygon.circle(xy, r)
-                    ssegs.append(circle)
-                ssegs = kwimage.PolygonList(ssegs)
-
         classes = self.sampler.classes
         dets = kwimage.Detections(
             boxes=boxes,
@@ -352,8 +370,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         if self.augmenter and not self.disable_augmenter:
             _debug('augment')
-            imdata, dets, disp_im = self.augmenter.augment_data(
-                imdata, dets, disp_im)
+            imdata, dets, aux_components = self.augmenter.augment_data(
+                imdata, dets, aux_components)
             # disp_im.dtype
 
         _debug('un-pad')
@@ -363,8 +381,9 @@ class DetectFitDataset(torch.utils.data.Dataset):
             y_sl, x_sl = [slice(d_pad, d - d_pad) for d, d_pad in
                           zip(imdata.shape[0:2], pad)]
             imdata = imdata[y_sl, x_sl]
-            if disp_im is not None:
-                disp_im = disp_im[y_sl, x_sl]
+            if aux_components is not None:
+                for auxkey, aux_im in aux_components.items():
+                    aux_components[auxkey] = aux_im[y_sl, x_sl]
             dets = dets.translate([-x_sl.start, -y_sl.start])
 
         # Ignore any box that is cutoff.
@@ -384,13 +403,13 @@ class DetectFitDataset(torch.utils.data.Dataset):
         prelb_dims = imdata.shape[0:2]
         imdata = self.letterbox.augment_image(imdata)
         postlb_dims = imdata.shape[0:2]
-        if disp_im is not None:
-            # note: the letterbox augment doesn't handle floats wello
+        if aux_components is not None:
+            # note: the letterbox augment doesn't handle floats well
             # use the kwimage.imresize instead
-            # disp_im = self.letterbox.augment_image(disp_im)
-            disp_im = kwimage.imresize(
-                disp_im, dsize=self.letterbox.target_size,
-                letterbox=True).clip(0, 1)
+            for auxkey, aux_im in aux_components.items():
+                aux_components[auxkey] = kwimage.imresize(
+                    aux_im, dsize=self.letterbox.target_size,
+                    letterbox=True).clip(0, 1)
         if len(dets):
             _debug('warp')
             dets = dets.warp(self.letterbox,
@@ -435,7 +454,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     sly = slice(int(tl_y), int(br_y))
                     chw01[:, sly, slx] = 0
 
-        if 'segmentations' in dets.data and self.use_segmentation:
+        if 'segmentations' in dets.data and self.with_mask:
             # Convert segmentations to masks
             has_mask_list = []
             class_mask_list = []
@@ -448,7 +467,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     class_mask_list.append(mask_tensor[None, :])
                     has_mask_list.append(1)
                 else:
-                    bad_mask = torch.empty((h, w), dtype=torch.uint8)
+                    bad_mask = torch.empty((1, h, w), dtype=torch.uint8)
+                    bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
                     class_mask_list.append(bad_mask)
                     has_mask_list.append(-1)
 
@@ -460,19 +480,20 @@ class DetectFitDataset(torch.utils.data.Dataset):
             label['class_masks'] = ItemContainer(class_masks, stack=False)
             label['has_mask'] = ItemContainer(has_mask, stack=False)
 
-        compoments = {
+        components = {
             'rgb': chw01,
         }
-        _debug('compoments = {!r}'.format(compoments))
-        _debug('disp_im = {!r}'.format(disp_im))
-        if disp_im is not None:
-            disp_im = kwarray.atleast_nd(disp_im, 3)
-            compoments['disparity'] = torch.FloatTensor(
-                disp_im.transpose(2, 0, 1))
+        if aux_components is not None:
+            for auxkey, aux_im in aux_components.items():
+                aux_im = kwarray.atleast_nd(aux_im, 3)
+                components[auxkey] = torch.FloatTensor(
+                    aux_im.transpose(2, 0, 1))
+        _debug('components = {!r}'.format(components))
+        _debug('aux_components = {!r}'.format(aux_components))
 
         inputs = {
             k: ItemContainer(v, stack=True)
-            for k, v in self.channels.encode(compoments).items()
+            for k, v in self.channels.encode(components).items()
         }
         _debug('inputs = {!r}'.format(inputs))
 
@@ -506,14 +527,47 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>>     shapes.add(inputs.data[0].shape[-1])
             >>>     if len(shapes) > 1:
             >>>         break
+
+        Example:
+            >>> from bioharn.detect_dataset import *  # NOQA
+            >>> import pytest
+            >>> self = DetectFitDataset.demo('shapes8')
+            >>> with pytest.raises(IndexError):
+            >>>     loader = self.make_loader(batch_size=3, num_batches=1000, shuffle=True)
         """
-        # dataset = self
-        assert len(self) > 0, 'must have some data'
-        if shuffle:
-            sampler = RandomSampler(self, num_samples=(
-                None if num_batches == 'auto' else num_batches * batch_size))
-        else:
-            sampler = torch_sampler.SequentialSampler(self)
+        if len(self) == 0:
+            raise ValueError('must have some data')
+
+        if balance != 'tfidf':
+            # The case where where replacement is not allowed
+            if num_batches == 'auto':
+                num_samples = None
+            else:
+                num_samples = num_batches * batch_size
+
+            if shuffle:
+                from netharn.data.batch_samplers import PatchedRandomSampler
+                item_sampler = PatchedRandomSampler(self, num_samples=num_samples)
+            else:
+                if num_samples is None:
+                    item_sampler = torch.utils.data.sampler.SequentialSampler(self)
+                else:
+                    from netharn.data.batch_samplers import SubsetSampler
+                    stats_idxs = (np.arange(num_samples) % len(self))
+                    item_sampler = SubsetSampler(stats_idxs)
+
+            if num_samples is not None:
+                # If num_batches is too big, what should the behavior be?
+                #   1. Sample with replacement to achieve the requested num_batches
+                #   2. Clip num_batches so it can't exceed (num_items // batch_size)
+                # ✓ 3. Error
+                # We could implement other strategies via configuration options if needed
+                if num_samples > len(self):
+                    raise IndexError(
+                        'num_batches={} and batch_size={} causes '
+                        'num_samples={} to be greater than the number '
+                        'of data items {}. Try setting num_batches=auto?'.format(
+                            num_batches, batch_size, num_samples, len(self)))
 
         if balance == 'tfidf':
             if not shuffle:
@@ -547,11 +601,15 @@ class DetectFitDataset(torch.utils.data.Dataset):
             batch_sampler._balance_report()
         elif multiscale:
             batch_sampler = MultiScaleBatchSampler2(
-                sampler, batch_size=batch_size, drop_last=drop_last,
+                item_sampler, batch_size=batch_size, drop_last=drop_last,
                 factor=32, scales=[-9, 1])
         else:
-            batch_sampler = torch.utils.data.BatchSampler(
-                sampler, batch_size=batch_size, drop_last=drop_last)
+            # batch_sampler = torch.utils.data.BatchSampler(
+            #     item_sampler, batch_size=batch_size, drop_last=drop_last)
+            from netharn.data.batch_samplers import PatchedBatchSampler
+            batch_sampler = PatchedBatchSampler(
+                item_sampler, batch_size=batch_size, drop_last=drop_last,
+                num_batches=num_batches)
 
         if ub.WIN32:
             # Hack for win32 because of pickle loading issues with local vars
@@ -581,7 +639,78 @@ class DetectFitDataset(torch.utils.data.Dataset):
         return loader
 
 
-class RandomSampler(torch_sampler.RandomSampler):
+def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
+    """
+    Prototype for auxiliary channel loading that should eventually be merged
+    into ndsampler itself.
+
+    Args:
+        sampler (CocoSampler):
+        tr (Dict): spatial localization of the target region
+        want_aux (List[str]): list of desired raw channels to load
+        pad (int): padding
+
+    TODO:
+        - [ ] Handle case when auxiliary data is not aligned with the main data
+        - [ ] Don't rely on the auxiliary data being in COG format.
+        - [ ] Improve efficiency when all components of a disk-fused stream
+              are present.
+        - [ ] Improve efficiency of creating the disk_fusion channel spec
+
+    Example:
+        >>> # xdoctest: +REQUIRES(module:gdal)
+        >>> import ndsampler
+        >>> from netharn.data.channel_spec import ChannelSpec
+        >>> want_aux = ChannelSpec.coerce('disparity,flowx|flowy').unique()
+        >>> sampler = ndsampler.CocoSampler.demo('vidshapes8-aux')
+        >>> pad = 0
+        >>> tr = {'gid': 1, 'cx': 10, 'cy': 10, 'width': 5, 'height': 5}
+        >>> aux_components = load_sample_auxiliary(sampler, tr, want_aux)
+        >>> print(ub.map_vals(lambda x: x.shape, aux_components))
+    """
+    gid = tr['gid']
+    img = sampler.dset.imgs[gid]
+
+    from ndsampler.utils import util_gdal
+    if 'auxillary' in img:
+        img['auxiliary'] = img['auxillary']  # Hack
+
+    if 'auxiliary' not in img:
+        raise ValueError('Image does not have auxiliary information')
+
+    disk_fusion = ChannelSpec(','.join([a['channels'] for a in img['auxiliary']]))
+    component_indices = disk_fusion.component_indices(axis=0)
+    component_indices = ub.dict_isect(component_indices, want_aux)
+    aux_components = {}
+    for part, (key, subindex) in component_indices.items():
+        # TODO: The channels may be fused on disk different than we would
+        # like them to be fused in the network. We need a way of rectifying
+        # available channels with requested channels.
+
+        # First check if the dataset defines a proper disparity channel
+        disp_fpath = sampler.dset.get_auxiliary_fpath(gid, key)
+
+        aux_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
+        data_dims = aux_frame.shape[0:2]
+        data_slice, extra_padding, st_dims = sampler._rectify_tr(
+            tr, data_dims, window_dims=None, pad=pad)
+
+        if part != key:
+            # disk input is prefused, need to separate it out
+            data_slice = data_slice + tuple(subindex)
+
+        # Load the image data
+        aux_im = aux_frame[data_slice]
+        if extra_padding:
+            if aux_im.ndim != len(extra_padding):
+                extra_padding = extra_padding + [(0, 0)]  # Handle channels
+            aux_im = np.pad(aux_im, extra_padding, **{'mode': 'constant'})
+        aux_components[part] = aux_im
+
+    return aux_components
+
+
+class RandomSampler(torch.utils.data.sampler.RandomSampler):
     r"""
     Extends torch RandomSampler allow num_samples when replacement=False
 
@@ -622,7 +751,7 @@ def reseed_(auger, rng):
         return auger.reseed(rng)
 
 
-class MultiScaleBatchSampler2(torch_sampler.BatchSampler):
+class MultiScaleBatchSampler2(torch.utils.data.sampler.BatchSampler):
     """
     Indicies returned in the batch are tuples indicating data index and scale
     index. Requires that dataset has a `multi_scale_inp_size` attribute.
@@ -645,9 +774,9 @@ class MultiScaleBatchSampler2(torch_sampler.BatchSampler):
         >>>         return 1000
         >>> batch_size = 16
         >>> data_source = DummyDatset()
-        >>> sampler = sampler1 = torch_sampler.RandomSampler(data_source)
+        >>> sampler = sampler1 = torch.utils.data.sampler.RandomSampler(data_source)
         >>> self = rand = MultiScaleBatchSampler2(sampler1, resample_freq=10)
-        >>> sampler2 = torch_sampler.SequentialSampler(data_source)
+        >>> sampler2 = torch.utils.data.sampler.SequentialSampler(data_source)
         >>> seq = MultiScaleBatchSampler2(sampler2, resample_freq=None)
         >>> rand_idxs = list(iter(rand))
         >>> seq_idxs = list(iter(seq))
@@ -840,6 +969,7 @@ def preselect_regions(sampler, window_overlap, window_dims,
         if img.get('source', '') == 'habcam_2015_stereo':
             # Hack: todo, cannoncial way to get this effect
             full_dims = [img['height'], img['width'] // 2]
+            # raise AssertionError('We should not do this hack anymore')
         else:
             full_dims = [img['height'], img['width']]
 
@@ -1225,7 +1355,7 @@ class DetectionAugmentor(object):
             if auger is not None:
                 reseed_(auger, rng)
 
-    def augment_data(self, imdata, dets, disp_im=None):
+    def augment_data(self, imdata, dets, aux_components=None):
         """
         Ignore:
             self = DetectionAugmentor(mode='heavy')
@@ -1234,12 +1364,12 @@ class DetectionAugmentor(object):
             dets = kwimage.Detections.random(segmentations=True, rng=rng).scale(s)
 
             imdata = (rng.rand(s, s, 3) * 255).astype(np.uint8)
-            disp_im = rng.rand(s, s).astype(np.float32).clip(0, 1)
+            aux_components = {'disparity': rng.rand(s, s).astype(np.float32).clip(0, 1)}
 
             import kwplot
             kwplot.imshow(imdata, fnum=1, pnum=(2, 2, 1), doclf=True)
             dets.draw()
-            kwplot.imshow(disp_im, fnum=1, pnum=(2, 2, 2))
+            kwplot.imshow(aux_components['disparity'], fnum=1, pnum=(2, 2, 2))
             dets.draw()
 
             imdata1, dets1, disp_im1 = self.augment_data(imdata, dets, disp_im)
@@ -1263,15 +1393,16 @@ class DetectionAugmentor(object):
         _debug('aug rgb')
         imdata = rgb_im_aug_det.augment_image(imdata)
 
-        _debug('disp_im = {!r}'.format(disp_im))
-        if disp_im is not None:
-            # _debug(kwarray.stats_dict(disp_im))
-            disp_im = kwimage.ensure_uint255(disp_im)
-            disp_im = disp_im_aug_det.augment_image(disp_im)
-            disp_im = geom_aug_det.augment_image(disp_im)
-            disp_im = disp_im_aug_det.augment_image(disp_im)
-            disp_im = kwimage.ensure_float01(disp_im)
-            # _debug(kwarray.stats_dict(disp_im))
+        if aux_components:
+            for key, aux_im in aux_components.items():
+                # _debug(kwarray.stats_dict(disp_im))
+                aux_im = kwimage.ensure_uint255(aux_im)
+                aux_im = disp_im_aug_det.augment_image(aux_im)
+                aux_im = geom_aug_det.augment_image(aux_im)
+                aux_im = disp_im_aug_det.augment_image(aux_im)
+                aux_im = kwimage.ensure_float01(aux_im)
+                # _debug(kwarray.stats_dict(aux_im))
+                aux_components[key] = aux_im
 
         output_dims = imdata.shape[0:2]
 
@@ -1280,4 +1411,4 @@ class DetectionAugmentor(object):
             dets = dets.warp(geom_aug_det, input_dims=input_dims,
                              output_dims=output_dims)
 
-        return imdata, dets, disp_im
+        return imdata, dets, aux_components

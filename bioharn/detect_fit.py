@@ -17,7 +17,9 @@ import scriptconfig as scfg
 class DetectFitConfig(scfg.Config):
     default = {
         # Personal Preference
-        'nice': scfg.Value(
+        'nice': scfg.Value(None, help=('deprecated use name instead')),
+
+        'name': scfg.Value(
             'untitled',
             help=('a human readable tag for your experiment (we also keep a '
                   'failsafe computer readable tag in case you update hyperparams, '
@@ -39,17 +41,37 @@ class DetectFitConfig(scfg.Config):
         # Dataset options
         'multiscale': False,
         # 'visible_thresh': scfg.Value(0.5, help='percentage of a box that must be visible to be included in truth'),
-        'input_dims': scfg.Value('window', help='size of input to the system '),
-        'window_dims': scfg.Value((512, 512), help='size of window to place over the dataset'),
-        'window_overlap': scfg.Value(0.0, help='amount of overlap in the sliding windows'),
-        'normalize_inputs': scfg.Value(False, help='if True, precompute training mean and std for data whitening'),
+        'input_dims': scfg.Value('window', help=ub.paragraph(
+            '''
+            After a window is sample, it is resized to this shape (using
+            letterboxing to maintain aspect ratio). This is the size of input
+            to the system, so if your network needs 224x224 pixel input, then
+            this is the place to set it. By default the window size is
+            unchanged.
+            ''')),
+        'window_dims': scfg.Value((512, 512), help=ub.paragraph(
+            '''
+            Size of window to place over the dataset.
+            ''')),
+        'window_overlap': scfg.Value(0.0, help=ub.paragraph(
+            '''
+            Amount of overlap in the sliding windows. This is given as a
+            fraction between 0 and 1.
+            ''')),
+        'normalize_inputs': scfg.Value('imagenet', help=ub.paragraph(
+            '''
+            Specification for the mean and std for data whitening.
 
+            If True, precompute using 1000 unaugmented training images.
+            If an integer, use that many unaugmented training images.
+            If 'imagenet' use standard mean/std values (default).
+            ''')),
         # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['medium', 'simple']),
         'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'low', 'simple', 'complex', None]),
         'gravity': scfg.Value(0.0, help='how often to assume gravity vector for augmentation'),
         'balance': scfg.Value(None),
 
-        'channels': scfg.Value('rgb', help='special channel code. See ChannelSpec'),
+        'channels': scfg.Value('rgb', type=str, help='special channel code. See ChannelSpec'),
 
         'ovthresh': 0.5,
 
@@ -59,9 +81,13 @@ class DetectFitConfig(scfg.Config):
             # choices=['yolo2']
         ),
 
+        'with_mask': scfg.Value(True, help='enables / disables mask heads for mask-detection models'),
+
         'optim': scfg.Value('sgd', help='torch optimizer, sgd, adam, adamw, etc...'),
         'batch_size': scfg.Value(4, help='number of images that run through the network at a time'),
-        'num_batches': scfg.Value('auto', help='number of batches per epoch'),
+
+        'num_batches': scfg.Value('auto', help='Number of batches per epoch (mainly for balanced batch sampling)'),
+        'num_vali_batches': scfg.Value('auto', help='number of val batches per epoch'),
 
         'bstep': scfg.Value(8, help='num batches before stepping'),
         'lr': scfg.Value(1e-3, help='learning rate'),  # 1e-4,
@@ -100,11 +126,34 @@ class DetectFitConfig(scfg.Config):
         'collapse_classes': scfg.Value(False, help='force one-class detector'),
 
         'ensure_background_class': scfg.Value(False, help='ensure a background category exists'),
-        'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
-        'test_on_finish': False,
+        'test_on_finish': True,
+        'vali_intervals': 1,
+
+        'timeout': scfg.Value(
+            float('inf'), help='maximum number of seconds to wait for training'),
+
+        'allow_unicode': scfg.Value(not ub.WIN32, help=(
+            'allow for unicode characters in messages, otherwise '
+            ' we approximate them with ascii')),
+
+        'eager_dump_tensorboard': scfg.Value(True, help=(
+            'If True, logs tensorboard within inner iteration '
+            '(experimental). No effect if dump_tensorboard is True')
+        ),
+
+        'dump_tensorboard': scfg.Value(True, help=(
+            'If True, tensorboard information is visualized with '
+            'matplotlib and dumped as an image',
+        )),
+
     }
 
     def normalize(self):
+        if self['nice'] is not None:
+            import warnings
+            warnings.warn('Using "nice" is deprecated use "name" instead', DeprecationWarning)
+            self['name'] = self['nice']
+
         if self['pretrained'] in ['null', 'None']:
             self['pretrained'] = None
 
@@ -191,8 +240,13 @@ class DetectHarn(nh.FitHarn):
 
             >>> from bioharn.detect_fit import *  # NOQA
             >>> harn = setup_harn(bsize=2, datasets='special:shapes256',
-            >>>     arch='yolo2', init='lightnet', xpu=0, channels='rgb',
-            >>>     workers=0, normalize_inputs=False, sampler_backend=None)
+            >>>     arch='MM_HRNetV2_w18_MaskRCNN', xpu='auto',
+            >>>     workers=0, normalize_inputs='imagenet', sampler_backend=None)
+            >>> harn.initialize()
+            >>> batch = harn._demo_batch(1, 'vali')
+            >>> del batch['label']['has_mask']
+            >>> del batch['label']['class_masks']
+            >>> outputs, loss = harn.run_batch(batch)
 
         Example:
             >>> # DISABLE_DOCTSET
@@ -211,21 +265,24 @@ class DetectHarn(nh.FitHarn):
         harn._hack_do_draw = (harn.batch_index < harn.script_config['num_draw'])
         harn._hack_do_draw |= ((harn._draw_timer.toc() > 60 * harn.script_config['draw_interval']) and
                                (harn.script_config['draw_interval'] > 0))
+
+        return_result = False
         return_result = harn._hack_do_draw
 
         if getattr(harn.raw_model, '__BUILTIN_CRITERION__', False):
-            try:
-                # hack for mmdet
-                harn.raw_model.detector.test_cfg['score_thr'] = 0.0
-            except AttributeError:
-                pass
+            # try:
+            #     # hack for mmdet
+            #     harn.raw_model.detector.test_cfg['score_thr'] = 0.0
+            # except AttributeError:
+            #     pass
 
             batch = batch.copy()
-            batch.pop('tr')
+            batch.pop('tr', None)
             from netharn.data.data_containers import BatchContainer
 
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', 'indexing with dtype')
+                warnings.filterwarnings('ignore', 'Default upsampling behavior')
                 # warnings.filterwarnings('ignore', 'asked to gather along dimension 0')
                 outputs = harn.model.forward(batch, return_loss=True,
                                              return_result=return_result)
@@ -328,18 +385,19 @@ class DetectHarn(nh.FitHarn):
             >>> from bioharn.detect_fit import *  # NOQA
             >>> #harn = setup_harn(bsize=1, datasets='special:voc', pretrained='lightnet')
             >>> harn = setup_harn(
-            >>>     nice='overfit_test', batch_size=1,
+            >>>     name='overfit_test', batch_size=8,
             >>>     # datasets='special:voc',
-            >>>     datasets='special:shapes8',
+            >>>     train_dataset='special:vidshapes8',
+            >>>     # train_dataset=ub.expandpath('$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_dummy_sseg.mscoco.json'),
             >>>     gravity=1, augment=None,
             >>>     #arch='yolo2', pretrained='lightnet', lr=3e-5, normalize_inputs=False, anchors='lightnet', ensure_background_class=0, seen_thresh=110,
-            >>>     arch='efficientdet', init='noop', lr=1e-4, normalize_inputs=True,
+            >>>     arch='MM_HRNetV2_w18_MaskRCNN', init='noop', lr=1e-4, normalize_inputs='imagenet',
             >>>     #arch='retinanet', init='noop', normalize_inputs=True, lr=1e-3,
             >>>     #arch='cascade', init='noop', normalize_inputs=True, lr=1e-3,
             >>>     channels='rgb',
             >>>     sampler_backend=None)
             >>> harn.initialize()
-            >>> batch = harn._demo_batch(0, 'vali')
+            >>> batch = harn._demo_batch(1, 'train')
             >>> import kwplot
             >>> kwplot.autompl()  # xdoc: +SKIP
             >>> harn.overfit(batch, interactive=True)
@@ -452,7 +510,15 @@ class DetectHarn(nh.FitHarn):
 
         channels = harn.raw_model.channels
         components = channels.decode(inputs)
-        rgb_batch = torch.cat(components['rgb'].data, dim=0)
+
+        def _ensure_unpacked(item):
+            if isinstance(item, torch.Tensor):
+                item = item
+            else:
+                item = item.pack()
+            return item
+
+        rgb_batch = _ensure_unpacked(components['rgb'])
 
         labels = {
             k: v.data for k, v in batch['label'].items()
@@ -463,7 +529,7 @@ class DetectHarn(nh.FitHarn):
 
         if 'disparity' in components:
             batch_disparity = kwarray.ArrayAPI.numpy(
-                torch.cat(components['disparity'].data, dim=0))
+                _ensure_unpacked(components['disparity']))
         else:
             batch_disparity = None
 
@@ -502,11 +568,14 @@ class DetectHarn(nh.FitHarn):
             if 'class_masks' in labels:
                 # Add in truth segmentation masks
                 try:
-                    masks = list(ub.flatten(labels['class_masks']))
-                    item_masks = masks[idx]
+                    item_masks = list(ub.flatten(labels['class_masks']))[idx]
+                    item_flags = list(ub.flatten(labels['has_mask']))[idx]
                     ssegs = []
-                    for mask in item_masks:
-                        ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
+                    for flag, mask in zip(item_flags, item_masks):
+                        if flag > 0:
+                            ssegs.append(kwimage.Mask(mask.numpy(), 'c_mask'))
+                        else:
+                            ssegs.append(None)
                     true_dets.data['segmentations'] = kwimage.MaskList(ssegs)
                 except Exception as ex:
                     harn.warn('issue building sseg viz due to {!r}'.format(ex))
@@ -536,7 +605,9 @@ class DetectHarn(nh.FitHarn):
                 canvas = true_dets.draw_on(canvas, color='green')
                 canvas = pred_dets.draw_on(canvas, color='blue')
             except Exception as ex:
-                harn.warn('ex = {!r}'.format(ex))
+                import xdev
+                xdev.embed()
+                harn.warn('In draw_batch ex = {!r}'.format(ex))
                 canvas = kwimage.draw_text_on_image(
                     canvas, 'drawing-error', org=(0, 0), valign='top')
 
@@ -588,7 +659,7 @@ class DetectHarn(nh.FitHarn):
             python -m netharn.data.grab_voc
 
             python -m bioharn.detect_fit \
-                --nice=bioharn_shape_example \
+                --name=bioharn_shape_example \
                 --datasets=special:shapes1024 \
                 --schedule=step-60-80 \
                 --augment=simple \
@@ -610,7 +681,8 @@ class DetectHarn(nh.FitHarn):
         if harn.script_config['test_on_finish']:
             eval_dataset = harn.datasets.get('test', None)
             if eval_dataset is None:
-                harn.warn('No test dataset to evaluate')
+                harn.warn('No test dataset to evaluate, trying vali')
+                eval_dataset = harn.datasets.get('vali', None)
 
             if eval_dataset is None:
                 harn.warn('No evaluation dataset')
@@ -633,7 +705,7 @@ class DetectHarn(nh.FitHarn):
                     'deployed': deployed,
 
                     # fixme: should be able to pass the dataset as an object
-                    'dataset': harn.datasets['test'].sampler.dset.fpath,
+                    'dataset': eval_dataset.sampler.dset.fpath,
 
                     'input_dims': harn.script_config['input_dims'],
                     'window_dims': harn.script_config['window_dims'],
@@ -668,6 +740,7 @@ def setup_harn(cmdline=True, **kw):
     import ndsampler
     from ndsampler import coerce_data
     config = DetectFitConfig(default=kw, cmdline=cmdline)
+    print('config = {}'.format(ub.repr2(dict(config), nl=1)))
 
     nh.configure_hacks(config)  # fix opencv bugs
     ub.ensuredir(config['workdir'])
@@ -738,7 +811,7 @@ def setup_harn(cmdline=True, **kw):
         tag: DetectFitDataset(
             sampler,
             classes_of_interest=config['classes_of_interest'],
-            use_segmentation='mask' in config['arch'].lower(),
+            with_mask='mask' in config['arch'].lower() and config['with_mask'],
             input_dims=config['input_dims'],
             window_dims=config['window_dims'],
             window_overlap=config['window_overlap'] if (tag == 'train') else 0.0,
@@ -757,7 +830,8 @@ def setup_harn(cmdline=True, **kw):
     loaders_ = {
         tag: dset.make_loader(
             batch_size=config['batch_size'],
-            num_batches=config['num_batches'] if tag == 'train' else 'auto',
+            # num_batches=config['num_batches'] if tag == 'train' else 'auto',
+            num_batches=config['num_batches'] if tag == 'train' else config['num_vali_batches'],
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
             balance=(tag == 'train' and config['balance']),
@@ -772,19 +846,32 @@ def setup_harn(cmdline=True, **kw):
     channels = ChannelSpec.coerce(config['channels'])
     print('channels = {!r}'.format(channels))
 
-    if config['normalize_inputs']:
+    if config['normalize_inputs'] == 'imagenet':
+        input_stats = {
+            'rgb': {
+                'mean':  torch.Tensor([[[[0.4850]], [[0.4560]], [[0.4060]]]]),
+                'std':  torch.Tensor([[[[0.2290]], [[0.2240]], [[0.2250]]]]),
+            }
+        }
+    elif config['normalize_inputs']:
+        # TODO: this needs to be refactored and abstracted
         # Get stats on the dataset (todo: nice way to disable augmentation temporarilly for this)
         _dset = torch_datasets['train']
-        stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(1000, len(_dset))]
-
+        num = config['normalize_inputs']
+        num = num if isinstance(num, int) and num is not True else 1000
+        stats_idxs = kwarray.shuffle(np.arange(len(_dset)), rng=0)[0:min(num, len(_dset))]
         stats_subset = torch.utils.data.Subset(_dset, stats_idxs)
 
-        cacher = ub.Cacher('dset_mean', cfgstr=_dset.input_id + 'v3')
+        depends = ub.odict([
+            ('input_id', _dset.input_id),
+            ('num', num),
+        ])
+        cfgstr = ub.hash_data(depends)
+        cacher = ub.Cacher('dset_mean', cfgstr=cfgstr + 'v8')
         input_stats = cacher.tryload()
         if input_stats is None:
             # Use parallel workers to load data faster
             from netharn.data.data_containers import container_collate
-            # collate_fn = container_collate
             from functools import partial
             collate_fn = partial(container_collate, num_devices=1)
 
@@ -797,10 +884,9 @@ def setup_harn(cmdline=True, **kw):
                 shuffle=True, batch_size=config['batch_size'])
 
             # Track moving average of each fused channel stream
-            channel_stats = {key: nh.util.RunningStats()
+            channel_stats = {key: kwarray.RunningStats()
                              for key in channels.keys()}
-            assert len(channel_stats) == 1, (
-                'only support one fused stream for now')
+
             for batch in ub.ProgIter(loader, desc='estimate mean/std'):
                 for key, val in batch['inputs'].items():
                     try:
@@ -810,24 +896,23 @@ def setup_harn(cmdline=True, **kw):
                     except ValueError:  # final batch broadcast error
                         pass
 
-            perchan_input_stats = {}
+            input_stats = {}
             for key, running in channel_stats.items():
-                running = ub.peek(channel_stats.values())
-                perchan_stats = running.simple(axis=(1, 2))
-                perchan_input_stats[key] = {
+                perchan_stats = running.summarize(axis=(1, 2))
+                input_stats[key] = {
                     'std': perchan_stats['mean'].round(3),
                     'mean': perchan_stats['std'].round(3),
                 }
 
-            input_stats = ub.peek(perchan_input_stats.values())
             cacher.save(input_stats)
-
             _dset.disable_augmenter = False  # hack
     else:
         input_stats = None
+
     print('input_stats = {!r}'.format(input_stats))
 
-    initializer_ = nh.Initializer.coerce(config, leftover='kaiming_normal')
+    initializer_ = nh.Initializer.coerce(
+        config, leftover='kaiming_normal', association='embedding')
     print('initializer_ = {!r}'.format(initializer_))
 
     arch = config['arch']
@@ -856,8 +941,22 @@ def setup_harn(cmdline=True, **kw):
             model._init_backbone_from_pretrained('torchvision://resnet50')
         elif config['backbone_init'] is not None:
             model._init_backbone_from_pretrained(config['backbone_init'])
+    elif arch == 'MM_HRNetV2_w18_MaskRCNN':
+        from bioharn.models import new_models_v1
+        initkw = dict(
+            classes=classes,
+            channels=config['channels'],
+            input_stats=input_stats,
+            with_mask=config['with_mask'],
+        )
+        model = new_models_v1.MM_HRNetV2_w18_MaskRCNN(**initkw)
+        model._initkw = initkw
+        if config['backbone_init'] == 'url':
+            model._init_backbone_from_pretrained(model.pretrained_url)
+        elif config['backbone_init'] is not None:
+            model._init_backbone_from_pretrained(config['backbone_init'])
     elif arch == 'maskrcnn':
-        from xviewharn.models import mm_models
+        from bioharn.models import mm_models
         initkw = dict(
             classes=classes,
             channels=config['channels'],
@@ -945,7 +1044,7 @@ def setup_harn(cmdline=True, **kw):
     import sys
 
     hyper = nh.HyperParams(**{
-        'name': config['nice'],
+        'name': config['name'],
         'workdir': config['workdir'],
 
         'datasets': torch_datasets,
@@ -978,7 +1077,7 @@ def setup_harn(cmdline=True, **kw):
             # extra params specific to your algorithm, and still have them
             # logged in the hyperparam structure. For YOLO this is `ovthresh`.
             'batch_size': config['batch_size'],
-            'nice': config['nice'],
+            'name': config['name'],
             'ovthresh': config['ovthresh'],  # used in mAP computation
         },
         'extra': {
@@ -995,19 +1094,19 @@ def setup_harn(cmdline=True, **kw):
         'export_modules': ['bioharn'],  # TODO
         'prog_backend': 'progiter',  # alternative: 'tqdm'
         'keyboard_debug': False,
-        'eager_dump_tensorboard': True,
         'deploy_after_error': True,
         'timeout': config['timeout'],
-        'allow_unicode': not ub.WIN32,
+
+        'allow_unicode': config['allow_unicode'],
+        'eager_dump_tensorboard': config['eager_dump_tensorboard'],
+        'dump_tensorboard': config['dump_tensorboard'],
     })
     harn.intervals.update({
         'log_iter_train': 1000,
         'test': 0,
+        'vali': config['vali_intervals'],
     })
     harn.script_config = config
-
-    if ub.WIN32:
-        ub.util_colors.NO_COLOR = True
 
     print('harn = {!r}'.format(harn))
     print('samplers = {!r}'.format(samplers))
@@ -1052,15 +1151,8 @@ if __name__ == '__main__':
     """
 
     CommandLine:
-        # Uses defaults with demo data
-        python ~/code/netharn/examples/object_detection.py
-
-        python ~/code/netharn/examples/grab_voc.py
-
-        python ~/code/netharn/examples/object_detection.py --datasets=special:voc
-
         python -m bioharn.detect_fit \
-            --nice=bioharn_shapes_example \
+            --name=bioharn_shapes_example \
             --datasets=special:shapes256 \
             --schedule=step-10-30 \
             --augment=complex \
@@ -1070,700 +1162,68 @@ if __name__ == '__main__':
             --input_dims=window \
             --window_dims=128,128 \
             --window_overlap=0.0 \
-            --normalize_inputs=True \
+            --normalize_inputs=imagenet \
             --workers=4 --xpu=0 --batch_size=8 --bstep=1 \
-            --sampler_backend=cog
+            --sampler_backend=None
+
+        kwcoco toydata --key vidshapes32-aux --dst auxtrain.json
+        kwcoco toydata --key vidshapes8-aux --dst auxvali.json
 
         python -m bioharn.detect_fit \
-            --nice=bioharn_shapes_example3 \
-            --train_dataset=special:shapes2048 \
-            --vali_dataset=special:shapes128 \
+            --name=bioharn_shapes_example3 \
+            --train_dataset=vidshapes32-aux \
+            --vali_dataset=vidshapes8-aux \
             --augment=simple \
+            "--channels=rgb|disparity,flowx|flowy" \
             --init=noop \
-            --arch=efficientdet \
-            --optim=sgd --lr=1e-3 \
+            --arch=MM_HRNetV2_w18_MaskRCNN \
+            --optim=sgd --lr=1e-8 \
             --schedule=ReduceLROnPlateau-p10-c10 \
             --patience=100 \
-            --max_epochs=500 \
-            --input_dims=window \
+            --input_dims=256,256 \
             --window_dims=512,512 \
             --window_overlap=0.0 \
             --normalize_inputs=True \
-            --workers=4 --xpu=0 --batch_size=2 --bstep=4 \
+            --workers=0 --xpu=0 --batch_size=2 --bstep=4 \
             --sampler_backend=cog \
-            --num_batches=200
-
-        python ~/code/ndsampler/ndsampler/make_demo_coco.py
-
-        python ~/code/bioharn/bioharn/detect_eval.py \
-            --deployed=$HOME/work/bioharn/fit/nice/bioharn_shapes_example/best_snapshot.pt \
-            --dataset=/home/joncrall/.cache/coco-demo/shapes256.mscoco.json
+            --test_on_finish=True \
+            --num_batches=10 \
+            --max_epoch=10
 
         python -m bioharn.detect_fit \
-            --nice=detect-singleclass-cascade-v4 \
-            --workdir=$HOME/work/sealions \
-            --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_train_v3.mscoco.json \
-            --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_vali_v3.mscoco.json \
-            --schedule=ReduceLROnPlateau-p2-c2 \
-            --augment=complex \
-            --init=noop \
-            --arch=cascade \
-            --optim=sgd --lr=1e-2 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=True \
-            --normalize_inputs=True \
-            --min_lr=1e-6 \
-            --workers=4 --xpu=1,0 --batch_size=8 --bstep=1
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgbd-v21 \
-            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
-            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
-            --schedule=step-10-20 \
-            --augment=complex \
-            --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --arch=cascade \
-            --channels="rgb|disparity" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=True \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=0 \
-            --batch_size=4 \
-            --bstep=4
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgbd-v23 \
-            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
-            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
-            --schedule=step-10-20 \
-            --augment=complex \
-            --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --arch=cascade \
-            --channels="rgb|disparity" \
-            --optim=DiffGrad \
-            --lr=2e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=True \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=1 \
-            --batch_size=4 \
-            --bstep=4
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-v22 \
-            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
-            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
-            --schedule=step-10-20 \
-            --augment=complex \
-            --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=True \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=0 \
-            --batch_size=4 \
-            --bstep=4
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-v24 \
-            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
-            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
-            --schedule=step-10-20 \
-            --augment=complex \
-            --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=1024,1024 \
-            --window_overlap=0.0 \
-            --multiscale=True \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=0 \
-            --batch_size=2 \
-            --bstep=8
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgbd-v25 \
-            --train_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_train.mscoco.json \
-            --vali_dataset=$HOME/data/public/Benthic/US_NE_2015_NEFSC_HABCAM/_dev/Habcam_2015_g027250_a00111034_c0016_v3_vali.mscoco.json \
-            --schedule=step-10-20 \
-            --augment=complex \
-            --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --arch=cascade \
-            --channels="rgb|disparity" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=1024,1024 \
-            --window_overlap=0.0 \
-            --multiscale=True \
-            --normalize_inputs=True \
-            --workers=2 \
-            --xpu=1,0 \
-            --batch_size=4 \
-            --bstep=8
-
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-v29-balanced \
-            --train_dataset=/home/joncrall/data/private/_combo_cfarm/cfarm_train.mscoco.json \
-            --vali_dataset=/home/joncrall/data/private/_combo_cfarm/cfarm_vali.mscoco.json \
-            --schedule=step-10-20 \
+            --name=bioharn_shapes_example3 \
+            --train_dataset=vidshapes32-aux \
+            --vali_dataset=vidshapes8-aux \
             --augment=simple \
+            "--channels=rgb|disparity" \
             --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.5 \
-            --multiscale=True \
-            --normalize_inputs=True \
-            --workers=0 \
-            --xpu=1 \
-            --batch_size=4 \
-            --balance=tfidf \
-            --bstep=8
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-v30-bigger-balanced \
-            --train_dataset=$HOME/data/private/_combos/train_cfarm_habcam_v1.mscoco.json \
-            --vali_dataset=$HOME/data/private/_combos/vali_cfarm_habcam_v1.mscoco.json \
-            --schedule=step-10-20 \
-            --augment=complex \
-            --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=0 \
-            --xpu=1 \
-            --batch_size=3 \
-            --balance=tfidf \
-            --bstep=8
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-v31-bigger-balanced \
-            --train_dataset=$HOME/data/private/_combos/train_cfarm_habcam_v2.mscoco.json \
-            --vali_dataset=$HOME/data/private/_combos/vali_cfarm_habcam_v2.mscoco.json \
-            --schedule=step-10-20 \
-            --augment=complex \
-            --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=0 \
-            --xpu=0 \
-            --batch_size=3 \
-            --balance=tfidf \
-            --bstep=8
-
-        python -m bioharn.detect_fit \
-            --nice=detect-sealion-cascade-v6 \
-            --workdir=$HOME/work/sealions \
-            --train_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_train.mscoco.json \
-            --vali_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v6_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p2-c2 \
-            --augment=complex \
-            --init=noop \
-            --arch=cascade \
-            --optim=sgd --lr=1e-2 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.5 \
-            --multiscale=True \
-            --normalize_inputs=True \
-            --min_lr=1e-6 \
-            --workers=4 --xpu=0 --batch_size=8 --bstep=1
-
-        python -m bioharn.detect_fit \
-            --nice=detect-sealion-retina-v10 \
-            --workdir=$HOME/work/sealions \
-            --train_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json \
-            --vali_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p2-c2 \
-            --augment=complex \
-            --init=noop \
-            --arch=retinanet \
-            --optim=sgd --lr=1e-2 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --balance=False \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --min_lr=1e-6 \
-            --workers=4 --xpu=0 --batch_size=22 --bstep=1
-
-        python -m bioharn.detect_fit \
-            --nice=detect-sealion-cascade-v11 \
-            --workdir=$HOME/work/sealions \
-            --train_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json \
-            --vali_dataset=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p2-c2 \
-            --augment=complex \
-            --init=noop \
-            --arch=cascade \
-            --optim=sgd --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --balance=False \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --min_lr=1e-6 \
-            --workers=4 --xpu=0 --batch_size=8 --bstep=1
-
-
-
-    coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_train.mscoco.json
-    coco_stats --src=$HOME/data/US_ALASKA_MML_SEALION/sealions_all_refined_v8_vali.mscoco.json
-
-            --train_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_train.mscoco.json \
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-v35-bigger-balanced \
-            --train_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_train.mscoco.json \
-            --vali_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v5_vali.mscoco.json \
-            --schedule=step-10-20 \
-            --augment=simple \
-            --workdir=/home/joncrall/work/bioharn_vhack \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-4 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=0 \
-            --xpu=1 \
-            --batch_size=3 \
-            --balance=tfidf \
-            --sampler_backend=None \
-            --bstep=8 \
-            --init=noop
-
-        /home/joncrall/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v30-bigger-balanced/deploy.zip
-
-            # --init=noop
-
-    python -m bioharn.detect_fit \
-        --nice=bioharn-det-mc-cascade-rgb-v32-bigger-balanced \
-        --schedule=step-10-20 \
-        --augment=complex \
-        --workdir=/home/joncrall/work/bioharn \
-        --channels="rgb" \
-        --optim=sgd \
-        --lr=1e-3 \
-        --input_dims=window \
-        --window_dims=512,512 \
-        --window_overlap=0.0 \
-        --multiscale=False \
-        --normalize_inputs=True \
-        --workers=0 \
-        --xpu=auto \
-        --batch_size=3 \
-        --balance=tfidf \
-        --sampler_backend=cog \
-        --bstep=8 \
-        --arch=cascade \
-        --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-        --init=noop
-
-    python -m bioharn.detect_fit \
-        --nice=bioharn-det-mc-cascade-rgbd-v36 \
-        --train_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v6_train.mscoco.json \
-        --vali_dataset=/home/joncrall/remote/namek/data/noaa_habcam/combos/habcam_cfarm_v6_vali.mscoco.json \
-        --schedule=step-10-20 \
-        --augment=complex \
-        --workdir=/home/joncrall/work/bioharn \
-        --channels="rgb|disparity" \
-        --optim=sgd \
-        --lr=1e-3 \
-        --input_dims=window \
-        --window_dims=512,512 \
-        --window_overlap=0.0 \
-        --multiscale=False \
-        --normalize_inputs=True \
-        --workers=4 \
-        --xpu=auto \
-        --batch_size=3 \
-        --balance=tfidf \
-        --sampler_backend=cog \
-        --bstep=8 \
-        --arch=cascade \
-        --backbone_init=/home/joncrall/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-        --init=noop
-
-        --init=/home/joncrall/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-v30-bigger-balanced/deploy.zip \
-
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-fine-coi-v40 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_vali.mscoco.json \
-            --schedule=step-10-20 \
-            --augment=complex \
-            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-v31-bigger-balanced/moskmhld/deploy_MM_CascadeRCNN_moskmhld_015_SVBZIV.zip \
-            --workdir=/home/joncrall/work/bioharn \
-            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=0 \
-            --batch_size=6 \
-            --balance=tfidf \
-            --bstep=8
-
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgbd-fine-coi-v41 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v6_vali.mscoco.json \
-            --schedule=step-10-20 \
-            --augment=complex \
-            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/torch_snapshots/_epoch_00000015.pt \
-            --workdir=/home/joncrall/work/bioharn \
-            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
-            --arch=cascade \
-            --channels="rgb|disparity" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=0 \
-            --batch_size=3 \
-            --balance=tfidf \
-            --bstep=8
-
-        ### --- RUN ON FIXED SHIFTED 39 pixel BBOXES
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-fine-coi-v43 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
-            --schedule=step-10-40 \
-            --max_epoch=50 \
-            --augment=complex \
-            --pretrained=$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/torch_snapshots/_epoch_00000017.pt \
-            --workdir=/home/joncrall/work/bioharn \
-            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=auto \
-            --batch_size=4 \
-            --num_batches=600 \
-            --balance=tfidf \
-            --bstep=8
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgbd-fine-coi-v42 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
-            --schedule=step-10-40 \
-            --max_epoch=50 \
-            --augment=complex \
-            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v41/ufkqjjuk/torch_snapshots/_epoch_00000016.pt \
-            --workdir=/home/joncrall/work/bioharn \
-            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
-            --arch=cascade \
-            --channels="rgb|disparity" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=auto \
-            --batch_size=4 \
-            --num_batches=4172 \
-            --balance=tfidf \
-            --bstep=8
-
-        #######
-
-        # --- vali fine tune
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgbd-coi-v42_valitune \
-            --train_dataset=$HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
-            --schedule=step-1-2 \
-            --max_epoch=5 \
-            --patience=20 \
-            --augment=simple \
-            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-fine-coi-v42/nfmnvqwq/torch_snapshots/_epoch_00000027.pt \
-            --workdir=$HOME/work/bioharn \
-            "--classes_of_interest=[live sea scallop,swimming sea scallop,flatfish,clapper]" \
-            --arch=cascade \
-            --channels="rgb|disparity" \
-            --optim=sgd \
-            --lr=5e-4 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=auto \
-            --batch_size=4 \
-            --num_batches=100 \
-            --balance=tfidf \
-            --sampler_backend=None \
-            --bstep=8
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-coi-v43_valitune \
-            --train_dataset=$HOME/remote/viame/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
-            --schedule=step-1-2 \
-            --max_epoch=5 \
-            --patience=20 \
-            --augment=simple \
-            --pretrained=$HOME/remote/viame/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgb-fine-coi-v43/bvbvdplp/torch_snapshots/_epoch_00000006.pt \
-            --workdir=$HOME/work/bioharn \
-            "--classes_of_interest=[live sea scallop,swimming sea scallop,flatfish,clapper]" \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=5e-4 \
-            --input_dims=window \
-            --window_dims=512,512 \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=4 \
-            --xpu=auto \
-            --batch_size=4 \
-            --num_batches=100 \
-            --balance=tfidf \
-            --sampler_backend=None \
-            --bstep=8
-
-            kwcoco union --src $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json --dst $HOME/remote/namek/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_trainval.mscoco.json
-
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-fine-coi-v44 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p4-c2 \
-            --max_epoch=200 \
-            --augment=complex \
-            --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=512,512 \
-            --window_dims=full \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=4 \
-            --num_batches=600 \
-            --balance=tfidf \
-            --bstep=8
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgbd-fine-coi-v45 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/may_priority_habcam_cfarm_v7_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p4-c2 \
-            --max_epoch=200 \
-            --augment=complex \
-            --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            "--classes_of_interest=live sea scallop,swimming sea scallop,flatfish,clapper" \
-            --arch=cascade \
-            --channels="rgb|disparity" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=512,512 \
-            --window_dims=full \
-            --window_overlap=0.0 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=4 \
-            --num_batches=600 \
-            --balance=tfidf \
-            --bstep=8
-
-
-        python -m bioharn.detect_fit \
-            --nice=bioharn-det-mc-cascade-rgb-coi-v46 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=complex \
-            --init=noop \
-            --workdir=/home/joncrall/work/bioharn \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --window_dims=512,512 \
-            --input_dims=window \
-            --window_overlap=0.5 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x4d-a5af3160.pth \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=4 \
-            --num_batches=2000 \
-            --balance=tfidf \
-            --bstep=8
-
-        girder-client --api-url https://data.kitware.com/api/v1 download 5ee6a3ef9014a6d84ec02c36 $HOME/work/bioharn/_cache/checkpoint_VOC_efficientdet-d0_268.pth
-
-        python -m bioharn.detect_fit \
-            --nice=sealion-efficientdet-v1 \
-            --workdir=$HOME/work/sealions \
-            --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7_train.mscoco.json \
-            --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=complex \
-            --pretrained=$HOME/work/bioharn/_cache/checkpoint_VOC_efficientdet-d0_268.pth \
             --arch=efficientdet \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
+            --optim=sgd --lr=1e-8 \
+            --schedule=ReduceLROnPlateau-p10-c10 \
+            --patience=100 \
+            --input_dims=256,256 \
             --window_dims=512,512 \
-            --input_dims=window \
-            --window_overlap=0.5 \
-            --multiscale=False \
+            --window_overlap=0.0 \
             --normalize_inputs=True \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=7 \
-            --sampler_backend=None \
-            --num_batches=1000 \
-            --balance=None \
-            --bstep=3
-
-        python -m bioharn.detect_fit \
-            --nice=sealion-cascade-v3 \
-            --workdir=$HOME/work/sealions \
-            --train_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7_train.mscoco.json \
-            --vali_dataset=/home/joncrall/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=complex \
-            --init=noop \
-            --arch=cascade \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --window_dims=512,512 \
-            --input_dims=window \
-            --window_overlap=0.5 \
-            --multiscale=False \
-            --normalize_inputs=True \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=4 \
-            --sampler_backend=None \
-            --num_batches=1000 \
-            --balance=None \
-            --bstep=3
-
-
-
-# Maybe hard code these for validation tuning?
-input_stats = {'std': array([[[0.38 ]], [[0.384]], [[0.388]], [[0.213]]]),
-               'mean': array([[[0.185]], [[0.169]], [[0.161]], [[0.267]]])}
-
-
-input_stats = {'std': array([[[0.38 ]], [[0.384]], [[0.388]]]),
-               'mean': array([[[0.185]], [[0.169]], [[0.161]]])}
-
+            --workers=0 --xpu=0 --batch_size=2 --bstep=4 \
+            --sampler_backend=cog \
+            --test_on_finish=True \
+            --num_batches=10 \
+            --max_epoch=10
     """
     if 0:
-        import traceback
-        _orig_formatwarning = warnings.formatwarning
-        def _monkeypatch_formatwarning_tb(*args, **kwargs):
-            s = _orig_formatwarning(*args, **kwargs)
-            tb = traceback.format_stack()
-            s += ''.join(tb[:-1])
-            return s
-        warnings.formatwarning = _monkeypatch_formatwarning_tb
+        def make_warnings_print_tracebacks():
+            import warnings
+            import traceback
+            _orig_formatwarning = warnings.formatwarning
+            warnings._orig_formatwarning = _orig_formatwarning
+            def _monkeypatch_formatwarning_tb(*args, **kwargs):
+                s = _orig_formatwarning(*args, **kwargs)
+                if len(s.strip()):
+                    tb = traceback.format_stack()
+                    s += ''.join(tb[:-1])
+                return s
+            warnings.formatwarning = _monkeypatch_formatwarning_tb
+
+        make_warnings_print_tracebacks()
     fit()

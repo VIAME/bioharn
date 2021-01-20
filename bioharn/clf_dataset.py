@@ -167,10 +167,15 @@ class ClfDataset(torch_data.Dataset):
             balance = 'sequential'
 
         if balance == 'sequential':
+            from netharn.data.batch_samplers import (
+                SubsetSampler, PatchedBatchSampler, PatchedRandomSampler)
             if shuffle:
-                loaderkw['shuffle'] = shuffle
-                loaderkw['batch_size'] = batch_size
-                loaderkw['drop_last'] = drop_last
+                # Handle the case where num batches is specified
+                sampler = PatchedRandomSampler(self)
+                batch_sampler = PatchedBatchSampler(
+                    sampler, batch_size, drop_last,
+                    num_batches=num_batches)
+                loaderkw['batch_sampler'] = batch_sampler
             else:
                 # When in sequential mode, stratify categories uniformly
                 # This makes the first few validation batches more informative
@@ -182,8 +187,10 @@ class ClfDataset(torch_data.Dataset):
                 idx_groups = sorted(cid_to_idxs.values(), key=len)
                 sortx = list(roundrobin(*idx_groups))
                 idx_sampler = SubsetSampler(sortx)
-                batch_sampler = torch_data.BatchSampler(
-                    idx_sampler, batch_size=batch_size, drop_last=drop_last)
+                batch_sampler = PatchedBatchSampler(
+                    idx_sampler, batch_size=batch_size, drop_last=drop_last,
+                    num_batches=num_batches)
+
                 loaderkw['batch_sampler'] = batch_sampler
         elif balance == 'classes':
             from netharn.data.batch_samplers import BalancedBatchSampler
@@ -209,26 +216,6 @@ def _worker_init_fn(worker_id, augmenter=None):
     if augmenter:
         rng = kwarray.ensure_rng(None)
         augmenter.seed_(rng)
-
-
-class SubsetSampler(torch_data.Sampler):
-    """
-    Generates sample indices based on a specified order / subset
-
-    Example:
-        indices = list(range(10))
-        assert indices == list(SubsetSampler(indices))
-    """
-
-    def __init__(self, indices):
-        self.indices = indices
-
-    def __iter__(self):
-        for idx in self.indices:
-            yield idx
-
-    def __len__(self):
-        return len(self.indices)
 
 
 def roundrobin(*iterables):

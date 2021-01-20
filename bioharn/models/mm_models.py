@@ -12,24 +12,124 @@ import torch
 import kwimage
 import kwarray
 from collections import OrderedDict
-from distutils.version import LooseVersion
 import warnings  # NOQA
-# from bioharn.channel_spec import ChannelSpec
-# from bioharn import data_containers
 from netharn.data.channel_spec import ChannelSpec
 from netharn.data import data_containers
 
 
-@ub.memoize
-def _mmdet_is_version_1x():
-    import mmdet
-    return LooseVersion(mmdet.__version__) < LooseVersion('2.0.0')
+def _autogen_class_from_mm_config(fpath):
+    """
+    Autogen code corresonding to a mmdetection config.
 
+    cd $HOME/code/mmdetection/configs
+    find . -iname "*mask*"
+    find . -iname "*mask*" | grep -i fcos
+    find . -iname "*mask*" | grep -i cascade
+    find . -iname "*mask*" | grep -i hrnet
+    find . -iname "*mask*" | grep -i hrnet
 
-@ub.memoize
-def _mmdet_is_pre_1_1():
-    import mmdet
-    return LooseVersion(mmdet.__version__) < LooseVersion('1.1.0')
+    fpath = ub.expandpath('$HOME/code/mmdetection/configs/hrnet/cascade_mask_rcnn_hrnetv2p_w18_20e_coco.py')
+    fpath = ub.expandpath('$HOME/code/mmdetection/configs/hrnet/mask_rcnn_hrnetv2p_w18_1x_coco.py')
+    _autogen_class_from_mm_config(fpath)
+    """
+    from mmcv import Config
+    from os.path import dirname, exists, join
+    mm_config = Config.fromfile(fpath)
+
+    def _get_config_directory():
+        """Find the predefined detector config directory."""
+        try:
+            # Assume we are running in the source mmdetection repo
+            repo_dpath = dirname(dirname(dirname(__file__)))
+        except NameError:
+            # For IPython development when this __file__ is not defined
+            import mmdet
+            repo_dpath = dirname(dirname(mmdet.__file__))
+        config_dpath = join(repo_dpath, 'configs')
+        if not exists(config_dpath):
+            raise Exception('Cannot find config path')
+        return config_dpath
+
+    from kwcoco.util.util_json import IndexableWalker
+    mm_model = mm_config['model'].to_dict()
+    train_cfg = mm_config['train_cfg'].to_dict()
+    test_cfg = mm_config['test_cfg'].to_dict()
+
+    mm_cfg = {
+        'model': mm_model,
+        'train_cfg': train_cfg,
+        'test_cfg': test_cfg,
+    }
+
+    class ForwardReprRef(object):
+        """
+        Helper for ensuring text representation can contain forward
+        references to variables that will be defined in the context of
+        the template init
+        """
+        def __init__(self, value):
+            self.value = value
+        def __repr__(self):
+            return str(self.value)
+        def __str__(self):
+            return str(self.value)
+
+    walker = IndexableWalker(mm_cfg)
+    pretrained_url = None
+    for path, value in walker:
+        if path[-1] == 'pretrained':
+            pretrained_url = value
+            walker[path] = None
+        if isinstance(value, dict) and 'type' in value:
+            if value['type'] == 'HRNet':
+                value['in_channels'] = ForwardReprRef('in_channels')
+        if path[-1] == 'num_classes':
+            walker[path] = ForwardReprRef('len(classes)')
+
+    mm_cfg_text = 'mm_cfg = mmcv.Config(' + ub.repr2(mm_cfg, nl=-1) + ')'
+
+    template = ub.codeblock(
+        '''
+        class {classname}(MM_Detector):
+            """
+            Example:
+                >>> # xdoctest: +REQUIRES(module:mmdet)
+                >>> # xdoctest: +REQUIRES(--cuda)
+                >>> self = {classname}(classes=3)
+                >>> print(nh.util.number_of_parameters(self))
+                >>> self.to(0)
+                >>> batch = self.demo_batch()
+                >>> outputs = self.forward(batch)
+                >>> batch_dets = self.coder.decode_batch(outputs)
+            """
+            pretrained_url = {pretrained_url!r}
+
+            def __init__(self, classes=None, input_stats=None, channels='rgb'):
+                import mmcv
+                import kwcoco
+                classes = kwcoco.CategoryTree.coerce(classes)
+                channels = ChannelSpec.coerce(channels)
+                chann_norm = channels.normalize()
+                assert len(chann_norm) == 1
+                in_channels = len(ub.peek(chann_norm.values()))
+
+        {mm_cfg_def}
+
+                super().__init__(
+                        mm_cfg['model'], train_cfg=mm_cfg['train_cfg'],
+                        test_cfg=mm_cfg['test_cfg'],
+                        classes=classes, input_stats=input_stats,
+                        channels=channels)
+        ''')
+
+    fmtkw = {
+        'classname': 'MM_{}_{}'.format(mm_model['backbone']['type'], mm_model['type']),
+        'mm_cfg_def': ub.indent(mm_cfg_text, ' ' * 8),
+        'pretrained_url': pretrained_url,
+    }
+
+    text = template.format(**fmtkw)
+    print(text)
 
 
 def _hack_mm_backbone_in_channels(backbone_cfg):
@@ -39,7 +139,6 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
     if 'in_channels' not in backbone_cfg:
         return
     import mmdet
-    _NEEDS_CHECK = _mmdet_is_pre_1_1()
     _NEEDS_CHECK = True
     if _NEEDS_CHECK:
         import inspect
@@ -48,10 +147,7 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
         if backbone_key == 'ResNeXt':
             backbone_key = 'ResNet'
 
-        if _mmdet_is_version_1x():
-            backbone_cls = models.registry.BACKBONES.get(backbone_key)
-        else:
-            backbone_cls = models.builder.BACKBONES.get(backbone_key)
+        backbone_cls = models.builder.BACKBONES.get(backbone_key)
 
         cls_kw = inspect.signature(backbone_cls).parameters
         if 'in_channels' not in cls_kw:
@@ -61,6 +157,157 @@ def _hack_mm_backbone_in_channels(backbone_cfg):
                 raise ValueError((
                     'mmdet.__version__={!r} does not support in_channels'
                 ).format(mmdet.__version__))
+
+
+def _ensure_unwrapped_and_mounted(mm_inputs, xpu):
+    from kwcoco.util.util_json import IndexableWalker
+    walker = IndexableWalker(mm_inputs)
+    for path, val in walker:
+        if isinstance(val, dict):
+            walker[path] = val.copy()
+
+        if isinstance(val, data_containers.BatchContainer):
+            if len(val.data) != 1:
+                raise ValueError('data not scattered correctly')
+            if val.cpu_only:
+                val = val.data[0]
+            else:
+                val = xpu.move(val.data[0])
+            walker[path] = val
+    return mm_inputs
+
+
+def _hack_numpy_gt_masks(gt_masks):
+    # mmdet only allows numpy inputs
+    from mmdet.core.mask import BitmapMasks
+    numpy_masks = [kwarray.ArrayAPI.numpy(mask) for mask in gt_masks]
+    bitmap_masks = [
+        BitmapMasks(m, height=m.shape[1], width=m.shape[2])
+        for m in numpy_masks]
+    return bitmap_masks
+
+
+def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
+                with_mask=True, packed=False):
+    """
+    Input data for testing this detector
+
+    Args:
+        packed (bool, default=False): if True return dict of data containers
+            otherwise unwrap the datacontainers by packing their contents.
+
+    Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> from bioharn.models.mm_models import _demo_batch, _batch_to_mm_inputs
+        >>> #globals().update(**xdev.get_func_kwargs(_demo_batch))
+        >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
+        >>> channels = ChannelSpec.coerce('rgb,mx|my')
+        >>> #
+        >>> batch = _demo_batch(bsize=4, with_mask=True, channels=channels)
+        >>> mm_inputs = _batch_to_mm_inputs(batch)
+        >>> #
+        >>> #batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=True)
+        >>> #mm_inputs = _batch_to_mm_inputs(batch)
+    """
+    rng = kwarray.ensure_rng(0)
+    if isinstance(bsize, list):
+        item_sizes = bsize
+        bsize = len(item_sizes)
+    else:
+        item_sizes = [rng.randint(0, 10) for bx in range(bsize)]
+
+    channels = ChannelSpec.coerce(channels)
+    B, H, W = bsize, h, w
+
+    input_shapes = {
+        key: (B, c, H, W)
+        for key, c in channels.sizes().items()
+    }
+    inputs = {
+        key: torch.rand(*shape)
+        for key, shape in input_shapes.items()
+    }
+
+    batch_items = []
+    for bx in range(B):
+
+        item_sizes[bx]
+
+        dets = kwimage.Detections.random(num=item_sizes[bx],
+                                         classes=classes,
+                                         segmentations=True)
+        dets = dets.scale((W, H))
+
+        # Extract segmentations if they exist
+        if with_mask:
+            has_mask_list = []
+            class_mask_list = []
+            for sseg in dets.data['segmentations']:
+                if sseg is not None:
+                    mask = sseg.to_mask(dims=(H, W))
+                    c_mask = mask.to_c_mask().data
+                    mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
+                    class_mask_list.append(mask_tensor[None, :])
+                    has_mask_list.append(1)
+                else:
+                    class_mask_list.append(None)
+                    has_mask_list.append(-1)
+
+            has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+            if len(class_mask_list) == 0:
+                class_masks = torch.empty((0, H, W), dtype=torch.uint8)
+            else:
+                class_masks = torch.cat(class_mask_list, dim=0)
+        else:
+            class_masks = None
+
+        dets = dets.tensor()
+        label = {
+            'tlbr': data_containers.ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
+            'class_idxs': data_containers.ItemContainer(dets.class_idxs, stack=False),
+            'weight': data_containers.ItemContainer(torch.FloatTensor(rng.rand(len(dets))), stack=False)
+        }
+
+        if with_mask:
+            label['class_masks'] = data_containers.ItemContainer(class_masks, stack=False)
+            label['has_mask'] = data_containers.ItemContainer(has_mask, stack=False)
+
+        item = {
+            'inputs': {
+                key: data_containers.ItemContainer(vals[bx], stack=True)
+                for key, vals in inputs.items()
+            },
+            'label': label,
+        }
+        batch_items.append(item)
+
+    # import netharn as nh
+    # from bioharn.data_containers import container_collate
+    batch = data_containers.container_collate(batch_items, num_devices=1)
+    # batch = nh.data.collate.padded_collate(batch_items)
+
+    if packed:
+        from kwcoco.util.util_json import IndexableWalker
+        walker = IndexableWalker(batch)
+        for path, val in walker:
+            if isinstance(val, data_containers.BatchContainer):
+                walker[path] = val.pack()
+                walker.send(False)
+
+    return batch
+
+
+def _dummy_img_metas(B, H, W, C):
+    img_metas = [{
+        'img_shape': (H, W, C),
+        'ori_shape': (H, W, C),
+        'pad_shape': (H, W, C),
+        'filename': '<memory>.png',
+        'scale_factor': 1.0,
+        'flip': False,
+    } for _ in range(B)]
+    return img_metas
 
 
 def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
@@ -79,42 +326,116 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
         >>> bsize = [0, 0, 0, 0]
         >>> batch = _demo_batch(bsize)
         >>> mm_inputs = _batch_to_mm_inputs(batch)
+
+        >>> channels = ChannelSpec.coerce('rgb,mx|my')
+        >>> batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=False)
+        >>> mm_inputs = _batch_to_mm_inputs(batch)
+
+        >>> # batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=True)
+        >>> # mm_inputs = _batch_to_mm_inputs(batch)
+
+        parent_batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=False)
+        batch = parent_batch['inputs']['rgb']
+        mm_inputs = _batch_to_mm_inputs(batch)
+        mm_inputs = _batch_to_mm_inputs(batch.pack())
+
+        # Test the packed non-batch container style inputs
     """
-    if isinstance(batch['inputs'], dict):
-        assert len(batch['inputs']) == 1, ('only early fusion for now')
-        inputs = ub.peek(batch['inputs'].values())
-    else:
-        inputs = batch['inputs']
+    if isinstance(batch, torch.Tensor):
+        # Absolute simplest case where the input is given as a
+        # (presumably RGB or grayscale) Tensor
+        B, C, H, W = batch.shape
 
-    if type(inputs).__name__ in ['BatchContainer']:
-        # Things are already in data containers
+        # hack in img meta
+        img_metas = _dummy_img_metas(B, H, W, C)
 
+        mm_inputs = {
+            'imgs': batch,
+            'img_metas': img_metas,
+        }
+        return mm_inputs
+    if isinstance(batch, data_containers.BatchContainer):
+        # Second simplest case, no labels are given and just an one main stream
+        # is given as a batch container.
+        main_stream = batch
+        stream_type = type(batch)
         # Get the number of batch items for each GPU / group
-        groupsizes = [item.shape[0] for item in inputs.data]
-
-        B = len(inputs.data)
-        C, H, W = inputs.data[0].shape[1:]
-
-        DC = type(inputs)
+        groupsizes = [item.shape[0] for item in main_stream.data]
+        B = len(main_stream.data)
+        C, H, W = main_stream.data[0].shape[1:]
+        DC = stream_type
 
         # hack in img meta
         img_metas = DC([
-            [
-                {
-                    'img_shape': (H, W, C),
-                    'ori_shape': (H, W, C),
-                    'pad_shape': (H, W, C),
-                    'filename': '<memory>.png',
-                    'scale_factor': 1.0,
-                    'flip': False,
-                }
-                for _ in range(num)
-            ]
+            _dummy_img_metas(num, H, W, C)
             for num in groupsizes
         ], stack=False, cpu_only=True)
 
         mm_inputs = {
-            'imgs': inputs,
+            'imgs': main_stream,
+            'img_metas': img_metas,
+        }
+        return mm_inputs
+
+    if not isinstance(batch, dict):
+        raise TypeError('We expected input batch to be a dictionary')
+
+    if isinstance(batch['inputs'], dict):
+        inputs = batch['inputs']
+    else:
+        # Input streams were not specified
+        inputs = {'???': batch['inputs']}
+
+    # Determine what the main input stream is.
+    # Typically this will be RGB.
+    if len(inputs) == 0:
+        raise ValueError('No inputs are given')
+    elif len(inputs) == 1 and False:
+        # NOTE: the len(inputs) > 1 case should work for this as well hack this
+        # to be false for testing for now. Can remove the and False after we
+        # verify the fusion case works well.
+        #
+        # Simple case, only one channel
+        main_key, main_stream = ub.peek(inputs.items())
+        stream_type = type(main_stream)
+    else:
+        # Early fusion case
+        input_types = ub.map_vals(type, inputs)
+        if not ub.allsame(input_types.values()):
+            raise Exception('Input streams should all be the same type')
+        stream_type = ub.peek(input_types.values())
+        key_priority_lut = {
+            'rgb': 2,
+            'gray': 1,
+        }
+        stream_priority = {
+            key: (key_priority_lut.get(key, 0), value.numel())
+            for key, value in inputs.items()
+        }
+        main_key = ub.argmax(stream_priority)
+        main_stream = inputs[main_key]
+
+    if isinstance(main_stream, data_containers.BatchContainer):
+        # Things are already in data containers
+
+        # Get the number of batch items for each GPU / group
+        groupsizes = [item.shape[0] for item in main_stream.data]
+
+        B = len(main_stream.data)
+        C, H, W = main_stream.data[0].shape[1:]
+
+        DC = stream_type
+
+        # hack in img meta
+        img_metas = DC([
+            _dummy_img_metas(num, H, W, C)
+            for num in groupsizes
+        ], stack=False, cpu_only=True)
+
+        mm_inputs = {
+            'imgs': main_stream,
+            'main_key': main_key,
+            'inputs': inputs,
             'img_metas': img_metas,
         }
 
@@ -159,8 +480,10 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                     for inner_bx in range(len(ignore_flags.data[outer_bx])):
                         flags = ignore_flags.data[outer_bx][inner_bx]
                         ignore_bboxes = mm_inputs['gt_bboxes'].data[outer_bx][inner_bx][flags]
-                        mm_inputs['gt_labels'].data[outer_bx][inner_bx] = mm_inputs['gt_labels'].data[outer_bx][inner_bx][~flags]
-                        mm_inputs['gt_bboxes'].data[outer_bx][inner_bx] = mm_inputs['gt_bboxes'].data[outer_bx][inner_bx][~flags]
+                        mm_inputs['gt_labels'].data[outer_bx][inner_bx] = (
+                            mm_inputs['gt_labels'].data[outer_bx][inner_bx][~flags])
+                        mm_inputs['gt_bboxes'].data[outer_bx][inner_bx] = (
+                            mm_inputs['gt_bboxes'].data[outer_bx][inner_bx][~flags])
                         inner_bboxes_ignore.append(ignore_bboxes)
                     outer_bboxes_ignore.append(inner_bboxes_ignore)
 
@@ -168,23 +491,15 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                                                    label['weight'].stack)
 
     else:
-        B, C, H, W = inputs.shape
+        B, C, H, W = main_stream.shape
 
         # hack in img meta
-        img_metas = [
-            {
-                'img_shape': (H, W, C),
-                'ori_shape': (H, W, C),
-                'pad_shape': (H, W, C),
-                'filename': '<memory>.png',
-                'scale_factor': 1.0,
-                'flip': False,
-            }
-            for _ in range(B)
-        ]
+        img_metas = _dummy_img_metas(B, H, W, C)
 
         mm_inputs = {
-            'imgs': inputs,
+            'imgs': main_stream,
+            'main_key': main_key,
+            'inputs': inputs,
             'img_metas': img_metas,
         }
 
@@ -268,102 +583,6 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
     return mm_inputs
 
 
-def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
-                with_mask=True):
-    """
-    Input data for testing this detector
-
-    Example:
-        >>> # xdoctest: +REQUIRES(module:mmdet)
-        >>> from bioharn.models.mm_models import *  # NOQA
-        >>> from bioharn.models.mm_models import _demo_batch, _batch_to_mm_inputs
-        >>> #globals().update(**xdev.get_func_kwargs(_demo_batch))
-        >>> classes = ['class_{:0d}'.format(i) for i in range(81)]
-        >>> channels = ChannelSpec.coerce('rgb|d')
-        >>> batch = _demo_batch(with_mask=False, channels=channels)
-        >>> mm_inputs = _batch_to_mm_inputs(batch)
-    """
-    rng = kwarray.ensure_rng(0)
-    from bioharn.data_containers import ItemContainer
-    from bioharn.data_containers import container_collate
-    if isinstance(bsize, list):
-        item_sizes = bsize
-        bsize = len(item_sizes)
-    else:
-        item_sizes = [rng.randint(0, 10) for bx in range(bsize)]
-
-    channels = ChannelSpec.coerce(channels)
-    B, H, W = bsize, h, w
-
-    input_shapes = {
-        key: (B, c, H, W)
-        for key, c in channels.sizes().items()
-    }
-    inputs = {
-        key: torch.rand(*shape)
-        for key, shape in input_shapes.items()
-    }
-
-    batch_items = []
-    for bx in range(B):
-
-        item_sizes[bx]
-
-        dets = kwimage.Detections.random(num=item_sizes[bx],
-                                         classes=classes,
-                                         segmentations=True)
-        dets = dets.scale((W, H))
-
-        # Extract segmentations if they exist
-        if with_mask:
-            has_mask_list = []
-            class_mask_list = []
-            for sseg in dets.data['segmentations']:
-                if sseg is not None:
-                    mask = sseg.to_mask(dims=(H, W))
-                    c_mask = mask.to_c_mask().data
-                    mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
-                    class_mask_list.append(mask_tensor[None, :])
-                    has_mask_list.append(1)
-                else:
-                    class_mask_list.append(None)
-                    has_mask_list.append(-1)
-
-            has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
-            if len(class_mask_list) == 0:
-                class_masks = torch.empty((0, H, W), dtype=torch.uint8)
-            else:
-                class_masks = torch.cat(class_mask_list, dim=0)
-        else:
-            class_masks = None
-
-        dets = dets.tensor()
-        label = {
-            'tlbr': ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
-            'class_idxs': ItemContainer(dets.class_idxs, stack=False),
-            'weight': ItemContainer(torch.FloatTensor(rng.rand(len(dets))), stack=False)
-        }
-
-        if with_mask:
-            label['class_masks'] = ItemContainer(class_masks, stack=False)
-            label['has_mask'] = ItemContainer(has_mask, stack=False)
-
-        item = {
-            'inputs': {
-                key: ItemContainer(vals[bx], stack=True)
-                for key, vals in inputs.items()
-            },
-            'label': label,
-        }
-        batch_items.append(item)
-
-    # import netharn as nh
-    # from bioharn.data_containers import container_collate
-    batch = container_collate(batch_items, num_devices=1)
-    # batch = nh.data.collate.padded_collate(batch_items)
-    return batch
-
-
 class MM_Coder(object):
     """
     Standardize network inputs and outputs
@@ -420,28 +639,40 @@ class MM_Coder(object):
         batch_dets = []
 
         if isinstance(batch_results, data_containers.BatchContainer):
-            batch_results = batch_results.data
-
-        # HACK for the way mmdet handles background
-        if _mmdet_is_version_1x():
-            class_offset = 1
-            if 'backround' in self.classes:
-                start = 1
-            else:
-                start = 0
+            batch_result_data = batch_results.data
         else:
-            class_offset = 0
-            start = 0
+            batch_result_data = batch_results
 
-        for result in batch_results:
+        class_offset = 0
+        start = 0
+        mm_sseg_results = None
+
+        for result in batch_result_data:
             if isinstance(result, tuple) and len(result) == 2:
                 # bbox and segmentation result
                 mm_bbox_results = result[0]
                 mm_sseg_results = result[1]
             elif isinstance(result, list):
-                # bbox only result
-                mm_bbox_results = result
-                mm_sseg_results = None
+                # Hack for mmdet 2.4+ (not sure exactly what format change is
+                # so this may need to be reworked)
+                from distutils.version import LooseVersion
+                import mmdet
+                if LooseVersion(mmdet.__version__) >= LooseVersion('2.4.0'):
+
+                    mm_sseg_results = None
+                    if len(result) == 1:
+                        if isinstance(result[0], tuple):
+                            mm_bbox_results = result[0][0]
+                            mm_sseg_results = result[0][1]
+
+                    if mm_sseg_results is None:
+                        # They seem to have added another level of nesting
+                        # Not sure what the semantics of it are yet.
+                        import itertools as it
+                        mm_bbox_results = list(it.chain.from_iterable(result))
+                else:
+                    # bbox only result
+                    mm_bbox_results = result
             else:
                 # TODO: when using data parallel, we have
                 # Note: this actually only happened when we failed to use
@@ -456,6 +687,7 @@ class MM_Coder(object):
                 # Stack the results into a detections object
                 pred_cidxs = []
                 for cidx, cls_results in enumerate(mm_bbox_results, start=start):
+                    # assert cls_results.shape == (None, 5)
                     pred_cidxs.extend([cidx + class_offset] * len(cls_results))
                 pred_tlbr = np.vstack([r[:, 0:4] for r in mm_bbox_results])
                 pred_score = np.hstack([r[:, 4] for r in mm_bbox_results])
@@ -486,24 +718,40 @@ class MM_Coder(object):
 class MM_Detector(nh.layers.Module):
     """
     """
+    _mmdet_is_version_1x = False  # needed to prevent autoconvert
     __BUILTIN_CRITERION__ = True
 
-    def __init__(self, mm_config, train_cfg=None, test_cfg=None, classes=None,
-                 input_stats=None):
+    def __init__(self, mm_model, train_cfg=None, test_cfg=None,
+                 classes=None, input_stats=None, channels=None):
         super(MM_Detector, self).__init__()
         import mmcv
         from mmdet.models import build_detector
-
-        import ndsampler
-        classes = ndsampler.CategoryTree.coerce(classes)
-        self.classes = classes
+        import kwcoco
 
         if input_stats is None:
             input_stats = {}
 
-        self.input_norm = nh.layers.InputNorm(**input_stats)
+        self.classes = kwcoco.CategoryTree.coerce(classes)
+        self.channels = ChannelSpec.coerce(channels)
 
-        self.classes = classes
+        chan_keys = list(self.channels.keys())
+        if len(chan_keys) != 1:
+            print('GOT chan_keys = {!r}'.format(chan_keys))
+            raise ValueError('this model can only do early fusion')
+        if len(input_stats):
+            if chan_keys != list(input_stats.keys()):
+                # Backwards compat for older pre-fusion input stats method
+                assert 'mean' in input_stats or 'std' in input_stats
+                input_stats = {
+                    chan_keys[0]: input_stats,
+                }
+            if len(input_stats) != 1:
+                print('GOT input_stats = {!r}'.format(input_stats))
+                raise ValueError('this model can only do early fusion')
+            main_input_stats = ub.peek(input_stats.values())
+        else:
+            main_input_stats = {}
+        self.input_norm = nh.layers.InputNorm(**main_input_stats)
 
         if train_cfg is not None:
             train_cfg = mmcv.utils.config.ConfigDict(train_cfg)
@@ -511,8 +759,8 @@ class MM_Detector(nh.layers.Module):
         if test_cfg is not None:
             test_cfg = mmcv.utils.config.ConfigDict(test_cfg)
 
-        self.detector = build_detector(mm_config, train_cfg=train_cfg,
-                                       test_cfg=test_cfg)
+        self.detector = build_detector(
+            mm_model, train_cfg=train_cfg, test_cfg=test_cfg)
 
         self.coder = MM_Coder(self.classes)
 
@@ -540,7 +788,9 @@ class MM_Detector(nh.layers.Module):
 
         Args:
             batch (Dict): containing:
-                - im (tensor):
+                - inputs (Dict[str, Tensor]):
+                    mapping of input streams (e.g. rgb or motion) to
+                    corresponding tensors.
                 - label (None | Dict): optional if loss is needed. Contains:
                     tlbr: bounding boxes in tlbr space
                     class_idxs: bounding box class indices
@@ -553,6 +803,11 @@ class MM_Detector(nh.layers.Module):
                     gt_bboxes
                     gt_labels
                     etc...
+
+                    # OR new auxillary information
+                    auxs
+                    main_key
+                    <subject to change>
 
             return_loss (bool): compute the loss
             return_result (bool): compute the result
@@ -580,16 +835,7 @@ class MM_Detector(nh.layers.Module):
         # Hack: remove data containers if it hasn't been done already
         import netharn as nh
         xpu = nh.XPU.from_data(self)
-        for key in mm_inputs.keys():
-            value = mm_inputs[key]
-            if isinstance(value, data_containers.BatchContainer):
-                if len(value.data) != 1:
-                    raise ValueError('data not scattered correctly')
-                if value.cpu_only:
-                    value = value.data[0]
-                else:
-                    value = xpu.move(value.data[0])
-                mm_inputs[key] = value
+        mm_inputs = _ensure_unwrapped_and_mounted(mm_inputs, xpu)
 
         imgs = mm_inputs.pop('imgs')
         img_metas = mm_inputs.pop('img_metas')
@@ -613,18 +859,7 @@ class MM_Detector(nh.layers.Module):
             if with_mask:
                 if 'gt_masks' in mm_inputs:
                     # mmdet only allows numpy inputs
-                    if _mmdet_is_version_1x():
-                        numpy_masks = [kwarray.ArrayAPI.numpy(mask)
-                                       for mask in mm_inputs['gt_masks']]
-                        trainkw['gt_masks'] = numpy_masks
-                    else:
-                        from mmdet.core.mask import BitmapMasks
-                        numpy_masks = [kwarray.ArrayAPI.numpy(mask)
-                                       for mask in mm_inputs['gt_masks']]
-                        bitmap_masks = [
-                            BitmapMasks(m, height=m.shape[1], width=m.shape[2])
-                            for m in numpy_masks]
-                        trainkw['gt_masks'] = bitmap_masks
+                    trainkw['gt_masks'] = _hack_numpy_gt_masks(mm_inputs['gt_masks'])
 
             # Compute input normalization
             imgs_norm = self.input_norm(imgs)
@@ -740,14 +975,15 @@ class MM_RetinaNet(MM_Detector):
         #
         # Either way I think we can effectively treat these detectors as if the
         # bacground class is at the end of the list.
-        import ndsampler
-        classes = ndsampler.CategoryTree.coerce(classes)
+        import kwcoco
+        classes = kwcoco.CategoryTree.coerce(classes)
         self.classes = classes
-        if 'background' in classes:
-            assert classes.node_to_idx['background'] == 0
-            num_classes = len(classes)
-        else:
-            num_classes = len(classes) + 1
+        # if 'background' in classes:
+        #     assert classes.node_to_idx['background'] == 0
+        #     num_classes = len(classes)
+        # else:
+        #     num_classes = len(classes) + 1
+        num_classes = len(classes)
 
         self.channels = ChannelSpec.coerce(channels)
         chann_norm = self.channels.normalize()
@@ -755,55 +991,29 @@ class MM_RetinaNet(MM_Detector):
         in_channels = len(ub.peek(chann_norm.values()))
 
         compat_params = {}
-        if _mmdet_is_version_1x():
-            compat_params['bbox_head'] = dict(
-                type='RetinaHead',
-                num_classes=num_classes,
-                in_channels=256,
-                stacked_convs=4,
-                feat_channels=256,
+        compat_params['bbox_head'] = dict(
+            type='RetinaHead',
+            num_classes=num_classes,
+            in_channels=256,
+            stacked_convs=4,
+            feat_channels=256,
+            anchor_generator=dict(
+                type='AnchorGenerator',
                 octave_base_scale=4,
                 scales_per_octave=3,
-
-                # anchor_ratios=[0.5, 1.0, 2.0],
-                anchor_ratios=[0.75, 1.0, 1.5],
-                # anchor_ratios=[0.8, 0.9, 1.0, 1.1, 1.2],
-
-                anchor_strides=[8, 16, 32, 64, 128],
-                # anchor_strides=[4, 8, 16, 32, 64],
+                ratios=[0.5, 1.0, 2.0],
+                strides=[8, 16, 32, 64, 128]),
+            bbox_coder=dict(
+                type='DeltaXYWHBBoxCoder',
                 target_means=[.0, .0, .0, .0],
-                target_stds=[1.0, 1.0, 1.0, 1.0],
-                loss_cls=dict(
-                    type='FocalLoss',
-                    use_sigmoid=True,
-                    gamma=2.0,
-                    alpha=0.25,
-                    loss_weight=1.0),
-                loss_bbox=dict(type='SmoothL1Loss', beta=0.11, loss_weight=1.0))
-        else:
-            compat_params['bbox_head'] = dict(
-                type='RetinaHead',
-                num_classes=80,
-                in_channels=256,
-                stacked_convs=4,
-                feat_channels=256,
-                anchor_generator=dict(
-                    type='AnchorGenerator',
-                    octave_base_scale=4,
-                    scales_per_octave=3,
-                    ratios=[0.5, 1.0, 2.0],
-                    strides=[8, 16, 32, 64, 128]),
-                bbox_coder=dict(
-                    type='DeltaXYWHBBoxCoder',
-                    target_means=[.0, .0, .0, .0],
-                    target_stds=[1.0, 1.0, 1.0, 1.0]),
-                loss_cls=dict(
-                    type='FocalLoss',
-                    use_sigmoid=True,
-                    gamma=2.0,
-                    alpha=0.25,
-                    loss_weight=1.0),
-                loss_bbox=dict(type='L1Loss', loss_weight=1.0))
+                target_stds=[1.0, 1.0, 1.0, 1.0]),
+            loss_cls=dict(
+                type='FocalLoss',
+                use_sigmoid=True,
+                gamma=2.0,
+                alpha=0.25,
+                loss_weight=1.0),
+            loss_bbox=dict(type='L1Loss', loss_weight=1.0))
 
         # model settings
         mm_config = dict(
@@ -845,9 +1055,9 @@ class MM_RetinaNet(MM_Detector):
 
         backbone_cfg = mm_config['backbone']
         _hack_mm_backbone_in_channels(backbone_cfg)
-        super(MM_RetinaNet, self).__init__(mm_config, train_cfg=train_cfg,
-                                           test_cfg=test_cfg, classes=classes,
-                                           input_stats=input_stats)
+        super().__init__(mm_config, train_cfg=train_cfg, test_cfg=test_cfg,
+                         classes=classes, input_stats=input_stats,
+                         channels=channels)
 
 
 class MM_MaskRCNN(MM_Detector):
@@ -873,13 +1083,14 @@ class MM_MaskRCNN(MM_Detector):
         >>> mask.draw()
     """
     def __init__(self, classes, channels='rgb', input_stats=None):
-        import ndsampler
-        classes = ndsampler.CategoryTree.coerce(classes)
-        if 'background' in classes:
-            assert classes.node_to_idx['background'] == 0
-            num_classes = len(classes)
-        else:
-            num_classes = len(classes) + 1
+        import kwcoco
+        classes = kwcoco.CategoryTree.coerce(classes)
+        # if 'background' in classes:
+        #     assert classes.node_to_idx['background'] == 0
+        #     num_classes = len(classes)
+        # else:
+        #     num_classes = len(classes) + 1
+        num_classes = len(classes)
 
         # pretrained = 'torchvision://resnet50'
         self.channels = ChannelSpec.coerce(channels)
@@ -888,103 +1099,56 @@ class MM_MaskRCNN(MM_Detector):
         in_channels = len(ub.peek(chann_norm.values()))
 
         compat_params = {}
-        if _mmdet_is_version_1x():
-            compat_params.update(dict(
-                rpn_head=dict(
-                    type='RPNHead',
-                    in_channels=256,
-                    feat_channels=256,
-                    anchor_scales=[8],
-                    anchor_ratios=[0.5, 1.0, 2.0],
-                    anchor_strides=[4, 8, 16, 32, 64],
-                    target_means=[.0, .0, .0, .0],
-                    target_stds=[1.0, 1.0, 1.0, 1.0],
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)),
-                bbox_roi_extractor=dict(
-                    type='SingleRoIExtractor',
-                    roi_layer=dict(type='RoIAlign', out_size=7, sample_num=2),
-                    out_channels=256,
-                    featmap_strides=[4, 8, 16, 32]),
-                bbox_head=dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.1, 0.1, 0.2, 0.2],
-                    reg_class_agnostic=False,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-                mask_roi_extractor=dict(
-                    type='SingleRoIExtractor',
-                    roi_layer=dict(type='RoIAlign', out_size=14, sample_num=2),
-                    out_channels=256,
-                    featmap_strides=[4, 8, 16, 32]),
-                mask_head=dict(
-                    type='FCNMaskHead',
-                    num_convs=4,
-                    in_channels=256,
-                    conv_out_channels=256,
-                    num_classes=num_classes,
-                    loss_mask=dict(
-                        type='CrossEntropyLoss', use_mask=True, loss_weight=1.0)))
-            )
-        else:
-            compat_params['rpn_head'] = dict(
-                type='RPNHead',
+        compat_params['rpn_head'] = dict(
+            type='RPNHead',
+            in_channels=256,
+            feat_channels=256,
+            anchor_generator=dict(
+                type='AnchorGenerator',
+                scales=[8],
+                ratios=[0.5, 1.0, 2.0],
+                strides=[4, 8, 16, 32, 64]),
+            bbox_coder=dict(
+                type='DeltaXYWHBBoxCoder',
+                target_means=[.0, .0, .0, .0],
+                target_stds=[1.0, 1.0, 1.0, 1.0]),
+            loss_cls=dict(
+                type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+            loss_bbox=dict(type='L1Loss', loss_weight=1.0))
+        compat_params['roi_head'] = dict(
+            type='StandardRoIHead',
+            bbox_roi_extractor=dict(
+                type='SingleRoIExtractor',
+                roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
+                out_channels=256,
+                featmap_strides=[4, 8, 16, 32]),
+            bbox_head=dict(
+                type='Shared2FCBBoxHead',
                 in_channels=256,
-                feat_channels=256,
-                anchor_generator=dict(
-                    type='AnchorGenerator',
-                    scales=[8],
-                    ratios=[0.5, 1.0, 2.0],
-                    strides=[4, 8, 16, 32, 64]),
+                fc_out_channels=1024,
+                roi_feat_size=7,
+                num_classes=num_classes,
                 bbox_coder=dict(
                     type='DeltaXYWHBBoxCoder',
-                    target_means=[.0, .0, .0, .0],
-                    target_stds=[1.0, 1.0, 1.0, 1.0]),
+                    target_means=[0., 0., 0., 0.],
+                    target_stds=[0.1, 0.1, 0.2, 0.2]),
+                reg_class_agnostic=False,
                 loss_cls=dict(
-                    type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-                loss_bbox=dict(type='L1Loss', loss_weight=1.0))
-            compat_params['roi_head'] = dict(
-                type='StandardRoIHead',
-                bbox_roi_extractor=dict(
-                    type='SingleRoIExtractor',
-                    roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
-                    out_channels=256,
-                    featmap_strides=[4, 8, 16, 32]),
-                bbox_head=dict(
-                    type='Shared2FCBBoxHead',
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=80,
-                    bbox_coder=dict(
-                        type='DeltaXYWHBBoxCoder',
-                        target_means=[0., 0., 0., 0.],
-                        target_stds=[0.1, 0.1, 0.2, 0.2]),
-                    reg_class_agnostic=False,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='L1Loss', loss_weight=1.0)),
-                mask_roi_extractor=dict(
-                    type='SingleRoIExtractor',
-                    roi_layer=dict(type='RoIAlign', output_size=14, sampling_ratio=0),
-                    out_channels=256,
-                    featmap_strides=[4, 8, 16, 32]),
-                mask_head=dict(
-                    type='FCNMaskHead',
-                    num_convs=4,
-                    in_channels=256,
-                    conv_out_channels=256,
-                    num_classes=80,
-                    loss_mask=dict(
-                        type='CrossEntropyLoss', use_mask=True, loss_weight=1.0)))
+                    type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
+                loss_bbox=dict(type='L1Loss', loss_weight=1.0)),
+            mask_roi_extractor=dict(
+                type='SingleRoIExtractor',
+                roi_layer=dict(type='RoIAlign', output_size=14, sampling_ratio=0),
+                out_channels=256,
+                featmap_strides=[4, 8, 16, 32]),
+            mask_head=dict(
+                type='FCNMaskHead',
+                num_convs=4,
+                in_channels=256,
+                conv_out_channels=256,
+                num_classes=num_classes,
+                loss_mask=dict(
+                    type='CrossEntropyLoss', use_mask=True, loss_weight=1.0)))
 
         # model settings
         mm_config = dict(
@@ -1061,9 +1225,9 @@ class MM_MaskRCNN(MM_Detector):
 
         backbone_cfg = mm_config['backbone']
         _hack_mm_backbone_in_channels(backbone_cfg)
-        super(MM_MaskRCNN, self).__init__(mm_config, train_cfg=train_cfg,
-                                          test_cfg=test_cfg, classes=classes,
-                                          input_stats=input_stats)
+        super().__init__(mm_config, train_cfg=train_cfg, test_cfg=test_cfg,
+                         classes=classes, input_stats=input_stats,
+                         channels=channels)
 
 
 def _load_mmcv_weights(filename, map_location=None):
@@ -1137,25 +1301,25 @@ class MM_CascadeRCNN(MM_Detector):
         >>> batch_dets = self.coder.decode_batch(outputs)
     """
     def __init__(self, classes, channels='rgb', input_stats=None):
-        import ndsampler
-        classes = ndsampler.CategoryTree.coerce(classes)
+        import kwcoco
+        classes = kwcoco.CategoryTree.coerce(classes)
 
         if 'background' in classes:
             # Mmdet changed its "background category" conventions
             # https://mmdetection.readthedocs.io/en/latest/compatibility.html#codebase-conventions
-            if _mmdet_is_version_1x():
-                if classes.node_to_idx['background'] != 0:
-                    raise AssertionError('mmdet 1.x needs background to be the first class')
-                num_classes = len(classes)
-            else:
-                if classes.node_to_idx['background'] != len(classes) - 1:
-                    raise AssertionError('mmdet 2.x needs background to be the last class')
-                num_classes = len(classes) - 1
+            if classes.node_to_idx['background'] != len(classes) - 1:
+                raise AssertionError('mmdet 2.x needs background to be the last class')
+            num_classes = len(classes) - 1
         else:
-            if _mmdet_is_version_1x():
-                num_classes = len(classes) + 1
-            else:
-                num_classes = len(classes)
+            num_classes = len(classes)
+
+        # else:
+        #     num_classes = len(classes)
+        # if 'background' in classes:
+        #     assert classes.node_to_idx['background'] == 0
+        #     num_classes = len(classes)
+        # else:
+        #     num_classes = len(classes) + 1
 
         self.channels = ChannelSpec.coerce(channels)
 
@@ -1169,148 +1333,85 @@ class MM_CascadeRCNN(MM_Detector):
         self.in_channels = in_channels
 
         compat_params = {}
-        if _mmdet_is_version_1x():
-            # Compatibility for mmdet 1.x
-            compat_params['num_stages'] = 3
-            compat_params['rpn_head'] = dict(
-                type='RPNHead',
-                in_channels=256,
-                feat_channels=256,
-                anchor_scales=[8],
-                anchor_ratios=[0.5, 1.0, 2.0],
-                anchor_strides=[4, 8, 16, 32, 64],
+        # Compatibility for mmdet 2.x
+        compat_params['rpn_head'] = dict(
+            type='RPNHead',
+            in_channels=256,
+            feat_channels=256,
+            anchor_generator=dict(
+                type='AnchorGenerator',
+                scales=[8],
+                ratios=[0.5, 1.0, 2.0],
+                strides=[4, 8, 16, 32, 64]),
+            bbox_coder=dict(
+                type='DeltaXYWHBBoxCoder',
                 target_means=[.0, .0, .0, .0],
-                target_stds=[1.0, 1.0, 1.0, 1.0],
-                loss_cls=dict(
-                    type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-                loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0)
-            )
-            compat_params['bbox_head'] = [
-                dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.1, 0.1, 0.2, 0.2],
-                    reg_class_agnostic=True,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-                dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.05, 0.05, 0.1, 0.1],
-                    reg_class_agnostic=True,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)),
-                dict(
-                    type='SharedFCBBoxHead',
-                    num_fcs=2,
-                    in_channels=256,
-                    fc_out_channels=1024,
-                    roi_feat_size=7,
-                    num_classes=num_classes,
-                    target_means=[0., 0., 0., 0.],
-                    target_stds=[0.033, 0.033, 0.067, 0.067],
-                    reg_class_agnostic=True,
-                    loss_cls=dict(
-                        type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0),
-                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
-            ]
-            compat_params['bbox_roi_extractor'] = dict(
-                type='SingleRoIExtractor',
-                roi_layer=dict(type='RoIAlign', out_size=7, sample_num=2, use_torchvision=True),
-                out_channels=256,
-                featmap_strides=[4, 8, 16, 32])
-        else:
-            # Compatibility for mmdet 2.x
-            compat_params['rpn_head'] = dict(
-                type='RPNHead',
-                in_channels=256,
-                feat_channels=256,
-                anchor_generator=dict(
-                    type='AnchorGenerator',
-                    scales=[8],
-                    ratios=[0.5, 1.0, 2.0],
-                    strides=[4, 8, 16, 32, 64]),
-                bbox_coder=dict(
-                    type='DeltaXYWHBBoxCoder',
-                    target_means=[.0, .0, .0, .0],
-                    target_stds=[1.0, 1.0, 1.0, 1.0]),
-                loss_cls=dict(
-                    type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
-                loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0))
+                target_stds=[1.0, 1.0, 1.0, 1.0]),
+            loss_cls=dict(
+                type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+            loss_bbox=dict(type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=1.0))
 
-            compat_params['roi_head'] = dict(
-                type='CascadeRoIHead',
-                num_stages=3,
-                stage_loss_weights=[1, 0.5, 0.25],
-                bbox_roi_extractor=dict(
-                    type='SingleRoIExtractor',
-                    roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
-                    out_channels=256,
-                    featmap_strides=[4, 8, 16, 32]),
-                bbox_head=[
-                    dict(
-                        type='Shared2FCBBoxHead',
-                        in_channels=256,
-                        fc_out_channels=1024,
-                        roi_feat_size=7,
-                        num_classes=num_classes,
-                        bbox_coder=dict(
-                            type='DeltaXYWHBBoxCoder',
-                            target_means=[0., 0., 0., 0.],
-                            target_stds=[0.1, 0.1, 0.2, 0.2]),
-                        reg_class_agnostic=True,
-                        loss_cls=dict(
-                            type='CrossEntropyLoss',
-                            use_sigmoid=False,
-                            loss_weight=1.0),
-                        loss_bbox=dict(type='SmoothL1Loss', beta=1.0,
-                                       loss_weight=1.0)),
-                    dict(
-                        type='Shared2FCBBoxHead',
-                        in_channels=256,
-                        fc_out_channels=1024,
-                        roi_feat_size=7,
-                        num_classes=num_classes,
-                        bbox_coder=dict(
-                            type='DeltaXYWHBBoxCoder',
-                            target_means=[0., 0., 0., 0.],
-                            target_stds=[0.05, 0.05, 0.1, 0.1]),
-                        reg_class_agnostic=True,
-                        loss_cls=dict(
-                            type='CrossEntropyLoss',
-                            use_sigmoid=False,
-                            loss_weight=1.0),
-                        loss_bbox=dict(type='SmoothL1Loss', beta=1.0,
-                                       loss_weight=1.0)),
-                    dict(
-                        type='Shared2FCBBoxHead',
-                        in_channels=256,
-                        fc_out_channels=1024,
-                        roi_feat_size=7,
-                        num_classes=num_classes,
-                        bbox_coder=dict(
-                            type='DeltaXYWHBBoxCoder',
-                            target_means=[0., 0., 0., 0.],
-                            target_stds=[0.033, 0.033, 0.067, 0.067]),
-                        reg_class_agnostic=True,
-                        loss_cls=dict(
-                            type='CrossEntropyLoss',
-                            use_sigmoid=False,
-                            loss_weight=1.0),
-                        loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
-                ])
+        compat_params['roi_head'] = dict(
+            type='CascadeRoIHead',
+            num_stages=3,
+            stage_loss_weights=[1, 0.5, 0.25],
+            bbox_roi_extractor=dict(
+                type='SingleRoIExtractor',
+                roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
+                out_channels=256,
+                featmap_strides=[4, 8, 16, 32]),
+            bbox_head=[
+                dict(
+                    type='Shared2FCBBoxHead',
+                    in_channels=256,
+                    fc_out_channels=1024,
+                    roi_feat_size=7,
+                    num_classes=num_classes,
+                    bbox_coder=dict(
+                        type='DeltaXYWHBBoxCoder',
+                        target_means=[0., 0., 0., 0.],
+                        target_stds=[0.1, 0.1, 0.2, 0.2]),
+                    reg_class_agnostic=True,
+                    loss_cls=dict(
+                        type='CrossEntropyLoss',
+                        use_sigmoid=False,
+                        loss_weight=1.0),
+                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0,
+                                   loss_weight=1.0)),
+                dict(
+                    type='Shared2FCBBoxHead',
+                    in_channels=256,
+                    fc_out_channels=1024,
+                    roi_feat_size=7,
+                    num_classes=num_classes,
+                    bbox_coder=dict(
+                        type='DeltaXYWHBBoxCoder',
+                        target_means=[0., 0., 0., 0.],
+                        target_stds=[0.05, 0.05, 0.1, 0.1]),
+                    reg_class_agnostic=True,
+                    loss_cls=dict(
+                        type='CrossEntropyLoss',
+                        use_sigmoid=False,
+                        loss_weight=1.0),
+                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0,
+                                   loss_weight=1.0)),
+                dict(
+                    type='Shared2FCBBoxHead',
+                    in_channels=256,
+                    fc_out_channels=1024,
+                    roi_feat_size=7,
+                    num_classes=num_classes,
+                    bbox_coder=dict(
+                        type='DeltaXYWHBBoxCoder',
+                        target_means=[0., 0., 0., 0.],
+                        target_stds=[0.033, 0.033, 0.067, 0.067]),
+                    reg_class_agnostic=True,
+                    loss_cls=dict(
+                        type='CrossEntropyLoss',
+                        use_sigmoid=False,
+                        loss_weight=1.0),
+                    loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0))
+            ])
 
         mm_config =  dict(
             type='CascadeRCNN',
@@ -1431,6 +1532,7 @@ class MM_CascadeRCNN(MM_Detector):
         super(MM_CascadeRCNN, self).__init__(mm_config, train_cfg=train_cfg,
                                              test_cfg=test_cfg,
                                              classes=classes,
+                                             channels=channels,
                                              input_stats=input_stats)
 
     def _fix_loss_parts(self, loss_parts):
@@ -1438,10 +1540,7 @@ class MM_CascadeRCNN(MM_Detector):
         Hack for data parallel runs where the loss dicts need to have the same
         exact keys.
         """
-        if _mmdet_is_version_1x():
-            num_stages = self.detector.num_stages
-        else:
-            num_stages = self.detector.roi_head.num_stages
+        num_stages = self.detector.roi_head.num_stages
         for i in range(num_stages):
             for name in ['loss_cls', 'loss_bbox']:
                 key = 's{}.{}'.format(i, name)

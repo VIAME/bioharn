@@ -46,8 +46,15 @@ class ClfConfig(scfg.Config):
 
         'min_dim': scfg.Value(64, help='absolute minimum window size'),
         'input_dims': scfg.Value((224, 224), help='Window size to input to the network'),
-        'normalize_inputs': scfg.Value(True, help=(
-            'if True, precompute training mean and std for data whitening')),
+
+        'normalize_inputs': scfg.Value('imagenet', help=ub.paragraph(
+            '''
+            Specification for the mean and std for data whitening.
+
+            If True, precompute using 1000 unaugmented training images.
+            If an integer, use that many unaugmented training images.
+            If 'imagenet' use standard mean/std values (default).
+            ''')),
 
         'balance': scfg.Value(None, help='balance strategy. Can be classes or None'),
 
@@ -56,6 +63,7 @@ class ClfConfig(scfg.Config):
 
         'batch_size': scfg.Value(3, help='number of items per batch'),
         'num_batches': scfg.Value('auto', help='Number of batches per epoch (mainly for balanced batch sampling)'),
+        'num_vali_batches': scfg.Value('auto', help='number of val batches per epoch'),
 
         'max_epoch': scfg.Value(140, help='Maximum number of epochs'),
         'patience': scfg.Value(140, help='Maximum "bad" validation epochs before early stopping'),
@@ -74,7 +82,24 @@ class ClfConfig(scfg.Config):
         'draw_interval': scfg.Value(1, help='Minutes to wait between drawing'),
         'draw_per_batch': scfg.Value(32, help='Number of items to draw within each batch'),
 
-        'timeout': scfg.Value(float('inf'), help='maximum number of seconds to wait for training'),
+
+        'timeout': scfg.Value(
+            float('inf'), help='maximum number of seconds to wait for training'),
+
+        'allow_unicode': scfg.Value(not ub.WIN32, help=(
+            'allow for unicode characters in messages, otherwise '
+            ' we approximate them with ascii')),
+
+        'eager_dump_tensorboard': scfg.Value(True, help=(
+            'If True, logs tensorboard within inner iteration '
+            '(experimental). No effect if dump_tensorboard is True')
+        ),
+
+        'dump_tensorboard': scfg.Value(True, help=(
+            'If True, tensorboard information is visualized with '
+            'matplotlib and dumped as an image',
+        )),
+
     }
 
     def normalize(self):
@@ -369,11 +394,13 @@ class ClfHarn(nh.FitHarn):
             dict: dictionary of scalar metrics for netharn to log
 
         Example:
+            >>> # xdoctest: +REQUIRES(--slow)
             >>> harn = setup_harn().initialize()
             >>> harn._demo_epoch('vali', max_iter=10)
             >>> harn.on_epoch()
         """
-        from netharn.metrics import clf_report
+        from kwcoco.metrics import clf_report
+        import pandas as pd
         dset = harn.datasets[harn.current_tag]
 
         probs = np.vstack(harn._accum_confusion_vectors['probs'])
@@ -391,11 +418,34 @@ class ClfHarn(nh.FitHarn):
 
         # ovr_cfsn = cfsn_vecs.binarize_ovr()
         # Compute multiclass metrics (new way!)
+
+        mc_y_true = y_true
+        mc_probs = probs
         target_names = dset.classes
+        sample_weight = None
+        remove_unsupported = True
+        metrics = [
+            'ap', 'auc', 'f1', 'mcc', 'brier',
+        ]
+
         ovr_report = clf_report.ovr_classification_report(
-            y_true, probs, target_names=target_names, metrics=[
-                'auc', 'ap', 'mcc', 'brier'
-            ])
+            mc_y_true, mc_probs, target_names=target_names,
+            sample_weight=sample_weight, metrics=metrics,
+            remove_unsupported=remove_unsupported,
+            verbose=1, log=harn.info
+        )
+
+        clf_report.classification_report(
+            y_true, y_pred, target_names=target_names,
+            sample_weight=sample_weight,
+            remove_unsupported=remove_unsupported,
+            verbose=1, log=harn.info
+        )
+
+        # ovr_metrics = ovr_report['ovr']
+        # weighted_ave = ovr_report['ave']
+        # print('ovr_metrics')
+        # print(pd.concat([ovr_metrics, weighted_ave.to_frame('__accum__').T]))
 
         # percent error really isn't a great metric, but its easy and standard.
         errors = (y_true != y_pred)
@@ -493,7 +543,14 @@ def setup_harn(cmdline=True, **kw):
 
     channels = ChannelSpec.coerce(config['channels'])
 
-    if config['normalize_inputs']:
+    if config['normalize_inputs'] == 'imagenet':
+        input_stats = {
+            'rgb': {
+                'mean':  torch.Tensor([[[[0.4850]], [[0.4560]], [[0.4060]]]]),
+                'std':  torch.Tensor([[[[0.2290]], [[0.2240]], [[0.2250]]]]),
+            }
+        }['rgb']  # TODO: handle channels
+    elif config['normalize_inputs']:
         # Get stats on the dataset (todo: turn off augmentation for this)
         _dset = torch_datasets['train']
         prev = _dset.disable_augmenter
@@ -557,7 +614,8 @@ def setup_harn(cmdline=True, **kw):
     torch_loaders = {
         tag: dset.make_loader(
             batch_size=config['batch_size'],
-            num_batches=config['num_batches'],
+            # TODO: num_train_batches, num_test_batches
+            num_batches=config['num_batches'] if tag == 'train' else config['num_vali_batches'],
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
             balance=(config['balance'] if tag == 'train' else None),
@@ -576,8 +634,8 @@ def setup_harn(cmdline=True, **kw):
     model = ClfModel(**modelkw)
     model._initkw = modelkw
 
-    initializer_ = nh.Initializer.coerce(config, association='prefix-hack')
-    # initializer_ = nh.Initializer.coerce(config, association='embedding')
+    # initializer_ = nh.Initializer.coerce(config, association='prefix-hack')
+    initializer_ = nh.Initializer.coerce(config, association='embedding')
 
     hyper = nh.HyperParams(
         name=config['name'],
@@ -618,10 +676,17 @@ def setup_harn(cmdline=True, **kw):
         'num_keep': 3,
         'keep_freq': 10,
         'tensorboard_groups': ['loss'],
-        'eager_dump_tensorboard': True,
-        'timeout': config['timeout'],
+
+        # 'eager_dump_tensorboard': config['eager_dump_tensorboard'],
+        # 'dump_tensorboard': config['dump_tensorboard'],
+
         'colored': not ub.WIN32,
-        'allow_unicode': not ub.WIN32,
+        # 'allow_unicode': not ub.WIN32,
+
+        'timeout': config['timeout'],
+        'allow_unicode': config['allow_unicode'],
+        'eager_dump_tensorboard': config['eager_dump_tensorboard'],
+        'dump_tensorboard': config['dump_tensorboard'],
     })
 
     if ub.WIN32:
@@ -640,7 +705,7 @@ def main():
     harn = setup_harn()
     harn.initialize()
 
-    if ub.argflag('--lrtest'):
+    if ub.argflag('--lrtest') or ub.argflag('--lrauto'):
         # Undocumented hidden feature,
         # Perform an LR-test, then resetup the harness. Optionally draw the
         # results using matplotlib.
@@ -653,6 +718,11 @@ def main():
             plt = kwplot.autoplt()
             result.draw()
             plt.show()
+
+        if ub.argflag('--lrtest'):
+            # If we are just testing, simply return
+            return
+
         # Recreate a new version of the harness with the recommended LR.
         config = harn.script_config.asdict()
         config['lr'] = (result.recommended_lr * 10)
@@ -681,97 +751,11 @@ if __name__ == '__main__':
         - [ ] Student Teacher
 
     Example:
-        python -m bioharn.clf_fit \
-            --name=bioharn-clf-rgb-v001 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=complex \
-            --init=noop \
-            --workdir=$HOME/work/bioharn \
-            --arch=resnext101 \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=256,256 \
-            --normalize_inputs=True \
-            --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x8d-8ba56ff5.pth \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=32 \
-            --num_batches=2000 \
-            --balance=classes
-
-
 
         python -m bioharn.clf_fit \
-            --name=bioharn-clf-rgb-v002 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=complex \
-            --init=noop \
-            --workdir=$HOME/work/bioharn \
-            --arch=resnext101 \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=256,256 \
-            --normalize_inputs=True \
-            --backbone_init=$HOME/.cache/torch/checkpoints/resnext101_32x8d-8ba56ff5.pth \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=32 \
-            --balance=None
-
-        python -m bioharn.clf_fit \
-            --name=bioharn-clf-rgb-v003 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=simple \
-            --pretrained=/home/joncrall/work/bioharn/fit/runs/bioharn-clf-rgb-v001/nrorbmcb/deploy_ClfModel_nrorbmcb_051_UFCIUU.zip \
-            --workdir=$HOME/work/bioharn \
-            --arch=resnext101 \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=256,256 \
-            --normalize_inputs=True \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=32 \
-            --balance=None
-
-
-        python -m bioharn.clf_fit \
-            --name=bioharn-clf-rgb-hard-v004 \
-            --train_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_train_hardbg1.mscoco.json \
-            --vali_dataset=$HOME/data/noaa_habcam/combos/habcam_cfarm_v8_vali_hardbg1.mscoco.json \
-            --schedule=ReduceLROnPlateau-p5-c5 \
-            --max_epoch=400 \
-            --augment=simple \
-            --pretrained=$HOME/remote/namek/work/bioharn/fit/runs/bioharn-clf-rgb-v002/crloecin/deploy_ClfModel_crloecin_005_LSODSD.zip \
-            --workdir=$HOME/work/bioharn \
-            --arch=resnext101 \
-            --channels="rgb" \
-            --optim=sgd \
-            --lr=1e-3 \
-            --input_dims=256,256 \
-            --normalize_inputs=True \
-            --workers=8 \
-            --xpu=auto \
-            --batch_size=32 \
-            --balance=classes
-
-        python -m bioharn.clf_fit \
-            --name=test-start-from-pretrained-pt \
+            --name=simple_demo \
             --train_dataset=special:shapes32 \
             --vali_dataset=special:shapes8 \
-            --pretrained=/home/joncrall/.cache/torch/checkpoints/resnet50-19c8e357.pth \
             --workdir=$HOME/work/test \
             --arch=resnet50 \
             --channels="rgb" \
@@ -781,6 +765,7 @@ if __name__ == '__main__':
             --normalize_inputs=False \
             --workers=0 \
             --xpu=auto \
-            --batch_size=32
+            --batch_size=32 \
+            --num_batches=auto --num_vali_batches=auto
     """
     main()
