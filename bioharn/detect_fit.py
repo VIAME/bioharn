@@ -137,7 +137,7 @@ class DetectFitConfig(scfg.Config):
         'timeout': scfg.Value(
             float('inf'), help='maximum number of seconds to wait for training'),
 
-        'allow_unicode': scfg.Value(not ub.WIN32, help=(
+        'allow_unicode': scfg.Value(True, help=(
             'allow for unicode characters in messages, otherwise '
             ' we approximate them with ascii')),
 
