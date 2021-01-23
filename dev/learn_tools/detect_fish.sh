@@ -59,6 +59,8 @@ python -m bioharn.detect_fit \
     --bstep=8
 
 
+TRAIN_FPATH=/data/matt.dawkins/Training3/deep_training/training_truth.json
+VALI_FPATH=/data/matt.dawkins/Training3/deep_training/validation_truth.json 
 srun --gres=gpu:rtx6000:1 --cpus-per-task=4 --partition=priority --account=noaa --mem 30000 \
 python -m bioharn.detect_fit \
     --name=bioharn-fish-hr18-rgb-motion-v3 \

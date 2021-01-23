@@ -32,6 +32,9 @@ class ClfConfig(scfg.Config):
         'workers': scfg.Value(2, help='number of parallel dataloading jobs'),
         'xpu': scfg.Value('auto', help='See netharn.XPU for details. can be auto/cpu/xpu/cuda0/0,1,2,3)'),
 
+        'pin_memory': scfg.Value(True, help='see torch DataLoader docs'),
+        'sharing_strategy': scfg.Value('auto', help='torch sharing strategy. Can be file_system or descriptor on linux systems'),
+
         'datasets': scfg.Value('special:shapes256', help='Either a special key or a coco file'),
         'train_dataset': scfg.Value(None),
         'vali_dataset': scfg.Value(None),
@@ -537,6 +540,7 @@ def setup_harn(cmdline=True, **kw):
     print('config = {}'.format(ub.repr2(config.asdict())))
 
     nh.configure_hacks(config)
+
     coco_datasets = nh.api.Datasets.coerce(config)
 
     if 0:
@@ -657,7 +661,7 @@ def setup_harn(cmdline=True, **kw):
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
             balance=(config['balance'] if tag == 'train' else None),
-            pin_memory=True)
+            pin_memory=config['pin_memory'])
         for tag, dset in torch_datasets.items()
     }
 
