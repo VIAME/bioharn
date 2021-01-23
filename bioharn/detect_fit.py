@@ -27,6 +27,7 @@ class DetectFitConfig(scfg.Config):
 
         # System Options
         'workdir': scfg.Path('~/work/bioharn', help='path where this script can dump stuff'),
+        'sampler_workdir': scfg.Path(None, help='workdir for data caches'),
         'workers': scfg.Value(0, help='number of DataLoader processes'),
         'xpu': scfg.Value('argv', help='a CUDA device or a CPU'),
 
@@ -175,6 +176,9 @@ class DetectFitConfig(scfg.Config):
         elif key == 'lightnet':
             from bioharn.models.yolo2 import yolo2
             self['pretrained'] = yolo2.demo_voc_weights()
+
+        if self['sampler_workdir'] is None:
+            self['sampler_workdir'] = self['workdir']
 
         if self['pretrained'] is not None:
             self['init'] = 'pretrained'
@@ -748,6 +752,7 @@ def setup_harn(cmdline=True, **kw):
 
     nh.configure_hacks(config)  # fix opencv bugs
     ub.ensuredir(config['workdir'])
+    ub.ensuredir(config['sampler_workdir'])
 
     if False:
         # Hack to fix: https://github.com/pytorch/pytorch/issues/973
@@ -821,7 +826,7 @@ def setup_harn(cmdline=True, **kw):
     samplers = {}
     for tag, subset in subsets.items():
         print('subset = {!r}'.format(subset))
-        sampler = ndsampler.CocoSampler(subset, workdir=config['workdir'],
+        sampler = ndsampler.CocoSampler(subset, workdir=config['sampler_workdir'],
                                         backend=config['sampler_backend'])
 
         sampler.frames.prepare(workers=config['workers'])
