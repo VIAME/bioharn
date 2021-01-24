@@ -1241,7 +1241,7 @@ class DetectionAugmentor(object):
                 iaa.Sometimes(.1, iaa.AddElementwise((-40, 40))),
             ], random_order=True)
 
-        elif mode == 'complex':
+        elif mode == 'complex' or mode == 'no_hue':
             """
             notes:
                 We have N independent random variables V[n] with
@@ -1270,6 +1270,10 @@ class DetectionAugmentor(object):
                 >>> print('P(we use 6 augmentors) = {:.4f}'.format(dist.cdf(x=6) - dist.cdf(x=5)))
                 >>> print('P(we use 8 augmentors) = {:.4f}'.format(dist.cdf(x=8) - dist.cdf(x=7)))
             """
+            if mode == 'complex':
+                hue_op_per = 0.1
+            else:
+                hue_op_per = 0.0
             self._geometric = iaa.Sequential([
                 iaa.Sometimes(0.55, iaa.Affine(
                     scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
@@ -1290,19 +1294,19 @@ class DetectionAugmentor(object):
             )
             self._intensity = iaa.Sequential([
                 # Color, brightness, saturation, and contrast
-                iaa.Sometimes(0.1, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
-                iaa.Sometimes(.10, iaa.GammaContrast((0.5, 2.0))),
-                iaa.Sometimes(.10, iaa.LinearContrast((0.5, 1.5))),
-                iaa.Sometimes(.10, iaa.Multiply((0.5, 1.5), per_channel=0.5)),
-                iaa.Sometimes(.10, iaa.Add((-10, 10), per_channel=0.5)),
-                iaa.Sometimes(.1, iaa.Grayscale(alpha=(0, 1))),
+                iaa.Sometimes(hue_op_per, nh.data.transforms.HSVShift(hue=0.1, sat=1.5, val=1.5)),
+                iaa.Sometimes(hue_op_per, iaa.GammaContrast((0.5, 2.0))),
+                iaa.Sometimes(.1, iaa.LinearContrast((0.5, 1.5))),
+                iaa.Sometimes(.1, iaa.Multiply((0.5, 1.5), per_channel=0.5)),
+                iaa.Sometimes(.1, iaa.Add((-10, 10), per_channel=0.5)),
+                iaa.Sometimes(hue_op_per, iaa.Grayscale(alpha=(0, 1))),
 
                 # Speckle noise
-                iaa.Sometimes(.1, iaa.AddElementwise((-40, 40))),
+                iaa.Sometimes(hue_op_per, iaa.AddElementwise((-40, 40))),
                 iaa.Sometimes(.1, iaa.AdditiveGaussianNoise(
                     loc=0, scale=(0.0, 0.05 * 255), per_channel=0.5
                 )),
-                iaa.Sometimes(.1, iaa.OneOf([
+                iaa.Sometimes(hue_op_per, iaa.OneOf([
                     iaa.Dropout((0.01, 0.1), per_channel=0.5),
                     iaa.CoarseDropout(
                         (.09, .31), size_percent=(0.19, 0.055),
@@ -1324,7 +1328,7 @@ class DetectionAugmentor(object):
                 ])),
 
                 # Misc
-                iaa.Sometimes(.1, iaa.OneOf([
+                iaa.Sometimes(hue_op_per, iaa.OneOf([
                     iaa.EdgeDetect(alpha=(0, 0.7)),
                     iaa.DirectedEdgeDetect(
                         alpha=(0, 0.7), direction=(0.0, 1.0)

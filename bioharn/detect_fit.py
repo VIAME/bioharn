@@ -70,7 +70,8 @@ class DetectFitConfig(scfg.Config):
             If 'imagenet' use standard mean/std values (default).
             ''')),
         # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['medium', 'simple']),
-        'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'low', 'simple', 'complex', None]),
+        'augment': scfg.Value('medium', help='key indicating augmentation strategy',
+                              choices=['medium', 'low', 'simple', 'complex', 'no_hue', None]),
         'gravity': scfg.Value(0.0, help='how often to assume gravity vector for augmentation'),
         'balance': scfg.Value(None),
 
