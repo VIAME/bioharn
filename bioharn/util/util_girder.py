@@ -12,6 +12,9 @@ def grabdata_girder(api_url, file_id, fname=None, dpath=None, hash_prefix=None,
     Requirements:
         pip install girder-client
 
+        import xdev
+        globals().update(xdev.get_func_kwargs(grabdata_girder))
+
     Ignore:
         >>> api_url = 'https://data.kitware.com/api/v1'
         >>> file_id = '5dd3eb8eaf2e2eed3508d604'
