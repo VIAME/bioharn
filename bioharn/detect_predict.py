@@ -110,12 +110,31 @@ def _ensure_upgraded_model(deployed_fpath):
             topology_text = file.read()
             if 'MM_Detector' in topology_text:
                 if '_mmdet_is_version_1x' not in topology_text:
-                    needs_update = True
+                    needs_update = 'to_2x'
+                else:
+                    # Super hack to "parse" out the bioharn model version
+                    import re
+                    match = re.search(r'^\W*__bioharn_model_vesion__\W*=\W*(\d+)',
+                                      topology_text, flags=re.MULTILINE)
+                    need_version = 3
+                    if match:
+                        found = match.groups()[0]
+                        found_version = int(found)
+                    else:
+                        found_version = 2
 
-    if needs_update:
+                    if found_version < need_version:
+                        needs_update = 'to_latest'
+
+    if needs_update == 'to_2x':
         from bioharn.compat.upgrade_mmdet_model import upgrade_deployed_mmdet_model
         ensured_fpath = upgrade_deployed_mmdet_model({
             'deployed': deployed_fpath, 'use_cache': True})
+    elif needs_update == 'to_latest':
+        from bioharn.compat.update_bioharn_model import update_deployed_bioharn_model
+        ensured_fpath = update_deployed_bioharn_model({
+            'deployed': deployed_fpath, 'use_cache': True
+        })
     else:
         ensured_fpath = deployed_fpath
     return ensured_fpath

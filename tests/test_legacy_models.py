@@ -7,12 +7,16 @@ def test_legacy_models():
 
     Various detection models are hosted here:
         https://data.kitware.com/#collection/58b747ec8d777f0aef5d0f6a
+
+    CommandLine:
+        xdoctest -m tests/test_legacy_models.py test_legacy_models --slow
     """
+
+    if not ub.argflag('--slow'):
+        import pytest
+        pytest.skip()
+
     from bioharn.util.util_girder import grabdata_girder
-
-    import pytest
-    pytest.skip()
-
     api_url = 'https://data.kitware.com/api/v1'
 
     # Sealion models
@@ -38,5 +42,4 @@ def test_legacy_models():
             out_dpath=out_dpath)
 
     print(command)
-
     info = ub.cmd(command, verbose=3)
