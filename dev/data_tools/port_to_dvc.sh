@@ -63,7 +63,7 @@ dvc_setup_and_checkout(){
     # Step 4: Clone this Repo
     # -----------------------
     cd $HOME/data
-    git clone git@gitlab.kitware.com:$REMOTE_URI/viame_dvc.git
+    gt clone git@gitlab.kitware.com:$REMOTE_URI/viame_dvc.git
     cd viame_dvc
 
 
@@ -135,7 +135,7 @@ dvc_create_new_dvc_server(){
     git push
 
     # Set cache-type strategy preferences
-    #dvc config cache.type reflink,symlink,copy
+    dvc config cache.type reflink,symlink,copy
     dvc config cache.type copy
 
     dvc checkout --relink
@@ -203,4 +203,96 @@ copy_viame_datas(){
     #dvc add _ORIG_US_ALASKA_MML_SEALION/2008/sealions_2008_v9.kwcoco.json
     #dvc add _ORIG_US_ALASKA_MML_SEALION/2008/sealions_2008_v9.viame.csv
 
+}
+
+extra(){
+     ln -s /data/dvc-repos /home/joncrall/data/dvc-repos
+
+     cd /data/dvc-repos/viame_dvc
+
+    # Add the raw data to DVC
+    YEARS=(2007 2008 2008W 2009 2010 2011 2012 2013 2014 2015 2016)
+    for YEAR in "${YEARS[@]}"
+    do
+        echo "YEAR = $YEAR"
+        FPATH=$(ls --color=never /data/dvc-repos/viame_dvc/_ORIG_US_ALASKA_MML_SEALION/${YEAR}/sealions_${YEAR}_v*.kwcoco.json)
+        echo "FPATH = $FPATH"
+        cat $FPATH | head -n 100
+        kwcoco reroot --absolute=True --src $FPATH --dst $FPATH.abs --new_prefix=/data/dvc-repos/viame_dvc/_ORIG_US_ALASKA_MML_SEALION/${YEAR}
+        cat $FPATH.abs | head -n 100
+        #git add _ORIG_US_ALASKA_MML_SEALION/${YEAR}/*.dvc
+    done
+
+     cd $HOME/data/dvc-repos/viame_dvc/
+     kwcoco union \
+         --dst _ORIG_US_ALASKA_MML_SEALION/sealions_train_v9.kwcoco.json.abs \
+         --src _ORIG_US_ALASKA_MML_SEALION/2007/sealions_2007_v9.kwcoco.json.abs \
+             _ORIG_US_ALASKA_MML_SEALION/2008/sealions_2008_v9.kwcoco.json.abs \
+             _ORIG_US_ALASKA_MML_SEALION/2008W/sealions_2008W_v9.kwcoco.json.abs \
+             _ORIG_US_ALASKA_MML_SEALION/2009/sealions_2009_v9.kwcoco.json.abs \
+             _ORIG_US_ALASKA_MML_SEALION/2011/sealions_2011_v9.kwcoco.json.abs \
+             _ORIG_US_ALASKA_MML_SEALION/2012/sealions_2012_v3.kwcoco.json.abs \
+             _ORIG_US_ALASKA_MML_SEALION/2013/sealions_2013_v3.kwcoco.json.abs \
+             _ORIG_US_ALASKA_MML_SEALION/2014/sealions_2014_v9.kwcoco.json.abs \
+             _ORIG_US_ALASKA_MML_SEALION/2015/sealions_2015_v9.kwcoco.json.abs 
+
+     kwcoco union \
+         --src \
+         _ORIG_US_ALASKA_MML_SEALION/2010/sealions_2010_v9.kwcoco.json.abs \
+         _ORIG_US_ALASKA_MML_SEALION/2016/sealions_2016_v9.kwcoco.json.abs \
+         --dst _ORIG_US_ALASKA_MML_SEALION/sealions_vali_v9.kwcoco.json.abs
+
+    cd $HOME/data/dvc-repos/viame_dvc/_ORIG_US_ALASKA_MML_SEALION
+    kwcoco reroot sealions_train_v9.kwcoco.json --absolute=False --dst sealions_train_v9.kwcoco.json.rel
+    kwcoco reroot sealions_vali_v9.kwcoco.json --absolute=False --dst sealions_vali_v9.kwcoco.json.rel
+
+    dvc unprotect sealions_train_v9.kwcoco.json sealions_vali_v9.kwcoco.json
+    cp sealions_train_v9.kwcoco.json.rel sealions_train_v9.kwcoco.json
+    cp sealions_vali_v9.kwcoco.json.rel sealions_vali_v9.kwcoco.json
+    dvc add sealions_train_v9.kwcoco.json sealions_vali_v9.kwcoco.json
+	git add sealions_vali_v9.kwcoco.json.dvc sealions_train_v9.kwcoco.json.dvc
+    git commit -am "update sealion coco files"
+    git push
+
+
+
+    dvc add *.json
+
+    kwcoco stats $HOME/data/dvc-repos/viame_dvc/_ORIG_US_ALASKA_MML_SEALION/sealions_train_v9.kwcoco.json
+    kwcoco stats $HOME/data/dvc-repos/viame_dvc/_ORIG_US_ALASKA_MML_SEALION/sealions_vali_v9.kwcoco.json
+
+    cat sealions_vali_v9.kwcoco.json  | head -n 100
+    cat 2007/sealions_2007_v9.kwcoco.json  | head -n 100
+
+    kwcoco reroot sealions_train_v9.kwcoco.json --absolute=False --dst tmp_sealions_train_v9.kwcoco.json
+    kwcoco reroot sealions_vali_v9.kwcoco.json --absolute=False --dst tmp_sealions_vali_v9.kwcoco.json
+
+
+    python -m bioharn.detect_fit \
+        --name=sealion-cascade-v10 \
+        --workdir=$HOME/work/sealions \
+        --sampler_workdir=$HOME/data/dvc-repos/viame_dvc/.ndsampler/_cache \
+        --train_dataset=$HOME/data/dvc-repos/viame_dvc/_ORIG_US_ALASKA_MML_SEALION/sealions_train_v9.kwcoco.json \
+        --vali_dataset=$HOME/data/dvc-repos/viame_dvc/_ORIG_US_ALASKA_MML_SEALION/sealions_vali_v9.kwcoco.json \
+        --schedule=ReduceLROnPlateau-p5-c5 \
+        --max_epoch=400 \
+        --augment=complex \
+        --init=noop \
+        --arch=cascade \
+        --channels="rgb" \
+        --optim=sgd \
+        --lr=1e-3 \
+        --window_dims=512,512 \
+        --input_dims=window \
+        --window_overlap=0.5 \
+        --multiscale=False \
+        --normalize_inputs=imagenet \
+        --workers=8 \
+        --xpu=auto \
+        --batch_size=4 \
+        --sampler_backend=None \
+        --num_batches=1000 \
+        --balance=None \
+        --bstep=16
+     
 }
