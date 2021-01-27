@@ -18,6 +18,7 @@ def _test_train_and_eval_model(aux):
     workdir = ub.ensuredir((dpath, 'work'))
 
     dset.fpath = join(dpath, 'shapes_train.mscoco')
+    dset.remove_categories(['background'])
     dset.dump(dset.fpath)
 
     channels = 'rgb|disparity' if aux else 'rgb'
@@ -26,6 +27,7 @@ def _test_train_and_eval_model(aux):
         cmdline=False,
         # arch='cascade',
         arch='yolo2',
+        normalize_inputs=10,
         train_dataset=dset.fpath,
         channels=channels,
         workers=0,

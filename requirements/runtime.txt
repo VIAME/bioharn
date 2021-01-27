@@ -8,7 +8,7 @@ kwplot
 kwimage
 seaborn
 ndsampler
-netharn
+netharn >= 0.5.15
 scriptconfig
 ubelt
 torch_liberator >= 0.0.4
