@@ -230,6 +230,7 @@ class HRNet_V2(nn.Module):
             in resblocks to let them behave as identity.
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> from mmdet.models import HRNet
         >>> import torch
         >>> extra = dict(

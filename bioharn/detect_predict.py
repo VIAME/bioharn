@@ -21,7 +21,6 @@ Notes:
 
     girder-client --api-url https://data.kitware.com/api/v1 download 5dd3eb8eaf2e2eed3508d604
 
-
 """
 from os.path import exists
 from os.path import isfile
@@ -385,7 +384,7 @@ class DetectPredictor(object):
         Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
 
         Args:
-            sampler (ndsampler.CocoDataset): dset wrapped in a sampler
+            sampler (ndsampler.CocoSampler): dset wrapped in a sampler
             gids (List[int], default=None): if specified, then only predict
                 on these image ids.
 
@@ -854,10 +853,11 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
     @classmethod
     def demo(WindowedSamplerDataset, key='habcam', **kwargs):
         import ndsampler
+        import kwcoco
         if key == 'habcam':
             dset_fpath = ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
             workdir = ub.expandpath('~/work/bioharn')
-            dset = ndsampler.CocoDataset(dset_fpath)
+            dset = kwcoco.CocoDataset(dset_fpath)
             sampler = ndsampler.CocoSampler(dset, workdir=workdir, backend=None)
         else:
             sampler = ndsampler.CocoSampler.demo(key)
@@ -933,7 +933,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         sample = self.sampler.load_sample(tr, with_annots=False)
 
         if 0:
-            # ndsampler should interact with the network's ChannelSpec to know
+            # kwcoco should interact with the network's ChannelSpec to know
             # if it needs to coerce grayscale images to 3 channel to pass them
             # to an RGB network.
             #
@@ -980,7 +980,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         offset_xy = torch.FloatTensor([slices[1].start, slices[0].start])
 
         # TODO: UNIFY WITH SingleImageDataset.__getitem__
-        # TODO: ndsampler should contain the correct logic to sample fused
+        # TODO: kwcoco should contain the correct logic to sample fused
         # streams that includes the rgb sampling.
 
         # Assume 8-bit image inputs
@@ -1046,7 +1046,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
 
 def _coerce_sampler(config):
-    import ndsampler
+    import kwcoco
     from bioharn import util
     from os.path import isdir
 
@@ -1056,14 +1056,14 @@ def _coerce_sampler(config):
     if isinstance(config['dataset'], str):
         if config['dataset'].endswith('.json'):
             dataset_fpath = ub.expandpath(config['dataset'])
-            coco_dset = ndsampler.CocoDataset(dataset_fpath)
+            coco_dset = kwcoco.CocoDataset(dataset_fpath)
             print('coco hashid = {}'.format(coco_dset._build_hashid()))
         else:
             image_path = ub.expandpath(config['dataset'])
             path_exists = exists(image_path)
             if path_exists and isfile(image_path):
                 # Single image case
-                coco_dset = ndsampler.CocoDataset()
+                coco_dset = kwcoco.CocoDataset()
                 coco_dset.add_image(image_path)
             elif path_exists and isdir(image_path):
                 # Directory of images case
@@ -1075,7 +1075,7 @@ def _coerce_sampler(config):
                 img_globs = ['*' + ext for ext in IMG_EXTS]
                 fpaths = list(util.find_files(image_path, img_globs))
                 if len(fpaths):
-                    coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
+                    coco_dset = kwcoco.CocoDataset.from_image_paths(fpaths)
                 else:
                     raise Exception('no images found')
             else:
@@ -1083,7 +1083,7 @@ def _coerce_sampler(config):
                 import glob
                 fpaths = list(glob.glob(image_path))
                 if len(fpaths):
-                    coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
+                    coco_dset = kwcoco.CocoDataset.from_image_paths(fpaths)
                 else:
                     raise Exception('not an image path')
 
@@ -1091,13 +1091,13 @@ def _coerce_sampler(config):
         # Multiple image case
         gpaths = config['dataset']
         gpaths = [ub.expandpath(g) for g in gpaths]
-        coco_dset = ndsampler.CocoDataset.from_image_paths(gpaths)
+        coco_dset = kwcoco.CocoDataset.from_image_paths(gpaths)
     else:
         raise TypeError(config['dataset'])
 
     print('Create sampler')
     workdir = ub.expandpath(config.get('workdir'))
-    sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
+    sampler = kwcoco.CocoSampler(coco_dset, workdir=workdir,
                                     backend=sampler_backend)
     return sampler
 
@@ -1114,17 +1114,17 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
     Ignore:
         >>> import ndsampler
+        >>> import kwcoco
         >>> config = {}
         >>> config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000042.pt')
         >>> predictor = DetectPredictor(config)
         >>> predictor._ensure_model()
         >>> out_dpath = './cached_out'
         >>> gids = None
-        >>> coco_dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
+        >>> coco_dset = kwcoco.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
         >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
         >>>                                 backend=None)
     """
-    import ndsampler
     from bioharn import util
     import tempfile
     coco_dset = sampler.dset
@@ -1172,7 +1172,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         # TODO: need to either add the expected img_root to the coco dataset or
         # reroot the file name to be a full path so the predicted dataset can
         # reference the source images if needed.
-        single_img_coco = ndsampler.CocoDataset()
+        single_img_coco = kwcoco.CocoDataset()
         gid = single_img_coco.add_image(**img)
 
         for cat in dets.classes.to_coco():
@@ -1290,14 +1290,6 @@ def detect_cli(config={}):
             --input_dims=512,512 \
             --xpu=0 --batch_size=1
 
-
-        python -m bioharn.detect_predict \
-            --dataset=/data/projects/GOOD/pyrosome-test/US_NW_2017_NWFSC_PYROSOME_TEST \
-            --deployed=$HOME/work/bioharn/fit/nice/test-pyrosome/deploy_MM_CascadeRCNN_lqufwadq_031_HNSZYA.zip \
-            --out_dpath=$HOME/work/bioharn/predict_pyrosome_test \
-            --draw=100 \
-            --xpu=auto --batch_size=2
-
     Ignore:
         >>> config = {}
         >>> config['dataset'] = '~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'
@@ -1335,13 +1327,13 @@ def detect_cli(config={}):
         # Each image produces its own kwcoc files in the "pred" subfolder.
         # Union all of those to make a single coco file that contains all
         # predictions.
-        import ndsampler
+        import kwcoco
         coco_dsets = []
         for gid, pred_fpath in gid_to_pred_fpath.items():
-            single_img_coco = ndsampler.CocoDataset(pred_fpath)
+            single_img_coco = kwcoco.CocoDataset(pred_fpath)
             coco_dsets.append(single_img_coco)
 
-        pred_dset = ndsampler.CocoDataset.union(*coco_dsets)
+        pred_dset = kwcoco.CocoDataset.union(*coco_dsets)
         pred_fpath = join(det_outdir, 'detections.mscoco.json')
         print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
         pred_dset.dump(pred_fpath, newlines=True)
