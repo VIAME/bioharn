@@ -75,7 +75,13 @@ class ClfConfig(scfg.Config):
                 'Special coercible netharn code. Eg: onecycle50, step50, gamma, ReduceLROnPlateau-p10-c10')),
 
         'init': scfg.Value('noop', help='How to initialized weights: e.g. noop, kaiming_normal, path-to-a-pretrained-model)'),
-        'pretrained': scfg.Path(help=('alternative way to specify a path to a pretrained model')),
+        'pretrained': scfg.Path(help=('alternative way to specify a path to a pretrained model. DEPRECATED USE INIT INSTEAD')),
+
+        'backbone_init': scfg.Value('url', help=ub.paragraph(
+            '''
+            Path to backbone weights pre-initialization. If 'url', then the
+            appropriate model-zoo weights are used.
+            ''')),
 
         # preference
         'num_draw': scfg.Value(4, help='Number of initial batchs to draw per epoch'),
@@ -149,6 +155,7 @@ class ClfModel(nh.layers.Module):
         if arch == 'resnet50':
             from torchvision import models
             model = models.resnet50()
+            self.backbone_url = models.resnet.model_urls['resnet50']
             new_conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7,
                                         stride=3, padding=3, bias=False)
             new_fc = torch.nn.Linear(2048, num_classes, bias=True)
@@ -159,11 +166,8 @@ class ClfModel(nh.layers.Module):
             model.conv1 = new_conv1
         elif arch == 'resnext101':
             from torchvision.models import resnet
-            arch = 'resnext101_32x8d'
             model = resnet.resnext101_32x8d()
-            state_dict = resnet.load_state_dict_from_url(
-                    resnet.model_urls[arch])
-            model.load_state_dict(state_dict)
+            self.backbone_url = resnet.model_urls['resnext101_32x8d']
             new_conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7,
                                         stride=3, padding=3, bias=False)
             new_fc = torch.nn.Linear(2048, num_classes, bias=True)
@@ -181,6 +185,25 @@ class ClfModel(nh.layers.Module):
         self.model = model
 
         self.coder = ClfCoder(self.classes)
+
+    def _init_backbone(self, key='url'):
+        """
+        Example:
+            >>> self = ClfModel(arch='resnext101', classes=3)
+            >>> key = 'url'
+            >>> self._init_backbone(key)
+
+            >>> self = ClfModel(arch='resnet50', classes=3)
+            >>> self._init_backbone(key)
+        """
+        from torchvision.models.utils import load_state_dict_from_url
+        from netharn.initializers.functional import load_partial_state
+        if key == 'url':
+            state_dict = load_state_dict_from_url(self.backbone_url)
+        else:
+            state_dict = nh.XPU('cpu').load(key)
+        info = load_partial_state(self, state_dict, association='isomorphism')
+        del info
 
     def forward(self, inputs):
         """
@@ -400,7 +423,7 @@ class ClfHarn(nh.FitHarn):
             >>> harn.on_epoch()
         """
         from kwcoco.metrics import clf_report
-        import pandas as pd
+        # import pandas as pd
         dset = harn.datasets[harn.current_tag]
 
         probs = np.vstack(harn._accum_confusion_vectors['probs'])
@@ -634,8 +657,11 @@ def setup_harn(cmdline=True, **kw):
     model = ClfModel(**modelkw)
     model._initkw = modelkw
 
+    if config['backbone_init'] is not None:
+        model._init_backbone(config['backbone_init'])
+
     # initializer_ = nh.Initializer.coerce(config, association='prefix-hack')
-    initializer_ = nh.Initializer.coerce(config, association='embedding')
+    initializer_ = nh.Initializer.coerce(config, association='isomorphism')
 
     hyper = nh.HyperParams(
         name=config['name'],
