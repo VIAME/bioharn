@@ -917,7 +917,7 @@ def setup_harn(cmdline=True, **kw):
     print('input_stats = {!r}'.format(input_stats))
 
     initializer_ = nh.Initializer.coerce(
-        config, leftover='kaiming_normal', association='embedding')
+        config, leftover='kaiming_normal', association='isomorphism')
     print('initializer_ = {!r}'.format(initializer_))
 
     arch = config['arch']
