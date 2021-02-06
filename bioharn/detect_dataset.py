@@ -616,6 +616,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             worker_init_fn = None
         else:
             def worker_init_fn(worker_id):
+                # worker_info = torch.utils.data.get_worker_info()  # TODO
                 # Make loaders more random
                 kwarray.seed_global(np.random.get_state()[1][0] + worker_id)
                 if self.augmenter:

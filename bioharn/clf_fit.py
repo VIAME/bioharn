@@ -37,6 +37,8 @@ class ClfConfig(scfg.Config):
         'vali_dataset': scfg.Value(None),
         'test_dataset': scfg.Value(None),
 
+        'sql_cache_view': scfg.Value(False, help='if True json-based COCO datasets are cached as SQL views'),
+
         'sampler_backend': scfg.Value(None, help='ndsampler backend'),
 
         'channels': scfg.Value('rgb', help='special channel code. See ChannelSpec'),
@@ -523,7 +525,8 @@ def setup_harn(cmdline=True, **kw):
 
     Example:
         >>> # xdoctest: +SKIP
-        >>> kw = {'datasets': 'special:shapes256'}
+        >>> from bioharn.clf_fit import *  # NOQA
+        >>> kw = {'datasets': 'special:vidshapes256'}
         >>> cmdline = False
         >>> harn = setup_harn(cmdline, **kw)
         >>> harn.initialize()
@@ -536,13 +539,22 @@ def setup_harn(cmdline=True, **kw):
     nh.configure_hacks(config)
     coco_datasets = nh.api.Datasets.coerce(config)
 
+    if 0:
+        dset = coco_datasets['train']
+
+    import xdev
+    xdev.embed()
+    if config['sql_cache_view']:
+        pass
+
     print('coco_datasets = {}'.format(ub.repr2(coco_datasets, nl=1)))
     for tag, dset in coco_datasets.items():
         dset._build_hashid(hash_pixels=False)
 
     workdir = ub.ensuredir(ub.expandpath(config['workdir']))
     samplers = {
-        tag: ndsampler.CocoSampler(dset, workdir=workdir, backend=config['sampler_backend'])
+        tag: ndsampler.CocoSampler(
+            dset, workdir=workdir, backend=config['sampler_backend'])
         for tag, dset in coco_datasets.items()
     }
 
@@ -784,6 +796,23 @@ if __name__ == '__main__':
             --vali_dataset=special:shapes8 \
             --workdir=$HOME/work/test \
             --arch=resnet50 \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=256,256 \
+            --normalize_inputs=False \
+            --workers=0 \
+            --xpu=auto \
+            --batch_size=32 \
+            --num_batches=auto --num_vali_batches=auto
+
+        python -m bioharn.clf_fit \
+            --name=simple_demo \
+            --train_dataset=special:shapes32 \
+            --vali_dataset=special:shapes8 \
+            --workdir=$HOME/work/test \
+            --arch=resnet50 \
+            --sql_cache_view=True \
             --channels="rgb" \
             --optim=sgd \
             --lr=1e-3 \
