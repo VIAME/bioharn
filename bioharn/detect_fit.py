@@ -679,7 +679,9 @@ class DetectHarn(nh.FitHarn):
 
         """
         from bioharn import detect_eval
-
+        # TODO: FIX
+        # AttributeError: 'CocoSqlDatabase' object has no attribute 'fpath'
+        # In SQL MODE
         if harn.script_config['test_on_finish']:
             eval_dataset = harn.datasets.get('test', None)
             if eval_dataset is None:

@@ -816,7 +816,7 @@ if __name__ == '__main__':
         VALI_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_32_kahspdeebbfocp/data.kwcoco.json"
 
         python -m bioharn.clf_fit \
-            --name=simple_demo \
+            --name=simple_demo_sql \
             --train_dataset=$TRAIN_DSET \
             --vali_dataset=$VALI_DSET \
             --workdir=$HOME/work/test \
