@@ -542,14 +542,17 @@ def setup_harn(cmdline=True, **kw):
     if 0:
         dset = coco_datasets['train']
 
-    import xdev
-    xdev.embed()
-    if config['sql_cache_view']:
-        pass
-
     print('coco_datasets = {}'.format(ub.repr2(coco_datasets, nl=1)))
     for tag, dset in coco_datasets.items():
         dset._build_hashid(hash_pixels=False)
+
+    if config['sql_cache_view']:
+        from kwcoco.coco_sql_dataset import ensure_sql_coco_view
+        for tag, dset in list(coco_datasets.items()):
+            sql_dset = ensure_sql_coco_view(dset)
+            sql_dset.hashid = dset.hashid + '-hack-sql'
+            print('sql_dset.uri = {!r}'.format(sql_dset.uri))
+            coco_datasets[tag] = sql_dset
 
     workdir = ub.ensuredir(ub.expandpath(config['workdir']))
     samplers = {
@@ -806,10 +809,16 @@ if __name__ == '__main__':
             --batch_size=32 \
             --num_batches=auto --num_vali_batches=auto
 
+        kwcoco toydata shapes256
+        kwcoco toydata shapes32
+
+        TRAIN_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_256_dqikwsaiwlzjup/data.kwcoco.json"
+        VALI_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_32_kahspdeebbfocp/data.kwcoco.json"
+
         python -m bioharn.clf_fit \
             --name=simple_demo \
-            --train_dataset=special:shapes32 \
-            --vali_dataset=special:shapes8 \
+            --train_dataset=$TRAIN_DSET \
+            --vali_dataset=$VALI_DSET \
             --workdir=$HOME/work/test \
             --arch=resnet50 \
             --sql_cache_view=True \
@@ -822,5 +831,6 @@ if __name__ == '__main__':
             --xpu=auto \
             --batch_size=32 \
             --num_batches=auto --num_vali_batches=auto
+
     """
     main()

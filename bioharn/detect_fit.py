@@ -36,6 +36,8 @@ class DetectFitConfig(scfg.Config):
         'vali_dataset': scfg.Value(None, help='override vali with a custom coco dataset'),
         'test_dataset': scfg.Value(None, help='override test with a custom coco dataset'),
 
+        'sql_cache_view': scfg.Value(False, help='if True json-based COCO datasets are cached as SQL views'),
+
         'sampler_backend': scfg.Value('auto', help='backend for ndsampler'),
 
         # Dataset options
@@ -758,20 +760,38 @@ def setup_harn(cmdline=True, **kw):
 
     # Load ndsampler.CocoDataset objects from info in the config
     subsets = coerce_data.coerce_datasets(config)
+    coco_datasets = subsets
+
+    print('coco_datasets = {}'.format(ub.repr2(coco_datasets, nl=1)))
+    for tag, dset in coco_datasets.items():
+        dset._build_hashid(hash_pixels=False)
+
+    if config['sql_cache_view']:
+        from kwcoco.coco_sql_dataset import ensure_sql_coco_view
+        for tag, dset in list(coco_datasets.items()):
+            sql_dset = ensure_sql_coco_view(dset)
+            sql_dset.hashid = dset.hashid + '-hack-sql'
+            print('sql_dset.uri = {!r}'.format(sql_dset.uri))
+            coco_datasets[tag] = sql_dset
+    subsets = coco_datasets
 
     classes = subsets['train'].object_categories()
-    for k, subset in subsets.items():
-        # TODO: better handling
-        special_catnames = ['negative',
-                            # 'ignore',
-                            'test']
-        for k in special_catnames:
-            try:
-                subset.remove_categories([k], keep_annots=False, verbose=1)
-            except KeyError:
-                pass
+
+    if 0:
+        for k, subset in subsets.items():
+            # TODO: better handling
+            special_catnames = ['negative',
+                                # 'ignore',
+                                'test']
+            for k in special_catnames:
+                try:
+                    subset.remove_categories([k], keep_annots=False, verbose=1)
+                except KeyError:
+                    pass
 
     if config['collapse_classes']:
+        # DEPRECATE.
+        # USE KWCOCO PREPROCESSING INSTEAD
         print('Collapsing all category labels')
         import six
         if isinstance(config['collapse_classes'], six.string_types):
@@ -1190,14 +1210,20 @@ if __name__ == '__main__':
             --num_batches=10 \
             --max_epoch=10
 
+        kwcoco toydata shapes256
+        kwcoco toydata shapes32
+
+        TRAIN_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_256_dqikwsaiwlzjup/data.kwcoco.json"
+        VALI_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_32_kahspdeebbfocp/data.kwcoco.json"
+
         python -m bioharn.detect_fit \
-            --name=bioharn_shapes_example3 \
-            --train_dataset=vidshapes32-aux \
-            --vali_dataset=vidshapes8-aux \
+            --name=bioharn_shapes_example4 \
+            --train_dataset=$TRAIN_DSET \
+            --vali_dataset=$VALI_DSET \
             --augment=simple \
-            "--channels=rgb|disparity" \
+            "--channels=rgb" \
             --init=noop \
-            --arch=efficientdet \
+            --arch=MM_HRNetV2_w18_MaskRCNN \
             --optim=sgd --lr=1e-8 \
             --schedule=ReduceLROnPlateau-p10-c10 \
             --patience=100 \
@@ -1209,21 +1235,10 @@ if __name__ == '__main__':
             --sampler_backend=cog \
             --test_on_finish=True \
             --num_batches=10 \
+            --sql_cache_view=True \
             --max_epoch=10
     """
     if 0:
-        def make_warnings_print_tracebacks():
-            import warnings
-            import traceback
-            _orig_formatwarning = warnings.formatwarning
-            warnings._orig_formatwarning = _orig_formatwarning
-            def _monkeypatch_formatwarning_tb(*args, **kwargs):
-                s = _orig_formatwarning(*args, **kwargs)
-                if len(s.strip()):
-                    tb = traceback.format_stack()
-                    s += ''.join(tb[:-1])
-                return s
-            warnings.formatwarning = _monkeypatch_formatwarning_tb
-
-        make_warnings_print_tracebacks()
+        import xdev
+        xdev.make_warnings_print_tracebacks()
     fit()

@@ -237,7 +237,7 @@ class MM_Detector_V3(nh.layers.Module):
             Dict: containing results and losses depending on if return_loss and
                 return_result were specified.
         """
-        print(type(batch['inputs']['rgb']))
+        # print(type(batch['inputs']['rgb']))
         if 'img_metas' in batch and ('inputs' in batch or 'imgs' in batch):
             # already in mm_inputs format
             orig_mm_inputs = batch
