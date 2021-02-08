@@ -267,6 +267,78 @@ extra(){
     kwcoco reroot sealions_train_v9.kwcoco.json --absolute=False --dst tmp_sealions_train_v9.kwcoco.json
     kwcoco reroot sealions_vali_v9.kwcoco.json --absolute=False --dst tmp_sealions_vali_v9.kwcoco.json
 
+    ## Restructure ##
+    mkdir -p US_ALASKA_MML_SEALION
+    dvc move _ORIG_US_ALASKA_MML_SEALION/sealions_train_v9.kwcoco.json US_ALASKA_MML_SEALION
+    dvc move _ORIG_US_ALASKA_MML_SEALION/sealions_vali_v9.kwcoco.json US_ALASKA_MML_SEALION
+
+    mkdir -p US_ALASKA_MML_SEALION/2007
+    mkdir -p US_ALASKA_MML_SEALION/2008
+    mkdir -p US_ALASKA_MML_SEALION/2008W
+    mkdir -p US_ALASKA_MML_SEALION/2009
+    mkdir -p US_ALASKA_MML_SEALION/2010
+    mkdir -p US_ALASKA_MML_SEALION/2011
+    mkdir -p US_ALASKA_MML_SEALION/2012
+    mkdir -p US_ALASKA_MML_SEALION/2013
+    mkdir -p US_ALASKA_MML_SEALION/2014
+    mkdir -p US_ALASKA_MML_SEALION/2015
+    mkdir -p US_ALASKA_MML_SEALION/2016
+
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2007/*.json US_ALASKA_MML_SEALION/2007
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2007/*.csv US_ALASKA_MML_SEALION/2007
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2007/images US_ALASKA_MML_SEALION/2007
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2008/*.json US_ALASKA_MML_SEALION/2008
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2008/*.csv US_ALASKA_MML_SEALION/2008
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2008/images US_ALASKA_MML_SEALION/2008
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2008W/*.json US_ALASKA_MML_SEALION/2008W
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2008W/*.csv US_ALASKA_MML_SEALION/2008W
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2008W/images US_ALASKA_MML_SEALION/2008W
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2009/*.json US_ALASKA_MML_SEALION/2009
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2009/*.csv US_ALASKA_MML_SEALION/2009
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2009/images US_ALASKA_MML_SEALION/2009
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2010/*.json US_ALASKA_MML_SEALION/2010
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2010/*.csv US_ALASKA_MML_SEALION/2010
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2010/images US_ALASKA_MML_SEALION/2010
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2011/*.json US_ALASKA_MML_SEALION/2011
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2011/*.csv US_ALASKA_MML_SEALION/2011
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2011/images US_ALASKA_MML_SEALION/2011
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2012/*.json US_ALASKA_MML_SEALION/2012
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2012/*.csv US_ALASKA_MML_SEALION/2012
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2012/images US_ALASKA_MML_SEALION/2012
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2013/*.json US_ALASKA_MML_SEALION/2013
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2013/*.csv US_ALASKA_MML_SEALION/2013
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2013/images US_ALASKA_MML_SEALION/2013
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2014/*.json US_ALASKA_MML_SEALION/2014
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2014/*.csv US_ALASKA_MML_SEALION/2014
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2014/images US_ALASKA_MML_SEALION/2014
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2015/*.json US_ALASKA_MML_SEALION/2015
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2015/*.csv US_ALASKA_MML_SEALION/2015
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2015/images US_ALASKA_MML_SEALION/2015
+
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2016/*.json US_ALASKA_MML_SEALION/2016
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2016/*.csv US_ALASKA_MML_SEALION/2016
+    dvc move _ORIG_US_ALASKA_MML_SEALION/2016/images US_ALASKA_MML_SEALION/2016
+
+    find . -type f -iname "*.dvc" -exec git add  {} \;
+    find . -type f -iname ".gitignore" -exec git add  {} \;
+
+
+    python -m bioharn.detect_fit \
+        --name=sealion-cascade-v10 \
+        --workdir=$HOME/work/sealions \
+        --sampler_workdir=$HOME/data/dvc-repos/viame_dvc/.ndsampler/_cache \
+        --train_dataset=$HOME/data/dvc-repos/viame_dvc/_ORIG_US_ALASKA_MML_SEALION/sealions_train_v9.kwcoco.json \
+
 
     python -m bioharn.detect_fit \
         --name=sealion-cascade-v10 \

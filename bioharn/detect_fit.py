@@ -3,10 +3,6 @@ This example code trains a baseline object detection algorithm given mscoco
 inputs.
 """
 from os.path import join
-
-import matplotlib
-matplotlib.use('Agg')
-
 import netharn as nh
 import numpy as np
 import os
@@ -1250,6 +1246,10 @@ if __name__ == '__main__':
             --sql_cache_view=True \
             --max_epoch=10
     """
+    # Ideally this would be done beforehand by another program
+    import matplotlib
+    matplotlib.use('Agg')
+
     if 0:
         import xdev
         xdev.make_warnings_print_tracebacks()
