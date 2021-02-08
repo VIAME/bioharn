@@ -22,10 +22,7 @@ Notes:
     girder-client --api-url https://data.kitware.com/api/v1 download 5dd3eb8eaf2e2eed3508d604
 
 """
-from os.path import exists
-from os.path import isfile
-from os.path import basename
-from os.path import join
+from os.path import join, dirname, basename, isfile, exists
 import ubelt as ub
 import torch.utils.data as torch_data
 import netharn as nh
@@ -100,6 +97,17 @@ def _ensure_upgraded_model(deployed_fpath):
 
     """
     from netharn.util import zopen
+
+    if not exists(deployed_fpath):
+        # Case where old model was upgraded and may have been deleted
+        # This logic is a bit hacky, could be refactored to be more robust.
+        upgrade_candidates = [
+            ub.augpath(deployed_fpath, suffix='_bio3x')
+        ]
+        candidates = [c for c in upgrade_candidates if exists(c)]
+        if candidates:
+            deployed_fpath = candidates[0]
+
     deployed = torch_liberator.DeployedModel.coerce(deployed_fpath)
 
     # Hueristic to determine if the model needs update or not
@@ -128,11 +136,14 @@ def _ensure_upgraded_model(deployed_fpath):
     if needs_update == 'to_2x':
         from bioharn.compat.upgrade_mmdet_model import upgrade_deployed_mmdet_model
         ensured_fpath = upgrade_deployed_mmdet_model({
-            'deployed': deployed_fpath, 'use_cache': True})
+            'deployed': deployed_fpath, 'use_cache': True,
+            'out_dpath': dirname(deployed_fpath),
+        })
     elif needs_update == 'to_latest':
         from bioharn.compat.update_bioharn_model import update_deployed_bioharn_model
         ensured_fpath = update_deployed_bioharn_model({
-            'deployed': deployed_fpath, 'use_cache': True
+            'deployed': deployed_fpath, 'use_cache': True,
+            'out_dpath': dirname(deployed_fpath),
         })
     else:
         ensured_fpath = deployed_fpath

@@ -5,10 +5,11 @@ numpy
 opencv_python
 kwarray >= 0.5.8
 kwplot
+kwcoco >= 0.1.10
 kwimage
 seaborn
 ndsampler
 netharn >= 0.5.15
 scriptconfig
-ubelt
+ubelt >= 0.9.5
 torch_liberator >= 0.0.4
