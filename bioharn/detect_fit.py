@@ -1235,7 +1235,7 @@ if __name__ == '__main__':
             --optim=sgd --lr=1e-8 \
             --schedule=ReduceLROnPlateau-p10-c10 \
             --patience=100 \
-            --input_dims=256,256 \
+            --input_dims=224,224 \
             --window_dims=512,512 \
             --window_overlap=0.0 \
             --normalize_inputs=True \

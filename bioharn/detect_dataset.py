@@ -229,10 +229,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> torch_dset = self = DetectFitDataset.demo(
             >>>     key='vidshapes32', channels="rgb|disparity,flowx|flowy",
             >>>     augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
-            >>> index = 1
+            >>> index = 10
             >>> spec = {'index': index, 'input_dims': (120, 120)}
             >>> item = self[spec]
-            >>> hwc01 = item['inputs']['rgb'].data.numpy().transpose(1, 2, 0)
+            >>> chw01 = self.channels.decode(item['inputs'], axis=0)['rgb'].data.numpy()
+            >>> hwc01 = chw01.transpose(1, 2, 0)
             >>> print(hwc01.shape)
             >>> boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
             >>> # xdoc: +REQUIRES(--show)
