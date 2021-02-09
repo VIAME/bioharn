@@ -1,4 +1,21 @@
 def main():
+    """
+    SeeAlso:
+        ~/code/mmdetection/mmdet/models/roi_heads/mask_heads/fcn_mask_head.py
+
+        # Forward Train Entry Point
+        self.forward_train
+        ~/code/mmdetection/mmdet/models/detectors/two_stage.py
+
+            # RPN Proposal
+            self.rpn_head.forward_train
+            ~/code/mmdetection/mmdet/models/dense_heads/base_dense_head.py
+
+            # ROI Stage
+            self.roi_head.forward_train
+            self.roi_head._mask_forward_train
+            ~/code/mmdetection/mmdet/models/roi_heads/standard_roi_head.py
+    """
     import mmcv
     norm_cfg = dict(type='BN', requires_grad=False)
     config = dict(
@@ -131,22 +148,129 @@ def main():
     import kwimage
     import torch
 
-    from bioharn.models import mm_models
-
-    bioharn_model = mm_models.MM_MaskRCNN(classes=11)
 
     if 1:
+        from bioharn.models import mm_models
+        bioharn_model = mm_models.MM_MaskRCNN(classes=11)
+
         self = self.to(0)
 
-        batch = bioharn_model.demo_batch()
+        batch = bioharn_model.demo_batch(h=224, w=224)
         mm_batch = mm_models._batch_to_mm_inputs(batch)
         imgs = mm_batch.pop('imgs').to(0).data[0].to(0)
         img_metas = mm_batch.pop('img_metas').to(0).data[0]
         gt_bboxes = mm_batch.pop('gt_bboxes').to(0).data[0]
         gt_labels = mm_batch.pop('gt_labels').to(0).data[0]
         gt_masks = mm_batch.pop('gt_masks').to(0).data[0]
-        outputs = self.forward_train(imgs, img_metas, gt_bboxes, gt_labels,
-                                     gt_masks=gt_masks)
+
+        # gt_masks_ = [g.float() * 0.25 + 0.1 for g in gt_masks]
+        gt_btmp = mm_models._hack_numpy_gt_masks(gt_masks)
+
+        gt_bboxes_ignore = None
+        proposals = None
+        kwargs = {}
+
+        gt_btmp
+        if 0:
+            outputs = self.forward_train(imgs, img_metas, gt_bboxes, gt_labels,
+                                         gt_masks=gt_btmp)
+
+        else:
+            # Unfolded
+
+            img = imgs
+            x = self.extract_feat(img)
+            losses = dict()
+
+            # RPN forward and loss
+            if self.with_rpn:
+                proposal_cfg = self.train_cfg.get('rpn_proposal',
+                                                  self.test_cfg.rpn)
+                rpn_losses, proposal_list = self.rpn_head.forward_train(
+                    x,
+                    img_metas,
+                    gt_bboxes,
+                    gt_labels=None,
+                    gt_bboxes_ignore=gt_bboxes_ignore,
+                    proposal_cfg=proposal_cfg)
+                losses.update(rpn_losses)
+            else:
+                proposal_list = proposals
+
+            if 0:
+                roi_losses = self.roi_head.forward_train(x, img_metas, proposal_list,
+                                                         gt_bboxes, gt_labels,
+                                                         gt_bboxes_ignore, gt_masks,
+                                                         **kwargs)
+            else:
+                roi_head = self.roi_head
+                # assign gts and sample proposals
+                if roi_head.with_bbox or roi_head.with_mask:
+                    num_imgs = len(img_metas)
+                    if gt_bboxes_ignore is None:
+                        gt_bboxes_ignore = [None for _ in range(num_imgs)]
+                    sampling_results = []
+                    for i in range(num_imgs):
+                        assign_result = roi_head.bbox_assigner.assign(
+                            proposal_list[i], gt_bboxes[i], gt_bboxes_ignore[i],
+                            gt_labels[i])
+                        sampling_result = roi_head.bbox_sampler.sample(
+                            assign_result,
+                            proposal_list[i],
+                            gt_bboxes[i],
+                            gt_labels[i],
+                            feats=[lvl_feat[i][None] for lvl_feat in x])
+                        sampling_results.append(sampling_result)
+
+                losses = dict()
+                # bbox head forward and loss
+                if roi_head.with_bbox:
+                    bbox_results = roi_head._bbox_forward_train(
+                        x, sampling_results, gt_bboxes, gt_labels, img_metas)
+                    losses.update(bbox_results['loss_bbox'])
+
+                # mask head forward and loss
+                if roi_head.with_mask:
+
+                    from mmdet.core import bbox2roi
+                    bbox_feats = bbox_results['bbox_feats']
+                    if 0:
+                        mask_results = roi_head._mask_forward_train(
+                            x, sampling_results, bbox_feats, gt_masks,
+                            img_metas)
+                    else:
+                        if not roi_head.share_roi_extractor:
+                            pos_rois = bbox2roi([res.pos_bboxes for res in sampling_results])
+                            mask_results = roi_head._mask_forward(x, pos_rois)
+                        else:
+                            pos_inds = []
+                            device = bbox_feats.device
+                            for res in sampling_results:
+                                pos_inds.append(
+                                    torch.ones(
+                                        res.pos_bboxes.shape[0],
+                                        device=device,
+                                        dtype=torch.uint8))
+                                pos_inds.append(
+                                    torch.zeros(
+                                        res.neg_bboxes.shape[0],
+                                        device=device,
+                                        dtype=torch.uint8))
+                            pos_inds = torch.cat(pos_inds)
+
+                            mask_results = roi_head._mask_forward(
+                                x, pos_inds=pos_inds, bbox_feats=bbox_feats)
+
+                        mask_targets = roi_head.mask_head.get_targets(
+                            sampling_results, gt_masks, roi_head.train_cfg)
+                        pos_labels = torch.cat([res.pos_gt_labels for res in sampling_results])
+                        loss_mask = roi_head.mask_head.loss(mask_results['mask_pred'],
+                                                        mask_targets, pos_labels)
+
+                        mask_results.update(loss_mask=loss_mask, mask_targets=mask_targets)
+                    losses.update(mask_results['loss_mask'])
+                    losses.update(roi_losses)
+
 
     else:
         C, W, H = 3, 224, 224
@@ -173,3 +297,20 @@ def main():
         }
         inputs = torch.rand(B, C, H, W)
 
+    if 0:
+        import kwimage
+        dets = kwimage.Detections.random(num=3, classes=3, segmentations=True)
+        W, H = 224, 224
+        dets = dets.scale((W, H))
+
+        import kwplot
+        kwplot.autompl()
+
+        dets.draw(setlim=True)
+
+        for sseg in dets.data['segmentations']:
+            naive1 = sseg.to_mask(dims=(H, W))
+            print('naive1.shape = {!r}'.format(naive1.shape))
+
+            mask = sseg.to_relative_mask()
+            print('mask.shape = {!r}'.format(mask.shape))
