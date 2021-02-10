@@ -24,8 +24,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
     Example:
         >>> # xdoc: +REQUIRES(module:gdal)
-        >>> import sys, ubelt
-        >>> sys.path.append(ubelt.expandpath('~/code/bioharn'))
         >>> from bioharn.detect_dataset import *  # NOQA
         >>> self = DetectFitDataset.demo(key='shapes', channels='rgb|disparity', augment='heavy', window_dims=(390, 390))
         >>> index = 15
@@ -47,7 +45,30 @@ class DetectFitDataset(torch.utils.data.Dataset):
         >>>     disp_canvs = disp_canvs / disp_canvs.max()
         >>>     disp_canvs = boxes.draw_on(disp_canvs)
         >>>     kwplot.imshow(disp_canvs, pnum=(1, 2, 2), fnum=1)
+
+        # mask = item['label']['class_masks'].data[0]
+        # mask.float()
+
+        masks = kwimage.structs.SegmentationList([
+            kwimage.Heatmap(
+                class_probs=mask.float(),
+                img_dims=rgb01.shape[0:2],
+                tf_data_to_img=np.eye(3),
+            )
+            for mask in item['label']['class_masks'].data
+        ])
+
+        >>> # Draw masks
+        >>> masks = kwimage.structs.MaskList([
+        >>>     kwimage.Mask(mask, 'c_mask')
+        >>>     for mask in item['label']['class_masks'].data
+        >>> ])
+        >>> masks.draw()
         >>> kwplot.show_if_requested()
+
+    Ignore:
+
+        masks
     """
     def __init__(self, sampler, augment='simple', window_dims=[512, 512],
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
