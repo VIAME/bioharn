@@ -137,7 +137,7 @@ class DetectFitConfig(scfg.Config):
 
             methods can be combined with the + character.
             '''
-        ),
+        )),
 
         'collapse_classes': scfg.Value(False, help='force one-class detector'),
 

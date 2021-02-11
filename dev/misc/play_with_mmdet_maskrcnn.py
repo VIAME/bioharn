@@ -271,9 +271,11 @@ def main():
                             mask_results = roi_head._mask_forward(
                                 x, pos_inds=pos_inds, bbox_feats=bbox_feats)
 
-                        gt_masks[0].masks = gt_masks[0].masks.astype(np.float32)
-                        gt_masks[0].masks += .5
-                        gt_masks[0].masks *= 0.1
+                        import numpy as np
+                        for m in gt_masks:
+                            m.masks = gt_masks[0].masks.astype(np.float32)
+                            m.masks += .5
+                            m.masks *= 0.1
 
                         roi_head.train_cfg['mask_soft'] = True
                         mask_targets = roi_head.mask_head.get_targets(

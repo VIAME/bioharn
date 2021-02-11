@@ -244,3 +244,31 @@ python -m bioharn.detect_fit         --name=sealion-cascade-v10         --workdi
 
 python -m bioharn.detect_fit         --name=sealion-cascade-v12         --workdir=$HOME/work/sealions         --sampler_workdir=$HOME/data/dvc-repos/viame_dvc/.ndsampler/_cache         --train_dataset=$HOME/data/dvc-repos/viame_dvc/_ORIG_US_ALASKA_MML_SEALION/sealions_train_v9.kwcoco.json         --vali_dataset=$HOME/data/dvc-repos/viame_dvc/_ORIG_US_ALASKA_MML_SEALION/sealions_vali_v9.kwcoco.json         --schedule=ReduceLROnPlateau-p5-c5         --max_epoch=400         --augment=complex         --init=noop         --arch=cascade         --channels="rgb"         --optim=AdaBound         --lr=1e-3         --window_dims=512,512         --input_dims=window         --window_overlap=0.5         --multiscale=False         --normalize_inputs=imagenet         --workers=8         --xpu=auto         --batch_size=4         --sampler_backend=None         --num_batches=1000         --balance=None         --bstep=16
 
+
+python -m bioharn.detect_fit \
+    --name=sealion-mask-test-v1 \
+    --workdir=$HOME/work/sealions\
+    --sampler_workdir=$HOME/data/dvc-repos/viame_dvc/.ndsampler/_cache\
+    --train_dataset=$HOME/data/dvc-repos/viame_dvc/US_ALASKA_MML_SEALION/sealions_train_v9.kwcoco.json \
+    --vali_dataset=$HOME/data/dvc-repos/viame_dvc/US_ALASKA_MML_SEALION/sealions_vali_v9.kwcoco.json \
+    --schedule=ReduceLROnPlateau-p5-c5 \
+    --max_epoch=400 \
+    --augment=complex \
+    --init=noop \
+    --arch=maskrcnn \
+    --channels="rgb" \
+    --optim=adam \
+    --lr=1e-3 \
+    --window_dims=512,512 \
+    --input_dims=window \
+    --window_overlap=0.5 \
+    --multiscale=False \
+    --normalize_inputs=imagenet \
+    --workers=8 \
+    --xpu=auto \
+    --batch_size=4 \
+    --sampler_backend=None \
+    --num_batches=1000 \
+    --balance=None \
+    --segmentation_bootstrap=ellipse+kpts \
+    --bstep=16
