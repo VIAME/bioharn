@@ -278,7 +278,36 @@ python -m bioharn.detect_fit \
     --window_overlap=0.5 \
     --multiscale=False \
     --normalize_inputs=imagenet \
-    --workers=8 \
+    --workers=0 \
+    --xpu=auto \
+    --batch_size=4 \
+    --sampler_backend=None \
+    --num_batches=1000 \
+    --balance=None \
+    --sql_cache_view=True \
+    --segmentation_bootstrap=ellipse+kpts \
+    --bstep=16
+
+
+python -m bioharn.detect_fit \
+    --name=shapes-mask-test-v1 \
+    --workdir=$HOME/work/sealions\
+    --train_dataset=special:shapes8 \
+    --vali_dataset=special:shapes4 \
+    --schedule=ReduceLROnPlateau-p5-c5 \
+    --max_epoch=400 \
+    --augment=complex \
+    --init=noop \
+    --arch=maskrcnn \
+    --channels="rgb" \
+    --optim=adam \
+    --lr=1e-3 \
+    --window_dims=512,512 \
+    --input_dims=window \
+    --window_overlap=0.5 \
+    --multiscale=False \
+    --normalize_inputs=imagenet \
+    --workers=0 \
     --xpu=auto \
     --batch_size=4 \
     --sampler_backend=None \

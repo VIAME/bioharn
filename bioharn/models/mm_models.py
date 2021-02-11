@@ -815,6 +815,8 @@ class MM_Detector(nh.layers.Module):
         # Hack: remove data containers if it hasn't been done already
         import netharn as nh
         xpu = nh.XPU.from_data(self)
+        import xdev
+        xdev.embed()
         mm_inputs = _ensure_unwrapped_and_mounted(mm_inputs, xpu)
 
         imgs = mm_inputs.pop('imgs')
