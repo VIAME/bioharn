@@ -260,7 +260,7 @@ mv sealions_train_v9_.kwcoco.json sealions_train_v9.kwcoco.json
 
 
 python -m bioharn.detect_fit \
-    --name=sealion-mask-test-v1 \
+    --name=sealion-mask-test-v2 \
     --workdir=$HOME/work/sealions\
     --sampler_workdir=$HOME/data/dvc-repos/viame_dvc/.ndsampler/_cache\
     --train_dataset=$HOME/data/dvc-repos/viame_dvc/US_ALASKA_MML_SEALION/sealions_train_v9.kwcoco.json \
@@ -278,7 +278,7 @@ python -m bioharn.detect_fit \
     --window_overlap=0.5 \
     --multiscale=False \
     --normalize_inputs=imagenet \
-    --workers=0 \
+    --workers=4 \
     --xpu=auto \
     --batch_size=4 \
     --sampler_backend=None \
@@ -289,11 +289,17 @@ python -m bioharn.detect_fit \
     --bstep=16
 
 
+kwcoco toydata shapes256
+kwcoco toydata shapes32
+
+TRAIN_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_256_dqikwsaiwlzjup/data.kwcoco.json"
+VALI_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_32_kahspdeebbfocp/data.kwcoco.json"
+
 python -m bioharn.detect_fit \
     --name=shapes-mask-test-v1 \
     --workdir=$HOME/work/sealions\
-    --train_dataset=special:shapes8 \
-    --vali_dataset=special:shapes4 \
+    --train_dataset=$TRAIN_DSET \
+    --vali_dataset=$VALI_DSET \
     --schedule=ReduceLROnPlateau-p5-c5 \
     --max_epoch=400 \
     --augment=complex \
@@ -311,7 +317,7 @@ python -m bioharn.detect_fit \
     --xpu=auto \
     --batch_size=4 \
     --sampler_backend=None \
-    --num_batches=1000 \
+    --num_batches=10 \
     --balance=None \
     --sql_cache_view=True \
     --segmentation_bootstrap=ellipse+kpts \
