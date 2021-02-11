@@ -1065,6 +1065,10 @@ def preselect_regions(sampler, window_overlap, window_dims,
         negative_classes={'ignore', 'background'}
 
     """
+
+    import xdev
+    xdev.embed()
+
     import netharn as nh
 
     keepbound = True
