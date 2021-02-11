@@ -1082,8 +1082,6 @@ def preselect_regions(sampler, window_overlap, window_dims,
         negative_classes={'ignore', 'background'}
 
     """
-
-
     import netharn as nh
 
     keepbound = True
@@ -1121,17 +1119,14 @@ def preselect_regions(sampler, window_overlap, window_dims,
     _isect_index = isect_indexer.FrameIntersectionIndex.from_coco(
         dset, verbose=verbose)
 
-    import xdev
-    xdev.embed()
-
     if hasattr(dset, '_all_rows_column_lookup'):
         # SQL optimization
-        pass
+        aids_cids = dset._all_rows_column_lookup('annotations', ['id', 'category_id'])
+        aid_to_cid = dict(aids_cids)
     else:
-        pass
+        aid_to_cid = None
 
     # all_cids = dset.annots().get('category_id', keepid=True)
-
     positives = []
     negatives = []
     for gid, slider in ub.ProgIter(gid_to_slider.items(),
@@ -1153,7 +1148,10 @@ def preselect_regions(sampler, window_overlap, window_dims,
             # Look at the categories within this region
             # anns = [dset.anns[aid] for aid in aids]
             # cids = [ann['category_id'] for ann in anns]
-            cids = dset.annots(aids).get('category_id')
+            if aid_to_cid is None:
+                cids = dset.annots(aids).get('category_id')
+            else:
+                cids = list(ub.take(aid_to_cid, aids))
             cats = [dset.cats[cid] for cid in cids]
             catnames = [cat['name'].lower() for cat in cats]
 
