@@ -164,12 +164,14 @@ class DetectFitDataset(torch.utils.data.Dataset):
         return input_id
 
     def _prebuild_pool(self):
-        import xdev
-        xdev.embed()
         print('Prebuild pool')
+        sampler = self.sampler
+        window_overlap = self.window_overlap
+        window_dims = self.window_dims
+        classes_of_interest = self.classes_of_interest
+
         positives, negatives = preselect_regions(
-            self.sampler, self.window_overlap, self.window_dims,
-            self.classes_of_interest)
+            sampler, window_overlap, window_dims, classes_of_interest)
 
         positives = kwarray.shuffle(positives, rng=971493943902)
         negatives = kwarray.shuffle(negatives, rng=119714940901)
@@ -1078,6 +1080,9 @@ def preselect_regions(sampler, window_overlap, window_dims,
             # raise AssertionError('We should not do this hack anymore')
         else:
             full_dims = [img['height'], img['width']]
+
+        if full_dims[0] is None or full_dims[1] is None:
+            raise ValueError('Images must contain width and height. Got img={!r}'.format(img))
 
         window_dims_ = full_dims if window_dims == 'full' else window_dims
         slider = nh.util.SlidingWindow(full_dims, window_dims_,
