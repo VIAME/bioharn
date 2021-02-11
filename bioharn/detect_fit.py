@@ -856,6 +856,7 @@ def setup_harn(cmdline=True, **kw):
             augment=config['augment'] if (tag == 'train') else False,
             gravity=config['gravity'],
             channels=config['channels'],
+            segmentation_bootstrap=config['segmentation_bootstrap'],
         )
         for tag, sampler in samplers.items()
     }

@@ -556,7 +556,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 for box in dets.data['boxes']:
                     if box is not None:
                         import cv2
-                        mask = np.zeros(chw01.shape[1:], dtype=np.uint8)
+                        mask = np.zeros(chw01.shape[1:], dtype=np.float32)
 
                         center = tuple(map(int, box.center))
                         axes = (int(box.width) // 3, int(box.height) // 3)
@@ -564,11 +564,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
                         cv2.ellipse(mask, center, axes, angle=0.0, startAngle=0.0,
                                     endAngle=360.0, color=color_, thickness=-1)
 
-                        mask_tensor = torch.tensor(mask, dtype=torch.uint8)
+                        mask_tensor = torch.tensor(mask, dtype=torch.float32)
                         class_mask_list.append(mask_tensor[None, :])
                         has_mask_list.append(1)
                     else:
-                        bad_mask = torch.empty((1, h, w), dtype=torch.uint8)
+                        bad_mask = torch.empty((1, h, w), dtype=torch.float32)
                         bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
                         class_mask_list.append(bad_mask)
                         has_mask_list.append(-1)
@@ -589,12 +589,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
                         mask = np.zeros(chw01.shape[1:], dtype=np.float32)
                         # mask = pts.data['xy'].fill(mask, value=1.0)
                         pts.data['xy'].soft_fill(mask, coord_axes=[1, 0], radius=5)
-                        mask = (mask > 0.001).astype(np.uint8)
-                        mask_tensor = torch.tensor(mask, dtype=torch.uint8)
+                        mask_tensor = torch.tensor(mask, dtype=torch.float32)
                         class_mask_list.append(mask_tensor[None, :])
                         has_mask_list.append(1)
                     else:
-                        bad_mask = torch.empty((1, h, w), dtype=torch.uint8)
+                        bad_mask = torch.empty((1, h, w), dtype=torch.float32)
                         bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
                         class_mask_list.append(bad_mask)
                         has_mask_list.append(-1)
