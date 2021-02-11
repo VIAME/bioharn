@@ -172,17 +172,19 @@ class DetectFitDataset(torch.utils.data.Dataset):
         ratio = 0.1
         verbose = 1
 
+        hashid = self.sampler.dset.hashid
+
         dpath = ub.ensuredir((self.sampler.regions.workdir, '_cache'))
         depends = ub.odict({
             'window_overlap': window_overlap,
             'window_dims': window_dims,
             'coi': sorted(self.classes_of_interest),
-            'hashid': self.sampler.hashid,
+            'hashid': hashid,
             'ratio': ratio,
         })
         cacher = ub.Cacher(
             'preselect_regions_v1', dpath=dpath, depends=depends,
-            enabled=False,  # need to ensure we have a good hashid to do this
+            enabled=hashid is not None,  # need to ensure we have a good hashid to do this
             verbose=100)
         chosen_regions = cacher.tryload()
         if chosen_regions is None:
@@ -1121,12 +1123,12 @@ def preselect_regions(sampler, window_overlap, window_dims,
 
     if hasattr(dset, '_all_rows_column_lookup'):
         # SQL optimization
-        aids_cids = dset._all_rows_column_lookup('annotations', ['id', 'category_id'])
+        aids_cids = dset._all_rows_column_lookup(
+            'annotations', ['id', 'category_id'])
         aid_to_cid = dict(aids_cids)
     else:
         aid_to_cid = None
 
-    # all_cids = dset.annots().get('category_id', keepid=True)
     positives = []
     negatives = []
     for gid, slider in ub.ProgIter(gid_to_slider.items(),
