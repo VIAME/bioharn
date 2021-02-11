@@ -549,7 +549,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     class_masks = torch.empty((0, h, w), dtype=torch.uint8)
                 else:
                     class_masks = torch.cat(class_mask_list, dim=0)
-                label['class_masks'] = ItemContainer(class_masks, stack=False)
+                label['class_masks'] = ItemContainer(class_masks, stack=False, cpu_only=True)
                 label['has_mask'] = ItemContainer(has_mask, stack=False)
 
             if sseg_method == 'ellipse':
@@ -578,7 +578,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     class_masks = torch.empty((0, h, w), dtype=torch.uint8)
                 else:
                     class_masks = torch.cat(class_mask_list, dim=0)
-                label['class_masks'] = ItemContainer(class_masks, stack=False)
+                label['class_masks'] = ItemContainer(class_masks, stack=False, cpu_only=True)
                 label['has_mask'] = ItemContainer(has_mask, stack=False)
 
             if sseg_method == 'kpts' and 'keypoints' in dets.data:
@@ -603,7 +603,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     class_masks = torch.empty((0, h, w), dtype=torch.uint8)
                 else:
                     class_masks = torch.cat(class_mask_list, dim=0)
-                label['class_masks'] = ItemContainer(class_masks, stack=False)
+                label['class_masks'] = ItemContainer(class_masks, stack=False, cpu_only=True)
                 label['has_mask'] = ItemContainer(has_mask, stack=False)
 
         components = {
