@@ -624,8 +624,6 @@ class DetectHarn(nh.FitHarn):
                 canvas = true_dets.draw_on(canvas, color='green')
                 canvas = pred_dets.draw_on(canvas, color='blue')
             except Exception as ex:
-                import xdev
-                xdev.embed()
                 harn.warn('In draw_batch ex = {!r}'.format(ex))
                 canvas = kwimage.draw_text_on_image(
                     canvas, 'drawing-error', org=(0, 0), valign='top')

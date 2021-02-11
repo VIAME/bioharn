@@ -169,19 +169,36 @@ class DetectFitDataset(torch.utils.data.Dataset):
         window_overlap = self.window_overlap
         window_dims = self.window_dims
         classes_of_interest = self.classes_of_interest
-
-        positives, negatives = preselect_regions(
-            sampler, window_overlap, window_dims, classes_of_interest)
-
-        positives = kwarray.shuffle(positives, rng=971493943902)
-        negatives = kwarray.shuffle(negatives, rng=119714940901)
-
         ratio = 0.1
+        verbose = 1
 
-        num_neg = int(len(positives) * ratio)
-        chosen_neg = negatives[0:num_neg]
+        dpath = ub.ensuredir((self.sampler.regions.workdir, '_cache'))
+        depends = ub.odict({
+            'window_overlap': window_overlap,
+            'window_dims': window_dims,
+            'coi': sorted(self.classes_of_interest),
+            'hashid': self.sampler.hashid,
+            'ratio': ratio,
+        })
+        cacher = ub.Cacher(
+            'preselect_regions_v1', dpath=dpath, depends=depends,
+            enabled=False,  # need to ensure we have a good hashid to do this
+            verbose=100)
+        chosen_regions = cacher.tryload()
+        if chosen_regions is None:
+            positives, negatives = preselect_regions(
+                sampler, window_overlap, window_dims, classes_of_interest,
+                verbose=verbose)
 
-        chosen_regions = positives + chosen_neg
+            positives = kwarray.shuffle(positives, rng=971493943902)
+            negatives = kwarray.shuffle(negatives, rng=119714940901)
+
+            num_neg = int(len(positives) * ratio)
+            chosen_neg = negatives[0:num_neg]
+
+            chosen_regions = positives + chosen_neg
+            cacher.save(chosen_regions)
+
         self.chosen_regions = chosen_regions
 
     @classmethod
@@ -1034,7 +1051,7 @@ class MultiScaleBatchSampler2(torch.utils.data.sampler.BatchSampler):
 def preselect_regions(sampler, window_overlap, window_dims,
                       classes_of_interest=None,
                       ignore_coverage_thresh=0.6,
-                      negative_classes={'ignore', 'background'}):
+                      negative_classes={'ignore', 'background'}, verbose=1):
     """
     TODO: this might be generalized and added to ndsampler
 
@@ -1066,8 +1083,6 @@ def preselect_regions(sampler, window_overlap, window_dims,
 
     """
 
-    import xdev
-    xdev.embed()
 
     import netharn as nh
 
@@ -1075,32 +1090,54 @@ def preselect_regions(sampler, window_overlap, window_dims,
 
     # Create a sliding window object for each specific image (because they may
     # have different sizes, technically we could memoize this)
-    gid_to_slider = {}
     dset = sampler.dset
-    for img in dset.imgs.values():
-        if img.get('source', '') == 'habcam_2015_stereo':
-            # Hack: todo, cannoncial way to get this effect
-            full_dims = [img['height'], img['width'] // 2]
-            # raise AssertionError('We should not do this hack anymore')
-        else:
-            full_dims = [img['height'], img['width']]
 
-        if full_dims[0] is None or full_dims[1] is None:
-            raise ValueError('Images must contain width and height. Got img={!r}'.format(img))
+    gid_height_width_list = [
+        (img['id'], img['height'], img['width'] // 2)
+        if img.get('source', '') == 'habcam_2015_stereo' else
+        (img['id'], img['height'], img['width'])
+        for img in ub.ProgIter(dset.imgs.values(), total=len(dset.imgs),
+                               desc='load image sizes', verbose=verbose)]
 
+    if any(h is None or w is None for gid, h, w in gid_height_width_list):
+        raise ValueError('All images must contain width and height attrs.')
+
+    @ub.memoize
+    def _memo_slider(full_dims, window_dims):
         window_dims_ = full_dims if window_dims == 'full' else window_dims
-        slider = nh.util.SlidingWindow(full_dims, window_dims_,
-                                       overlap=window_overlap, keepbound=keepbound,
-                                       allow_overshoot=True)
-        gid_to_slider[img['id']] = slider
+        slider = nh.util.SlidingWindow(
+            full_dims, window_dims_, overlap=window_overlap,
+            keepbound=keepbound, allow_overshoot=True)
+        slider.regions = list(slider)
+        return slider
+
+    gid_to_slider = {
+        gid: _memo_slider(full_dims=(height, width), window_dims=window_dims)
+        for gid, height, width in ub.ProgIter(
+            gid_height_width_list, desc='build sliders', verbose=verbose)
+    }
 
     from ndsampler import isect_indexer
-    _isect_index = isect_indexer.FrameIntersectionIndex.from_coco(dset)
+    _isect_index = isect_indexer.FrameIntersectionIndex.from_coco(
+        dset, verbose=verbose)
+
+    import xdev
+    xdev.embed()
+
+    if hasattr(dset, '_all_rows_column_lookup'):
+        # SQL optimization
+        pass
+    else:
+        pass
+
+    # all_cids = dset.annots().get('category_id', keepid=True)
 
     positives = []
     negatives = []
-    for gid, slider in gid_to_slider.items():
-
+    for gid, slider in ub.ProgIter(gid_to_slider.items(),
+                                   total=len(gid_to_slider),
+                                   desc='finding regions with annots',
+                                   verbose=verbose):
         # For each image, create a box for each spatial region in the slider
         boxes = []
         regions = list(slider)
@@ -1114,10 +1151,11 @@ def preselect_regions(sampler, window_overlap, window_dims,
             aids = _isect_index.overlapping_aids(gid, box)
 
             # Look at the categories within this region
-            catnames = [
-                dset.cats[dset.anns[aid]['category_id']]['name'].lower()
-                for aid in aids
-            ]
+            # anns = [dset.anns[aid] for aid in aids]
+            # cids = [ann['category_id'] for ann in anns]
+            cids = dset.annots(aids).get('category_id')
+            cats = [dset.cats[cid] for cid in cids]
+            catnames = [cat['name'].lower() for cat in cats]
 
             if ignore_coverage_thresh:
                 ignore_flags = [catname == 'ignore' for catname in catnames]
