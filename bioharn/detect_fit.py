@@ -127,6 +127,18 @@ class DetectFitConfig(scfg.Config):
 
         'classes_of_interest': scfg.Value([], help='if specified only these classes are given weight'),
 
+        'segmentation_bootstrap': scfg.Value(None, help=ub.paragraph(
+            '''
+            Specify the method for bootstraping segmentations. If None uses
+            segmentations in the annotation. Otherwise the string specifies how
+            to coerce soft annotations. Under development. Methods might include:
+
+            boxes, grabcut, keypoints, ellipse, given.
+
+            methods can be combined with the + character.
+            '''
+        ),
+
         'collapse_classes': scfg.Value(False, help='force one-class detector'),
 
         'ensure_background_class': scfg.Value(False, help='ensure a background category exists'),

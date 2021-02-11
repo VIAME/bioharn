@@ -25,7 +25,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
     Example:
         >>> # xdoc: +REQUIRES(module:gdal)
         >>> from bioharn.detect_dataset import *  # NOQA
-        >>> self = DetectFitDataset.demo(key='shapes', channels='rgb|disparity', augment='heavy', window_dims=(390, 390))
+        >>> self = DetectFitDataset.demo(key='shapes', channels='rgb|disparity', augment='heavy', window_dims=(390, 390), segmentation_bootstrap='kpts+ellipse')
         >>> index = 15
         >>> item = self[index]
         >>> # xdoc: +REQUIRES(--show)
@@ -74,7 +74,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
                  factor=32, with_mask=True, gravity=0.0,
                  classes_of_interest=None, channels='rgb',
-                 blackout_ignore=True):
+                 blackout_ignore=True, segmentation_bootstrap=None):
         super(DetectFitDataset, self).__init__()
 
         self.sampler = sampler
@@ -101,6 +101,14 @@ class DetectFitDataset(torch.utils.data.Dataset):
         self.input_dims = np.array(input_dims, dtype=np.int)
         self.window_dims = window_dims
         self.window_overlap = window_overlap
+
+        if segmentation_bootstrap is None:
+            segmentation_bootstrap = ['given']
+
+        if isinstance(segmentation_bootstrap, str):
+            segmentation_bootstrap = segmentation_bootstrap.split('+')
+
+        self.segmentation_bootstrap = segmentation_bootstrap
 
         if classes_of_interest is None:
             classes_of_interest = []
@@ -222,6 +230,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
         import ndsampler
         from os.path import exists
 
+        import inspect
+        sig = inspect.signature(cls.__init__)
+        cls_kw = ub.dict_isect(kw, list(sig.parameters.keys()))
+        sampler_kw = ub.dict_diff(kw, cls_kw)
+
         channels = ChannelSpec.coerce(channels)
         if exists(key):
             import kwcoco
@@ -231,9 +244,10 @@ class DetectFitDataset(torch.utils.data.Dataset):
             sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
         else:
             aux = list(channels.difference(ChannelSpec.coerce('rgb')).keys())
-            sampler = ndsampler.CocoSampler.demo(key, aux=aux, **kw)
+            sampler = ndsampler.CocoSampler.demo(key, aux=aux, **sampler_kw)
 
-        self = cls(sampler, augment=augment, window_dims=window_dims, channels=channels)
+        self = cls(sampler, augment=augment, window_dims=window_dims,
+                   channels=channels, **cls_kw)
         return self
 
     def __len__(self):
@@ -249,7 +263,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> from bioharn.detect_dataset import *  # NOQA
             >>> torch_dset = self = DetectFitDataset.demo(
             >>>     key='vidshapes32', channels="rgb|disparity,flowx|flowy",
-            >>>     augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
+            >>>     augment='complex', window_dims=(512, 512), gsize=(1920, 1080),
+            >>>     segmentation_bootstrap='kpts+given+ellipse')
             >>> index = 10
             >>> spec = {'index': index, 'input_dims': (120, 120)}
             >>> item = self[spec]
@@ -351,8 +366,12 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         _debug('self.with_mask = {!r}'.format(self.with_mask))
         with_annots = ['boxes']
+
         if self.with_mask:
+            sseg_method = self.rng.choice(self.segmentation_bootstrap)
             with_annots += ['segmentation']
+            if sseg_method == 'kpts':
+                with_annots += ['keypoints']
 
         # NOTE: using the gdal backend samples HABCAM images in 16ms, and no
         # backend samples clocks in at 72ms. The disparity speedup is about 2x
@@ -362,10 +381,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
         _debug('sample = {!r}'.format(sample))
         imdata = kwimage.atleast_3channels(sample['im'])[..., 0:3]
 
-        boxes = sample['annots']['rel_boxes'].view(-1, 4)
-        cids = sample['annots']['cids']
-        aids = sample['annots']['aids']
-        ssegs = sample['annots']['rel_ssegs']
+        sample_annots = sample['annots']
+
+        boxes = sample_annots['rel_boxes'].view(-1, 4)
+        cids = sample_annots['cids']
+        aids = sample_annots['aids']
         anns = list(ub.take(self.sampler.dset.anns, aids))
         weights = [ann.get('weight', 1.0) for ann in anns]
 
@@ -380,13 +400,19 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     weights[idx] = 0
 
         classes = self.sampler.classes
-        dets = kwimage.Detections(
-            boxes=boxes,
-            segmentations=ssegs,
-            class_idxs=np.array([classes.id_to_idx[cid] for cid in cids]),
-            weights=np.array(weights, dtype=np.float32),
-            classes=classes,
-        )
+        detskw = {
+            'boxes': boxes,
+            'class_idxs': np.array([classes.id_to_idx[cid] for cid in cids]),
+            'weights': np.array(weights, dtype=np.float32),
+            'classes': classes,
+        }
+
+        if 'rel_kpts' in sample_annots:
+            detskw['keypoints'] = sample_annots['rel_kpts']
+        if 'rel_ssegs' in sample_annots:
+            detskw['segmentations'] = sample_annots['rel_ssegs']
+
+        dets = kwimage.Detections(**detskw)
         _debug('dets = {!r}'.format(dets))
         orig_size = np.array(imdata.shape[0:2][::-1])
 
@@ -476,31 +502,86 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     sly = slice(int(tl_y), int(br_y))
                     chw01[:, sly, slx] = 0
 
-        if 'segmentations' in dets.data and self.with_mask:
-            # Convert segmentations to masks
+        if self.with_mask:
             has_mask_list = []
             class_mask_list = []
-            h, w = chw01.shape[1:]
-            for sseg in dets.data['segmentations']:
-                if sseg is not None:
-                    mask = sseg.to_mask(dims=chw01.shape[1:])
-                    c_mask = mask.to_c_mask().data
-                    mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
-                    class_mask_list.append(mask_tensor[None, :])
-                    has_mask_list.append(1)
-                else:
-                    bad_mask = torch.empty((1, h, w), dtype=torch.uint8)
-                    bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
-                    class_mask_list.append(bad_mask)
-                    has_mask_list.append(-1)
+            if sseg_method == 'given' and 'segmentations' in dets.data:
+                # Convert segmentations to masks
+                h, w = chw01.shape[1:]
+                for sseg in dets.data['segmentations']:
+                    if sseg is not None:
+                        mask = sseg.to_mask(dims=chw01.shape[1:])
+                        c_mask = mask.to_c_mask().data
+                        mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
+                        class_mask_list.append(mask_tensor[None, :])
+                        has_mask_list.append(1)
+                    else:
+                        bad_mask = torch.empty((1, h, w), dtype=torch.uint8)
+                        bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
+                        class_mask_list.append(bad_mask)
+                        has_mask_list.append(-1)
 
-            has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
-            if len(class_mask_list) == 0:
-                class_masks = torch.empty((0, h, w), dtype=torch.uint8)
-            else:
-                class_masks = torch.cat(class_mask_list, dim=0)
-            label['class_masks'] = ItemContainer(class_masks, stack=False)
-            label['has_mask'] = ItemContainer(has_mask, stack=False)
+                has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+                if len(class_mask_list) == 0:
+                    class_masks = torch.empty((0, h, w), dtype=torch.uint8)
+                else:
+                    class_masks = torch.cat(class_mask_list, dim=0)
+                label['class_masks'] = ItemContainer(class_masks, stack=False)
+                label['has_mask'] = ItemContainer(has_mask, stack=False)
+
+            if sseg_method == 'ellipse':
+                for box in dets.data['boxes']:
+                    if box is not None:
+                        import cv2
+                        mask = np.zeros(chw01.shape[1:], dtype=np.float32)
+
+                        center = tuple(map(int, box.center))
+                        axes = (int(box.width) // 3, int(box.height) // 3)
+                        color_ = 1
+                        cv2.ellipse(mask, center, axes, angle=0.0, startAngle=0.0,
+                                    endAngle=360.0, color=color_, thickness=-1)
+
+                        mask_tensor = torch.tensor(mask, dtype=torch.float32)
+                        class_mask_list.append(mask_tensor[None, :])
+                        has_mask_list.append(1)
+                    else:
+                        bad_mask = torch.empty((1, h, w), dtype=torch.float32)
+                        bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
+                        class_mask_list.append(bad_mask)
+                        has_mask_list.append(-1)
+
+                has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+                if len(class_mask_list) == 0:
+                    class_masks = torch.empty((0, h, w), dtype=torch.uint8)
+                else:
+                    class_masks = torch.cat(class_mask_list, dim=0)
+                label['class_masks'] = ItemContainer(class_masks, stack=False)
+                label['has_mask'] = ItemContainer(has_mask, stack=False)
+
+            if sseg_method == 'kpts' and 'keypoints' in dets.data:
+                # Make a pseudo segmentation based on keypoints
+                pts_list = dets.data['keypoints']
+                for pts in pts_list:
+                    if pts is not None:
+                        mask = np.zeros(chw01.shape[1:], dtype=np.float32)
+                        # mask = pts.data['xy'].fill(mask, value=1.0)
+                        pts.data['xy'].soft_fill(mask, coord_axes=[1, 0], radius=5)
+                        mask_tensor = torch.tensor(mask, dtype=torch.float32)
+                        class_mask_list.append(mask_tensor[None, :])
+                        has_mask_list.append(1)
+                    else:
+                        bad_mask = torch.empty((1, h, w), dtype=torch.float32)
+                        bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
+                        class_mask_list.append(bad_mask)
+                        has_mask_list.append(-1)
+
+                has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+                if len(class_mask_list) == 0:
+                    class_masks = torch.empty((0, h, w), dtype=torch.uint8)
+                else:
+                    class_masks = torch.cat(class_mask_list, dim=0)
+                label['class_masks'] = ItemContainer(class_masks, stack=False)
+                label['has_mask'] = ItemContainer(has_mask, stack=False)
 
         components = {
             'rgb': chw01,

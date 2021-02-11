@@ -3,6 +3,11 @@ def main():
     SeeAlso:
         ~/code/mmdetection/mmdet/models/roi_heads/mask_heads/fcn_mask_head.py
 
+        # Mask Tools:
+        ~/code/mmdetection/mmdet/core/mask/mask_target.py
+        ~/code/mmdetection/mmdet/core/mask/structures.py
+
+
         # Forward Train Entry Point
         self.forward_train
         ~/code/mmdetection/mmdet/models/detectors/two_stage.py
@@ -15,6 +20,9 @@ def main():
             self.roi_head.forward_train
             self.roi_head._mask_forward_train
             ~/code/mmdetection/mmdet/models/roi_heads/standard_roi_head.py
+
+            # Mask Head
+            ~/code/mmdetection/mmdet/models/roi_heads/mask_heads/fcn_mask_head.py
     """
     import mmcv
     norm_cfg = dict(type='BN', requires_grad=False)
@@ -163,8 +171,10 @@ def main():
         gt_labels = mm_batch.pop('gt_labels').to(0).data[0]
         gt_masks = mm_batch.pop('gt_masks').to(0).data[0]
 
+        gt_btmp = gt_masks
+
         # gt_masks_ = [g.float() * 0.25 + 0.1 for g in gt_masks]
-        gt_btmp = mm_models._hack_numpy_gt_masks(gt_masks)
+        # gt_btmp = mm_models._hack_numpy_gt_masks(gt_masks)
 
         gt_bboxes_ignore = None
         proposals = None
@@ -261,6 +271,11 @@ def main():
                             mask_results = roi_head._mask_forward(
                                 x, pos_inds=pos_inds, bbox_feats=bbox_feats)
 
+                        gt_masks[0].masks = gt_masks[0].masks.astype(np.float32)
+                        gt_masks[0].masks += .5
+                        gt_masks[0].masks *= 0.1
+
+                        roi_head.train_cfg['mask_soft'] = True
                         mask_targets = roi_head.mask_head.get_targets(
                             sampling_results, gt_masks, roi_head.train_cfg)
                         pos_labels = torch.cat([res.pos_gt_labels for res in sampling_results])
