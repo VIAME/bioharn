@@ -270,5 +270,6 @@ python -m bioharn.detect_fit \
     --sampler_backend=None \
     --num_batches=1000 \
     --balance=None \
+    --sql_cache_view=True \
     --segmentation_bootstrap=ellipse+kpts \
     --bstep=16

@@ -164,6 +164,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         return input_id
 
     def _prebuild_pool(self):
+        import xdev
+        xdev.embed()
         print('Prebuild pool')
         positives, negatives = preselect_regions(
             self.sampler, self.window_overlap, self.window_dims,
