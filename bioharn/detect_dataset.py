@@ -737,18 +737,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 item_sampler, batch_size=batch_size, drop_last=drop_last,
                 num_batches=num_batches)
 
-        if ub.WIN32:
-            # Hack for win32 because of pickle loading issues with local vars
-            worker_init_fn = None
-        else:
-            def worker_init_fn(worker_id):
-                # worker_info = torch.utils.data.get_worker_info()  # TODO
-                # Make loaders more random
-                kwarray.seed_global(np.random.get_state()[1][0] + worker_id)
-                if self.augmenter:
-                    rng = kwarray.ensure_rng(None)
-                    reseed_(self.augmenter, rng)
-
         # torch.utils.data.sampler.WeightedRandomSampler
 
         if xpu is None:
@@ -764,6 +752,21 @@ class DetectFitDataset(torch.utils.data.Dataset):
             collate_fn=collate_fn, num_workers=num_workers,
             pin_memory=pin_memory, worker_init_fn=worker_init_fn)
         return loader
+
+
+def worker_init_fn(worker_id):
+    worker_info = torch.utils.data.get_worker_info()  # TODO
+    self = worker_info.dataset
+
+    if hasattr(self.sampler.dset, 'connect'):
+        # Reconnect to the backend if we are using SQL
+        self.sampler.dset.connect(readonly=True)
+
+    # Make loaders more random
+    kwarray.seed_global(np.random.get_state()[1][0] + worker_id)
+    if self.augmenter:
+        rng = kwarray.ensure_rng(None)
+        reseed_(self.augmenter, rng)
 
 
 def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
