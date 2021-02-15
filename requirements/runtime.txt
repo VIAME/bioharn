@@ -13,3 +13,4 @@ netharn >= 0.5.15
 scriptconfig
 ubelt >= 0.9.5
 torch_liberator >= 0.0.4
+uritools

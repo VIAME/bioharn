@@ -12,6 +12,7 @@ from os.path import join
 from os.path import dirname
 import os
 import six
+import kwcoco
 import ndsampler
 import kwimage
 import netharn as nh
@@ -143,6 +144,9 @@ def evaluate_models(cmdline=True, **kw):
         evaluate_models(**kw)
     """
     import itertools as it
+    from kwcoco.util.util_json import ensure_json_serializable
+    import json
+    import pandas as pd
     if 'config' in kw:
         config_fpath = kw['config']
         defaults = ub.dict_diff(kw, {'config'})
@@ -201,8 +205,6 @@ def evaluate_models(cmdline=True, **kw):
 
             results = evaluator.evaluate()
 
-            from kwcoco.util.util_json import ensure_json_serializable
-            import json
             single_result = results['area_range=all,iou_thresh=0.5']
             small_results = {
                 'nocls_measures': single_result.nocls_measures.summary(),
@@ -222,7 +224,6 @@ def evaluate_models(cmdline=True, **kw):
 
     rows = []
     train_config_rows = []
-    import json
     # import ast
     for fpath in ub.ProgIter(metric_fpaths, desc='gather summary'):
         metrics = json.load(open(fpath, 'r'))
@@ -239,7 +240,6 @@ def evaluate_models(cmdline=True, **kw):
         train_config_rows.append(train_config)
         rows.append(row)
 
-    import pandas as pd
     pd.set_option('max_colwidth', 256)
     df = pd.DataFrame(rows)
     print(df.to_string(float_format=lambda x: '%0.3f' % x))
@@ -281,23 +281,9 @@ def evaluate_models(cmdline=True, **kw):
         subcfg = ub.dict_subset(config, set(varied_basis), default=np.nan)
         row.update(subcfg)
 
-    import pandas as pd
     pd.set_option('max_colwidth', 256)
     df = pd.DataFrame(rows)
     print(df.to_string(float_format=lambda x: '%0.3f' % x))
-
-
-def _coerce_dataset(dset):
-    if isinstance(dset, str):
-        dset_fpath = ub.expandpath(dset)
-        dset = ndsampler.CocoDataset(dset_fpath)
-    elif type(dset).__name__ == 'CocoDataset':
-        dset = dset
-    elif type(dset).__name__ == 'CocoSampler':
-        dset = dset.dset
-    else:
-        raise TypeError(type(dset))
-    return dset
 
 
 class DetectEvaluator(object):
@@ -402,7 +388,7 @@ class DetectEvaluator(object):
     def _ensure_sampler(evaluator):
         if evaluator.sampler is None:
             print('loading dataset')
-            coco_dset = _coerce_dataset(evaluator.config['dataset'])
+            coco_dset = kwcoco.CocoDataset.coerce(evaluator.config['dataset'])
 
             if evaluator.config['demo']:
                 pass

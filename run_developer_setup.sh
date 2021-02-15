@@ -122,7 +122,7 @@ __gdal_from_source(){
 python -c "import torch; print(torch.version.cuda)"
 
 
-MMCV_VERSION=1.2.5
+MMCV_VERSION=1.2.6
 MMCV_URL=$(python -c "
 from distutils.version import LooseVersion
 import torch
