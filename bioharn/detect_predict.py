@@ -32,6 +32,7 @@ import scriptconfig as scfg
 import kwimage
 import kwarray
 import warnings
+import kwcoco
 import torch_liberator
 from netharn.data.channel_spec import ChannelSpec
 from netharn.data.data_containers import ContainerXPU
@@ -864,7 +865,6 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
     @classmethod
     def demo(WindowedSamplerDataset, key='habcam', **kwargs):
         import ndsampler
-        import kwcoco
         if key == 'habcam':
             dset_fpath = ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
             workdir = ub.expandpath('~/work/bioharn')
@@ -1057,7 +1057,6 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
 
 def _coerce_sampler(config):
-    import kwcoco
     from bioharn import util
     from os.path import isdir
 
@@ -1125,7 +1124,6 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
     Ignore:
         >>> import ndsampler
-        >>> import kwcoco
         >>> config = {}
         >>> config['deployed'] = ub.expandpath('~/work/bioharn/fit/runs/bioharn-det-v13-cascade/ogenzvgt/torch_snapshots/_epoch_00000042.pt')
         >>> predictor = DetectPredictor(config)
@@ -1259,7 +1257,6 @@ def _load_dets_worker(single_pred_fpath):
     """
     single_pred_fpath = ub.expandpath('$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/eval/habcam_cfarm_v6_test.mscoc/bioharn-det-mc-cascade-rgbd-v36__epoch_00000018/c=0.2,i=window,n=0.5,window_d=512,512,window_o=0.0/pred/dets_gid_00004070_v2.mscoco.json')
     """
-    import kwcoco
     single_img_coco = kwcoco.CocoDataset(single_pred_fpath, autobuild=False)
     if len(single_img_coco.dataset['images']) != 1:
         raise Exception('Expected predictions for a single image only')
@@ -1338,7 +1335,6 @@ def detect_cli(config={}):
         # Each image produces its own kwcoc files in the "pred" subfolder.
         # Union all of those to make a single coco file that contains all
         # predictions.
-        import kwcoco
         coco_dsets = []
         for gid, pred_fpath in gid_to_pred_fpath.items():
             single_img_coco = kwcoco.CocoDataset(pred_fpath)
