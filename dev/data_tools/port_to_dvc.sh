@@ -368,3 +368,153 @@ extra(){
         --bstep=16
      
 }
+
+
+
+#### 
+
+# Setup the private Viame DVC repo
+
+create_gitlab_dvc_project(){
+    load_secrets
+    HOST=https://gitlab.kitware.com
+    PRIVATE_GITLAB_TOKEN=$(git_token_for $HOST)
+    if [[ "$PRIVATE_GITLAB_TOKEN" == "ERROR" ]]; then
+        false || echo "Failed to load authentication key"
+    fi
+
+    TMP_DIR=$(mktemp -d -t ci-XXXXXXXXXX)
+
+    # Find the GroupID (aka namespace ID) for the gitlab group
+    GROUP_NAME=viame
+    curl --header "PRIVATE-TOKEN: $PRIVATE_GITLAB_TOKEN" "$HOST/api/v4/groups" > $TMP_DIR/all_group_info
+    GROUP_ID=$(cat $TMP_DIR/all_group_info | jq ". | map(select(.name==\"$GROUP_NAME\")) | .[0].id")
+    echo "GROUP_ID = $GROUP_ID"
+
+    # Create a new GitLab Project
+    # https://docs.gitlab.com/ee/api/projects.html#create-project-for-user
+    curl --request POST \
+        --header "PRIVATE-TOKEN: $PRIVATE_GITLAB_TOKEN" \
+        --data-urlencode "name=viame_private_dvc" \
+        --data-urlencode "description=\"A DVC Repo for Private VIAME data\"" \
+        --data-urlencode "namespace_id=$GROUP_ID" \
+        --data-urlencode "visibility=private" \
+        "$HOST/api/v4/projects" > $TMP_DIR/new_project
+
+    cat $TMP_DIR/new_project | jq .
+}
+
+cd /data/dvc-repos
+git clone git@gitlab.kitware.com:viame/viame_private_dvc.git
+cd /data/dvc-repos/viame_private_dvc
+dvc init
+
+# Set cache-type strategy preferences
+dvc config cache.type reflink,symlink,copy
+
+# Setup cache dir on viame
+dvc cache dir --local /data/dvc-caches/viame_private_dvc
+
+# Set up an ssh remote on viame.kitware.com
+dvc remote add --default viame ssh://viame.kitware.com:/data/dvc-caches/viame_private_dvc
+
+git add .dvc .dvcignore
+git commit -am "Init DVC repo"
+git push
+
+cat .dvc/config
+
+rsync -avrLP /data/private/./Benthic /data/dvc-repos/viame_private_dvc
+
+tree /data/dvc-repos/viame_private_dvc/Benthic/US_NE_2017_CFARM_HABCAM/ | wc
+tree /data/private/Benthic/US_NE_2017_CFARM_HABCAM/ | wc
+
+DVC_REPO=/data/dvc-repos/viame_private_dvc
+cd $DVC_REPO
+mkdir -p $DVC_REPO/Benthic/US_NE_2017_CFARM_HABCAM/_assets
+mv $DVC_REPO/Benthic/US_NE_2017_CFARM_HABCAM/Corrected_Old $DVC_REPO/Benthic/US_NE_2017_CFARM_HABCAM/_assets/images
+cd $DVC_REPO/Benthic/US_NE_2017_CFARM_HABCAM/_assets
+dvc add images
+dvc move images Corrected_Old
+cd $DVC_REPO/Benthic/US_NE_2017_CFARM_HABCAM/
+dvc add "HabCam 2017 dataset1 annotations.csv"
+
+DVC_REPO=/data/dvc-repos/viame_private_dvc
+cd $DVC_REPO/Benthic
+
+tree $DVC_REPO/Benthic/US_NE_2018_CFARM_HABCAM/ | wc
+tree /data/private/Benthic/US_NE_2018_CFARM_HABCAM/ | wc
+cd $DVC_REPO/Benthic/US_NE_2018_CFARM_HABCAM
+mkdir -p _assets
+mv Left_Old _assets/
+dvc add _assets/*
+git add _assets/Left_Old.dvc _assets/.gitignore
+dvc add annotations.csv
+git add annotations.csv.dvc .gitignore
+git commit -am "Add US_NE_2018_CFARM_HABCAM"
+
+cd $DVC_REPO/Benthic/US_NE_2019_CFARM_HABCAM
+tree /data/private/Benthic/US_NE_2019_CFARM_HABCAM/ | wc
+cd $DVC_REPO/Benthic/US_NE_2019_CFARM_HABCAM
+mkdir _assets
+mv Left_Old _assets
+mv Processed _assets
+mv sample-3d-results _assets
+dvc add *.csv _assets/*
+
+DVC_REPO=/data/dvc-repos/viame_private_dvc
+ls $DVC_REPO/Benthic/
+cd $DVC_REPO/Benthic/US_NE_2019_CFARM_HABCAM_PART2
+tree | wc
+tree /data/private/Benthic/US_NE_2019_CFARM_HABCAM_PART2/ | wc
+mkdir _assets
+mv Left_Old _assets
+dvc add *.csv _assets/*
+
+
+DVC_REPO=/data/dvc-repos/viame_private_dvc
+ls $DVC_REPO/Benthic/
+cd $DVC_REPO/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH
+tree | wc
+tree /data/private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/ | wc
+mkdir -p _assets
+mv Corrected _assets/
+mv Disparity _assets/
+mv Left _assets/
+mv Raw _assets/
+dvc add *csv _assets/*
+
+
+# POINTER <-
+
+# -----------------
+
+cd /data/dvc-repos/viame_dvc
+dvc move US_ALASKA_MML_SEALION public/US_ALASKA_MML_SEALION
+git mv US_ALASKA_MML_SEALION public/US_ALASKA_MML_SEALION
+
+cd /data/dvc-repos/viame_dvc
+
+find /data/public/./Benthic -iname "*csv" -exec grep -l flatfish {} \;
+find /data/private/./Benthic -iname "*csv" -exec grep -l flatfish {} \;
+rsync -avrLP /data/public/./Benthic /data/dvc-repos/viame_dvc 
+
+# These are the ones with flatfish
+rsync -avrLP /data/public/./Benthic/US_NE_2019_CFF_HABCAM_PART2 /data/dvc-repos/viame_dvc && \
+rsync -avrLP /data/public/./Benthic/US_NE_2018_CFF_HABCAM /data/dvc-repos/viame_dvc && \
+rsync -avrLP /data/public/./Benthic/US_NE_2017_CFF_HABCAM /data/dvc-repos/viame_dvc && \
+rsync -avrLP /data/public/./Benthic/US_NE_2019_CFF_HABCAM//data/dvc-repos/viame_dvc && \
+rsync -avrLP /data/public/./Benthic/US_NE_2015_NEFSC_HABCAM /data/dvc-repos/viame_dvc
+
+
+# PUBLIC SIDE
+
+# Move data from private over to the repo, reorganize into data bundles so
+# assets are in a subdirectory and annotations are findable via ls
+
+# TODO: will likely need to reconvert CFARM 2017-2019
+
+find /data/private -iname "*cog_rgb*"
+find /data/public -iname "*cog_rgb*"
+find . -iname "*cog_rgb*"
+find /data/public -iname "*cog_rgb*"
