@@ -508,6 +508,13 @@ mkdir _assets
 mv Disparity  Left  Raw  Rectified _assets
 dvc add _assets/* --desc "Add assets from US_NE_NEFSC_2015_HABCAM_MID_ATLANTIC"
 
+DVC_REPO=/data/dvc-repos/viame_private_dvc
+ls $DVC_REPO/Benthic/
+cd $DVC_REPO/Benthic/US_NE_NEFSC_2016_HABCAM_MID_ATLANTIC
+mkdir _assets
+mv Disparity  Left  Raw  Rectified _assets
+dvc add _assets/* --desc "Add assets from US_NE_NEFSC_2015_HABCAM_MID_ATLANTIC"
+
 # -----------------
 
 cd /data/dvc-repos/viame_dvc
