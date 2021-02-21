@@ -515,13 +515,73 @@ rsync -avrLP /data/public/./Benthic /data/dvc-repos/viame_dvc
 
 # These are the ones with flatfish
 rsync -avrLP /data/public/./Benthic/US_NE_2019_CFF_HABCAM_PART2 /data/dvc-repos/viame_dvc && \
+rsync -avrLP /data/public/./Benthic/US_NE_2019_CFF_HABCAM//data/dvc-repos/viame_dvc && \
 rsync -avrLP /data/public/./Benthic/US_NE_2018_CFF_HABCAM /data/dvc-repos/viame_dvc && \
 rsync -avrLP /data/public/./Benthic/US_NE_2017_CFF_HABCAM /data/dvc-repos/viame_dvc && \
-rsync -avrLP /data/public/./Benthic/US_NE_2019_CFF_HABCAM//data/dvc-repos/viame_dvc && \
 rsync -avrLP /data/public/./Benthic/US_NE_2015_NEFSC_HABCAM /data/dvc-repos/viame_dvc
 
 
 # PUBLIC SIDE
+
+cd /data/dvc-repos/viame_dvc/Benthic/AQ_2020_SEFSC_PENGUIN_HEADCAM
+mkdir _assets/images
+mv *.png _assets/images
+
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM
+mkdir _assets/
+mv Cog  Corrected  Disparities _assets
+find . -iname "*csv" -exec  mv {} . \;
+find . -iname "*json" -exec  mv {} . \;
+find . -iname "*txt" -exec  mv {} . \;
+
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2017_CFF_HABCAM
+mkdir _assets/
+mv Left Raws _assets
+find . -iname "*csv" 
+mv ./_assets/Left/annotations.csv .
+
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2018_CFF_HABCAM
+mkdir _assets/
+mv Left Raws _assets
+mv ./_assets/Left/annotations.csv .
+
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM
+mkdir _assets/
+mv Left Raws _assets
+mv ./_assets/Left/annotations.csv .
+
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM_PART2
+mkdir _assets/
+mv Left Raws _assets
+mv ./_assets/Left/annotations.csv .
+
+
+cd /data/dvc-repos/viame_dvc
+dvc add \
+    Benthic/US_NE_2019_CFF_HABCAM_PART2/_assets/Left \
+    Benthic/US_NE_2019_CFF_HABCAM_PART2/_assets/Raws \
+    Benthic/US_NE_2019_CFF_HABCAM_PART2/_assets/annotations.csv \
+    Benthic/US_NE_2019_CFF_HABCAM/_assets/Left \
+    Benthic/US_NE_2019_CFF_HABCAM/_assets/Raws \
+    Benthic/US_NE_2019_CFF_HABCAM/_assets/annotations.csv \
+    Benthic/US_NE_2018_CFF_HABCAM/_assets/Left \
+    Benthic/US_NE_2018_CFF_HABCAM/_assets/Raws \
+    Benthic/US_NE_2018_CFF_HABCAM/_assets/annotations.csv \
+    Benthic/US_NE_2017_CFF_HABCAM/_assets/Left \
+    Benthic/US_NE_2017_CFF_HABCAM/_assets/Raws \
+    Benthic/US_NE_2017_CFF_HABCAM/_assets/annotations.csv \
+    Benthic/US_NE_2015_NEFSC_HABCAM/_assets/Corrected \
+    Benthic/US_NE_2015_NEFSC_HABCAM/_assets/Disparities \
+    Benthic/US_NE_2015_NEFSC_HABCAM/_assets/annotations.csv \
+    Benthic/US_NE_2015_NEFSC_HABCAM/_assets/annotations.habcam_csv \
+    Benthic/US_NE_2015_NEFSC_HABCAM/_assets/metadata.txt 
+
+
+DVC_REPO=/data/dvc-repos/viame_dvc
+ls $DVC_REPO/Benthic/
+tree -L 2 $DVC_REPO/Benthic/
+cd $DVC_REPO/Benthic/US_NE_2017_CFF_HABCAM
+
 
 # Move data from private over to the repo, reorganize into data bundles so
 # assets are in a subdirectory and annotations are findable via ls
@@ -532,3 +592,39 @@ find /data/private -iname "*cog_rgb*"
 find /data/public -iname "*cog_rgb*"
 find . -iname "*cog_rgb*"
 find /data/public -iname "*cog_rgb*"
+
+
+
+def bogo_reverse(x):
+    """
+    Example:
+         x = [3, 2, 1, 2, 1]
+         bogo_reverse(x)
+    """
+    import random
+    rng = random.Random()
+
+    idxs = list(range(len(x)))
+
+    guess_again = True
+    while guess_again:
+        state = rng.getstate()
+        rng2 = random.Random()
+        rng2.setstate(state)
+
+        x_cand = x.copy()
+        idxs_cand = idxs.copy()
+
+        rng.shuffle(idxs_cand)
+        rng2.shuffle(x_cand)
+
+        prev = float('inf')
+        guess_again = False
+        for idx in idxs_cand:
+            if idx > prev:
+                guess_again = True
+                break
+            prev = idx
+
+    final = x_cand
+    return final
