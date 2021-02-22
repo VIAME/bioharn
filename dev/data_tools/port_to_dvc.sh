@@ -608,37 +608,98 @@ find . -iname "*cog_rgb*"
 find /data/public -iname "*cog_rgb*"
 
 
+# Get rid of assets folder
+cd /data/dvc-repos/viame_dvc
 
-def bogo_reverse(x):
-    """
-    Example:
-         x = [3, 2, 1, 2, 1]
-         bogo_reverse(x)
-    """
-    import random
-    rng = random.Random()
+tree -L 3 /data/dvc-repos/viame_dvc
+tree -L 2 /data/dvc-repos/viame_private_dvc
+tree -L 3 /data/dvc-repos/viame_private_dvc
 
-    idxs = list(range(len(x)))
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NW_2017_NWFSC_PYROSOME_TRAIN
+find . -type f | awk -F. '!a[$NF]++{print $NF}'
+mkdir -p images
+mv *.pgm images
 
-    guess_again = True
-    while guess_again:
-        state = rng.getstate()
-        rng2 = random.Random()
-        rng2.setstate(state)
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NW_2017_NWFSC_PYROSOME_TEST
+mkdir -p images
+mv *.pgm images
 
-        x_cand = x.copy()
-        idxs_cand = idxs.copy()
 
-        rng.shuffle(idxs_cand)
-        rng2.shuffle(x_cand)
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
 
-        prev = float('inf')
-        guess_again = False
-        for idx in idxs_cand:
-            if idx > prev:
-                guess_again = True
-                break
-            prev = idx
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_2019_CFARM_HABCAM_PART2
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
 
-    final = x_cand
-    return final
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_2019_CFARM_HABCAM
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_2018_CFARM_HABCAM
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_2017_CFARM_HABCAM
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_NEFSC_2016_HABCAM_MID_ATLANTIC
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_NEFSC_2016_HABCAM_GEORGES_BANK
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_NEFSC_2015_HABCAM_MID_ATLANTIC
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_NEFSC_2015_HABCAM_GEORGES_BANK
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+
+find . -iname "*.json"
+
+cat ./US_NE_2019_CFARM_HABCAM_PART2/US_NE_2019_CFARM_HABCAM_PART2_v4.kwcoco.json | head -n 20
+
+
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_2019_CFARM_HABCAM_PART2
+kwcoco reroot US_NE_2019_CFARM_HABCAM_PART2_v4.kwcoco.json --absolute=False  --dst=./tmp.json --old_prefix="/home/joncrall/data/dvc-repos/viame_private_dvc/Benthic/US_NE_2019_CFARM_HABCAM_PART2/_assets/" --new_prefix=""
+mv tmp.json US_NE_2019_CFARM_HABCAM_PART2_v4.kwcoco.json
+#jq ".images[0]" US_NE_2019_CFARM_HABCAM_PART2_v4.kwcoco.json
+#jq ".images[0]" tmp.json
+
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_2019_CFARM_HABCAM
+kwcoco reroot US_NE_2019_CFARM_HABCAM_v4.kwcoco.json --absolute=False  --dst=./tmp.json --old_prefix="/home/joncrall/data/dvc-repos/viame_private_dvc/Benthic/US_NE_2019_CFARM_HABCAM/_assets/" --new_prefix=""
+jq ".images[0]" US_NE_2019_CFARM_HABCAM_v4.kwcoco.json
+jq ".images[0]" tmp.json
+mv tmp.json US_NE_2019_CFARM_HABCAM_v4.kwcoco.json
+
+
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_2017_CFARM_HABCAM
+kwcoco reroot US_NE_2017_CFARM_HABCAM_v4.kwcoco.json --absolute=False  --dst=./tmp.json --old_prefix="/home/joncrall/data/dvc-repos/viame_private_dvc/Benthic/US_NE_2017_CFARM_HABCAM/_assets/" --new_prefix=""
+jq ".images[0]" US_NE_2017_CFARM_HABCAM_v4.kwcoco.json
+jq ".images[0]" tmp.json
+mv tmp.json US_NE_2017_CFARM_HABCAM_v4.kwcoco.json
+
+
+cd /data/dvc-repos/viame_private_dvc/Benthic/US_NE_2018_CFARM_HABCAM
+kwcoco reroot US_NE_2018_CFARM_HABCAM_v4.kwcoco.json --absolute=False  --dst=./tmp.json --old_prefix="/home/joncrall/data/dvc-repos/viame_private_dvc/Benthic/US_NE_2018_CFARM_HABCAM/_assets/" --new_prefix=""
+jq ".images[0]" US_NE_2018_CFARM_HABCAM_v4.kwcoco.json
+jq ".images[0]" tmp.json
+mv tmp.json US_NE_2018_CFARM_HABCAM_v4.kwcoco.json
+
+find . -iname "*.json" -exec jq ".images[0]" {} \;
+
+
+cd /data/dvc-repos/viame_dvc/Benthic/
+
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM_PART2
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2018_CFF_HABCAM
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2017_CFF_HABCAM
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+cd /data/dvc-repos/viame_dvc/Benthic/AQ_2020_SEFSC_PENGUIN_HEADCAM
+mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+
+
+# TODO: Add this in US_NE_NEFSC_2014_HABCAM_FLATFISH
