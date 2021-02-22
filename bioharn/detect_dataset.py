@@ -675,12 +675,49 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 from netharn.data.batch_samplers import PatchedRandomSampler
                 item_sampler = PatchedRandomSampler(self, num_samples=num_samples)
             else:
-                if num_samples is None:
-                    item_sampler = torch.utils.data.sampler.SequentialSampler(self)
+                from netharn.data.batch_samplers import SubsetSampler
+                import itertools as it
+                REBALANCE_DETERMINISTIC_SHUFFLE = True
+                if REBALANCE_DETERMINISTIC_SHUFFLE:
+                    # Make is such that the first few validation batches
+                    # have instances of all true categories
+                    dset = self.sampler.dset
+                    cid_to_idxs = ub.ddict(list)
+
+                    for idx, region in enumerate(self.chosen_regions):
+                        (gid, slices, aids) = region
+                        region_cids = dset.annots(aids).lookup('category_id')
+                        if len(region_cids) == 0:
+                            # Handle case where there are no annots in a region
+                            cid_to_idxs[None].add(idx)
+                        else:
+                            # Mark that this region index contains this category
+                            for cid in set(region_cids):
+                                cid_to_idxs[cid].append(idx)
+
+                    # Deterministic shuffle
+                    rng = kwarray.ensure_rng(58286)
+                    idx_groups = []
+                    for idxs in cid_to_idxs.values():
+                        idxs = sorted(idxs)
+                        rng.shuffle(idxs)
+                        idx_groups.append(idxs)
+
+                    it.zip_longest
+                    flat_idxs = ub.flatten(list(it.zip_longest(*idx_groups)))
+                    flat_idxs = [idx for idx in flat_idxs if idx is not None]
+
+                    if num_samples is None:
+                        final_idxs = flat_idxs
+                    else:
+                        final_idxs = flat_idxs[:num_samples]
+                    item_sampler = SubsetSampler(final_idxs)
                 else:
-                    from netharn.data.batch_samplers import SubsetSampler
-                    stats_idxs = (np.arange(num_samples) % len(self))
-                    item_sampler = SubsetSampler(stats_idxs)
+                    if num_samples is None:
+                        item_sampler = torch.utils.data.sampler.SequentialSampler(self)
+                    else:
+                        stats_idxs = (np.arange(num_samples) % len(self))
+                        item_sampler = SubsetSampler(stats_idxs)
 
             if num_samples is not None:
                 # If num_batches is too big, what should the behavior be?
