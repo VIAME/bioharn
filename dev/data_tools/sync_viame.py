@@ -704,6 +704,7 @@ def convert_public_CFF():
         ub.expandpath('/data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM/annotations.csv'),
     ]
     for csv_fpath in csv_fpaths:
+        print('csv_fpath = {!r}'.format(csv_fpath))
         assert exists(csv_fpath)
         import kwcoco
         from bioharn.io.viame_csv import ViameCSV
@@ -764,5 +765,5 @@ def convert_public_CFF():
             csv_fpath, ext='.kwcoco.json', multidot=True)
         assert not dset.missing_images()
 
-        print('dset.fpath = {!r}'.format(dset.fpath))
+        print('write dset.fpath = {!r}'.format(dset.fpath))
         dset.dump(dset.fpath, newlines=True)
