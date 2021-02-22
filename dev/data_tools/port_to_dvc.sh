@@ -761,3 +761,7 @@ kwcoco reroot --src habcam_2015_2018_2019.kwcoco.json.abs --dst habcam_2015_2018
 jq ".images[0]" habcam_2015_2018_2019.kwcoco.json
             kwcoco conform --src=habcam_2015_2018_2019.kwcoco.json --dst habcam_2015_2018_2019.kwcoco.json
 
+
+
+
+xdoctest ~/code/bioharn/dev/data_tools/sync_viame.py convert_public_CFF

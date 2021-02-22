@@ -117,6 +117,11 @@ def _parse_viame_csv_line(line):
     cat_to_score = ub.dzip(catnames, catscores)
     catname = ub.argmax(cat_to_score)
 
+    try:
+        frame_index = int(frame_index)
+    except Exception:
+        pass
+
     cat = {
         'name': catname,
     }
