@@ -39,7 +39,7 @@ class DetectFitConfig(scfg.Config):
 
         'sql_cache_view': scfg.Value(False, help='if True json-based COCO datasets are cached as SQL views'),
 
-        'sampler_backend': scfg.Value('auto', help='backend for ndsampler'),
+        'sampler_backend': scfg.Value(None, help='backend for ndsampler'),
 
         # Dataset options
         'multiscale': False,

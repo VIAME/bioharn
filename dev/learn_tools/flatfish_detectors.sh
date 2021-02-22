@@ -23,7 +23,7 @@ python -m bioharn.detect_fit \
     --backbone_init=url \
     --workers=3 \
     --xpu=auto \
-    --batch_size=6 \
+    --batch_size=4 \
     --num_batches=2000 \
     --sampler_backend=None \
     --num_vali_batches=500 \
