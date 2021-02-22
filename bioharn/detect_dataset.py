@@ -689,7 +689,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                         region_cids = dset.annots(aids).lookup('category_id')
                         if len(region_cids) == 0:
                             # Handle case where there are no annots in a region
-                            cid_to_idxs[None].add(idx)
+                            cid_to_idxs[None].append(idx)
                         else:
                             # Mark that this region index contains this category
                             for cid in set(region_cids):
