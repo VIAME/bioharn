@@ -692,6 +692,7 @@ cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM_PART2
 mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
 cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM
 mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
+
 cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2018_CFF_HABCAM
 mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
 cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2017_CFF_HABCAM
@@ -702,4 +703,61 @@ cd /data/dvc-repos/viame_dvc/Benthic/AQ_2020_SEFSC_PENGUIN_HEADCAM
 mv _assets/* . && mv _assets/.gitignore . && rmdir _assets
 
 
-# TODO: Add this in US_NE_NEFSC_2014_HABCAM_FLATFISH
+# TODO: Convert US_NE_NEFSC_2014_HABCAM_FLATFISH
+
+tree -L 2 /data/dvc-repos/viame_dvc/Benthic
+tree -L 2 /data/dvc-repos/viame_private_dvc/Benthic
+
+cd /data/dvc-repos/viame_private_dvc/Benthic
+
+US_NE_2017_CFARM_HABCAM
+US_NE_2018_CFARM_HABCAM
+
+
+cd /data/dvc-repos/viame_dvc/Benthic
+find .  -iname "*.kwcoco.json"
+
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM_PART2
+ln -s annotations.kwcoco.json data.kwcoco.json
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2018_CFF_HABCAM
+ln -s annotations.kwcoco.json data.kwcoco.json
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM
+ln -s annotations.kwcoco.json data.kwcoco.json
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2017_CFF_HABCAM
+ln -s annotations.kwcoco.json data.kwcoco.json
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM
+ln -s annotations.kwcoco.json data.kwcoco.json
+
+cd /data/dvc-repos/viame_dvc/Benthic/
+kwcoco stats \
+    --src \
+    US_NE_2019_CFF_HABCAM_PART2/data.kwcoco.json \
+    US_NE_2019_CFF_HABCAM/data.kwcoco.json \
+    US_NE_2018_CFF_HABCAM/data.kwcoco.json \
+    US_NE_2017_CFF_HABCAM/data.kwcoco.json \
+    US_NE_2015_NEFSC_HABCAM/data.kwcoco.json 
+
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM_PART2
+kwcoco reroot --src data.kwcoco.json --dst data.kwcoco.json.abs --absolute=True
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2018_CFF_HABCAM
+kwcoco reroot --src data.kwcoco.json --dst data.kwcoco.json.abs --absolute=True
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM
+kwcoco reroot --src data.kwcoco.json --dst data.kwcoco.json.abs --absolute=True
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2017_CFF_HABCAM
+kwcoco reroot --src data.kwcoco.json --dst data.kwcoco.json.abs --absolute=True
+cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM
+kwcoco reroot --src data.kwcoco.json --dst data.kwcoco.json.abs --absolute=True
+
+cd /data/dvc-repos/viame_dvc/Benthic/
+kwcoco union \
+    --src \
+    US_NE_2019_CFF_HABCAM_PART2/data.kwcoco.json.abs \
+    US_NE_2019_CFF_HABCAM/data.kwcoco.json.abs \
+    US_NE_2018_CFF_HABCAM/data.kwcoco.json.abs \
+    US_NE_2015_NEFSC_HABCAM/data.kwcoco.json.abs \
+    --dst=habcam_2015_2018_2019.kwcoco.json.abs
+
+kwcoco reroot --src habcam_2015_2018_2019.kwcoco.json.abs --dst habcam_2015_2018_2019.kwcoco.json --absolute=False
+jq ".images[0]" habcam_2015_2018_2019.kwcoco.json
+            kwcoco conform --src=habcam_2015_2018_2019.kwcoco.json --dst habcam_2015_2018_2019.kwcoco.json
+

@@ -172,6 +172,7 @@ catname_map = {
     'sea scallop clapper width': 'dead sea scallop',
     'sea scallop clapper': 'dead sea scallop',
     'probable clapper (width)': 'dead sea scallop',
+    'clapper':  'dead sea scallop',
 
     'probable swimming sea scallop inexact': 'swimming sea scallop',
     'probable swimming sea scallop': 'swimming sea scallop',
@@ -690,3 +691,78 @@ def merge():
             shape = imdata.shape
             assert img['width'] == shape[1]
             assert img['height'] == shape[0]
+
+
+def convert_public_CFF():
+    """
+    """
+    csv_fpaths = [
+        ub.expandpath('/data/dvc-repos/viame_dvc/Benthic/US_NE_2017_CFF_HABCAM/annotations.csv'),
+        ub.expandpath('/data/dvc-repos/viame_dvc/Benthic/US_NE_2018_CFF_HABCAM/annotations.csv'),
+        ub.expandpath('/data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM/annotations.csv'),
+        ub.expandpath('/data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM_PART2/annotations.csv'),
+        ub.expandpath('/data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM/annotations.csv'),
+    ]
+    for csv_fpath in csv_fpaths:
+        assert exists(csv_fpath)
+        import kwcoco
+        from bioharn.io.viame_csv import ViameCSV
+
+        dset = kwcoco.CocoDataset()
+        csv = ViameCSV(csv_fpath)
+        csv.extend_coco(dset=dset)
+
+        old_catnames = [cat['name'] for cat in dset.cats.values()]
+
+        def map_categories(old_catnames):
+            def normalize_catname(name):
+                name = name.lower()
+                name = name.replace(' ', '_')
+                name = name.replace('-', '_')
+                name = name.replace('(', '')
+                name = name.replace(')', '')
+                import re
+                name = re.sub('__*', '_', name)
+                return name
+
+            valid_catnames = set(catname_map.values())
+            catname_map_ = catname_map.copy()
+            for key, value in catname_map.items():
+                key_ = normalize_catname(key)
+                catname_map_[key_] = value
+            final_mapping = {}
+            for catname in old_catnames:
+                catname_ = normalize_catname(catname)
+                if catname in valid_catnames:
+                    new_catname = catname_
+                elif catname_ in catname_map_:
+                    new_catname = catname_map_[catname_]
+                else:
+                    raise Exception(catname_)
+                final_mapping[catname] = new_catname
+            return final_mapping
+
+        catname_map_ = map_categories(old_catnames)
+        dset.rename_categories(catname_map_)
+
+        registered_paths = dset.images().lookup('file_name')
+        bundle_dpath = dirname(csv_fpath)
+        asset_dpath = bundle_dpath
+        mapping = assign_files_to_assets(asset_dpath, registered_paths)
+
+        # Fix image names
+        tasks = []
+        for key, val in mapping.items():
+            img = dset.index.file_name_to_img[key]
+            tasks.append((img, val))
+        for img, val in tasks:
+            img['file_name'] = relpath(val, bundle_dpath)
+        dset._build_index()
+
+        dset.img_root = bundle_dpath
+        dset.fpath = ub.augpath(
+            csv_fpath, ext='.kwcoco.json', multidot=True)
+        assert not dset.missing_images()
+
+        print('dset.fpath = {!r}'.format(dset.fpath))
+        dset.dump(dset.fpath, newlines=True)
