@@ -737,6 +737,8 @@ kwcoco stats \
     US_NE_2017_CFF_HABCAM/data.kwcoco.json \
     US_NE_2015_NEFSC_HABCAM/data.kwcoco.json 
 
+xdoctest ~/code/bioharn/dev/data_tools/sync_viame.py convert_public_CFF
+
 cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM_PART2
 kwcoco reroot --src data.kwcoco.json --dst data.kwcoco.json.abs --absolute=True
 cd /data/dvc-repos/viame_dvc/Benthic/US_NE_2018_CFF_HABCAM
@@ -763,5 +765,43 @@ jq ".images[0]" habcam_2015_2018_2019.kwcoco.json
 
 
 
+kwcoco validate /data/dvc-repos/viame_dvc/Benthic/US_NE_2017_CFF_HABCAM/annotations.kwcoco.json --corrupted=True
+kwcoco validate /data/dvc-repos/viame_dvc/Benthic/US_NE_2018_CFF_HABCAM/annotations.kwcoco.json --corrupted=True
+kwcoco validate /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM/annotations.kwcoco.json --corrupted=True
+kwcoco validate /data/dvc-repos/viame_dvc/Benthic/US_NE_2019_CFF_HABCAM_PART2/annotations.kwcoco.json --corrupted=True
+kwcoco validate /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM/annotations.kwcoco.json --corrupted=True \
+    --fix=remove \
+    --dst /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM/fixed.kwcoco.json
+kwcoco validate /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM/fixed.kwcoco.json --corrupted=True 
+mv /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM/fixed.kwcoco.json /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM/annotations.kwcoco.json
+kwcoco validate /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM/annotations.kwcoco.json --corrupted=True 
 
-xdoctest ~/code/bioharn/dev/data_tools/sync_viame.py convert_public_CFF
+kwcoco stats /data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM/fixed.kwcoco.json --embed=True 
+
+cd /data/dvc-repos/viame_dvc/Benthic/
+kwcoco union \
+    --src \
+    US_NE_2019_CFF_HABCAM_PART2/data.kwcoco.json.abs \
+    US_NE_2019_CFF_HABCAM/data.kwcoco.json.abs \
+    US_NE_2018_CFF_HABCAM/data.kwcoco.json.abs \
+    US_NE_2015_NEFSC_HABCAM/data.kwcoco.json.abs \
+    --dst=habcam_2015_2018_2019.kwcoco.json.abs
+
+kwcoco reroot --src habcam_2015_2018_2019.kwcoco.json.abs --dst habcam_2015_2018_2019.kwcoco.json --absolute=False
+kwcoco conform --src=habcam_2015_2018_2019.kwcoco.json --dst habcam_2015_2018_2019.kwcoco.json
+kwcoco validate habcam_2015_2018_2019.kwcoco.json --corrupted=True 
+kwcoco stats --src=habcam_2015_2018_2019.kwcoco.json
+
+jq ".images[-1]" habcam_2015_2018_2019.kwcoco.json
+jq ".images[0]" habcam_2015_2018_2019.kwcoco.json
+jq ".images[30000]" habcam_2015_2018_2019.kwcoco.json
+jq ".images[20000]" habcam_2015_2018_2019.kwcoco.json
+jq ".images[10000]" habcam_2015_2018_2019.kwcoco.json
+jq ".images[5000]" habcam_2015_2018_2019.kwcoco.json
+jq ".images[1000]" habcam_2015_2018_2019.kwcoco.json
+
+kwcoco show habcam_2015_2018_2019.kwcoco.json --gid=30001 --mode=opencv --dst foo.png
+feh foo.png
+rm foo.png
+
+jq ".annotations[0]" habcam_2015_2018_2019.kwcoco.json

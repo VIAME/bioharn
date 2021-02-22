@@ -767,3 +767,29 @@ def convert_public_CFF():
 
         print('write dset.fpath = {!r}'.format(dset.fpath))
         dset.dump(dset.fpath, newlines=True)
+
+
+def hack_for_2015_habcam():
+    fpath = ub.expandpath('/data/dvc-repos/viame_dvc/Benthic/US_NE_2015_NEFSC_HABCAM/annotations.kwcoco.json')
+    import kwcoco
+    dset = kwcoco.CocoDataset(fpath)
+    corrupted = dset.corrupted_images(check_aux=True, verbose=1)
+    assert not corrupted
+
+    cog_dpath = join(dset.img_root, 'Cog')
+    missing = []
+    assert exists(cog_dpath)
+    for img in dset.imgs.values():
+        if img['file_name'].startswith('Corrected'):
+            cog_fpath = ub.augpath(img['file_name'], dpath=cog_dpath, suffix='_left', ext='.cog.tif')
+            if not exists(cog_fpath):
+                missing.append(img)
+            else:
+                fname = relpath(cog_fpath, dset.bundle_dpath)
+                img['file_name'] = fname
+                img.pop('width', None)
+                img.pop('height', None)
+
+    dset.remove_images(missing)
+    dset._ensure_imgsize(workers=8, verbose=1)
+    dset.dump(dset.fpath)
