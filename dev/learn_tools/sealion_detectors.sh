@@ -458,8 +458,11 @@ girder-client --api-url https://data.kitware.com/api/v1 download 604f854a2fa2562
 # Download the sealion test image (sealion_test_img_2010.jpg)
 girder-client --api-url https://data.kitware.com/api/v1 download 6011a5ae2fa25629b919fe6a
 
+# Download the sealion test image (20150624_SSLC0013_C.jpg)
+girder-client --api-url https://data.kitware.com/api/v1 download 5f52a390683ae84c2a4f5cc7
+
 python -m bioharn.detect_predict \
-    --dataset=sealion_test_img_2010.jpg \
+    --dataset=20150624_SSLC0013_C.jpg \
     --deployed=./deploy_sealion-mask-test-v6_rtzduxsw_096_JZMSVD.zip \
     --out_dpath=./test_mask_pred \
     --draw=1 

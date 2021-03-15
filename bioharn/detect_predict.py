@@ -674,7 +674,21 @@ class DetectPredictor(object):
             det = det.compress(det.scores > predictor.config['conf_thresh'])
 
             # Ensure that masks are transformed into polygons for transformation efficiency
+            # import xdev
+            # xdev.embed()
             if det.data.get('segmentations', None) is not None:
+                if 0:
+                    import kwplot
+                    kwplot.imshow(batch['inputs']['rgb'].data[-1].cpu().numpy())
+
+                    for sseg in det.data['segmentations']:
+                        s = sseg.data.sum()
+                        if s:
+                            mp = sseg.to_multi_polygon()
+                            print(s)
+                            print(mp)
+                            break
+
                 det.data['segmentations'] = det.data['segmentations'].to_polygon_list()
 
             if True and len(det) and np.all(det.boxes.width <= 1) and len(batch['inputs']) == 1:
@@ -689,7 +703,7 @@ class DetectPredictor(object):
             det = det.translate(item_shift_xy, inplace=True)
             # Fix type issue
             if 'class_idxs' in det.data:
-                det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
+                det.data['class_idxs'] = det.data['class_idxs'].astype(int)
             yield det
 
 
@@ -1078,12 +1092,7 @@ def _coerce_sampler(config):
                 coco_dset.add_image(image_path)
             elif path_exists and isdir(image_path):
                 # Directory of images case
-                IMG_EXTS = [
-                    '.bmp', '.pgm', '.jpg', '.jpeg', '.png', '.tif', '.tiff',
-                    '.ntf', '.nitf', '.ptif', '.cog.tiff', '.cog.tif', '.r0',
-                    '.r1', '.r2', '.r3', '.r4', '.r5', '.nsf',
-                ]
-                img_globs = ['*' + ext for ext in IMG_EXTS]
+                img_globs = ['*' + ext for ext in kwimage.im_io.IMAGE_EXTENSIONS]
                 fpaths = list(util.find_files(image_path, img_globs))
                 if len(fpaths):
                     coco_dset = kwcoco.CocoDataset.from_image_paths(fpaths)
@@ -1190,7 +1199,6 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
         # for cat in coco_dset.cats.values():
         #     single_img_coco.add_category(**cat)
-
         for ann in dets.to_coco(style='new'):
             ann['image_id'] = gid
             if 'category_name' in ann:
