@@ -439,3 +439,27 @@ python -m bioharn.detect_fit \
     --sql_cache_view=True \
     --segmentation_bootstrap=ellipse+kpts \
     --bstep=3
+
+
+# Experimental model folder:
+# https://data.kitware.com/#collection/58b747ec8d777f0aef5d0f6a/folder/604f7f8a2fa25629b9567898
+
+source $HOME/internal/secrets
+girder-client --api-url https://data.kitware.com/api/v1 upload 604f7f8a2fa25629b9567898 \
+    $HOME/remote/namek/work/sealions/fit/name/sealion-mask-test-v6/deploy_sealion-mask-test-v6_rtzduxsw_096_JZMSVD.zip
+
+#girder-client --api-url https://data.kitware.com/api/v1 upload 604f7f8a2fa25629b9567898 \
+#    $HOME/remote/namek/work/sealions/fit/name/sealion-mask-test-v5/deploy_sealion-mask-test-v6_rtzduxsw_096_JZMSVD.zip
+
+
+# Download the sealion mask model (deploy_sealion-mask-test-v6_rtzduxsw_096_JZMSVD.zip)
+girder-client --api-url https://data.kitware.com/api/v1 download 604f854a2fa25629b956b486
+
+# Download the sealion test image (sealion_test_img_2010.jpg)
+girder-client --api-url https://data.kitware.com/api/v1 download 6011a5ae2fa25629b919fe6a
+
+python -m bioharn.detect_predict \
+    --dataset=sealion_test_img_2010.jpg \
+    --deployed=./deploy_sealion-mask-test-v6_rtzduxsw_096_JZMSVD.zip \
+    --out_dpath=./test_mask_pred \
+    --draw=1 

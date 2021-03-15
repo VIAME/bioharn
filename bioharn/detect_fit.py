@@ -98,8 +98,8 @@ class DetectFitConfig(scfg.Config):
         'decay': scfg.Value(1e-4, help='weight decay'),
 
         'schedule': scfg.Value('Exponential-g0.98-s1', help='learning rate / momentum scheduler'),
-        'max_epoch': scfg.Value(50, help='Maximum number of epochs'),
-        'patience': scfg.Value(10, help='Maximum number of bad epochs on validation before stopping'),
+        'max_epoch': scfg.Value(100, help='Maximum number of epochs'),
+        'patience': scfg.Value(40, help='Maximum number of bad epochs on validation before stopping'),
         'min_lr': scfg.Value(1e-9, help='minimum learning rate before termination'),
 
         # Initialization

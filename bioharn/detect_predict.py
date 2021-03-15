@@ -1059,6 +1059,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 def _coerce_sampler(config):
     from bioharn import util
     from os.path import isdir
+    import ndsampler
 
     # Running prediction is much faster if you can build a sampler.
     sampler_backend = config['sampler_backend']
@@ -1107,7 +1108,7 @@ def _coerce_sampler(config):
 
     print('Create sampler')
     workdir = ub.expandpath(config.get('workdir'))
-    sampler = kwcoco.CocoSampler(coco_dset, workdir=workdir,
+    sampler = ndsampler.CocoSampler(coco_dset, workdir=workdir,
                                     backend=sampler_backend)
     return sampler
 
