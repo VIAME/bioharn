@@ -110,6 +110,10 @@ def _ensure_upgraded_model(deployed_fpath):
         if candidates:
             deployed_fpath = candidates[0]
 
+    if isinstance(deployed_fpath, str) and exists(deployed_fpath) and deployed_fpath.endswith('.pt'):
+        # hack
+        return deployed_fpath
+
     deployed = torch_liberator.DeployedModel.coerce(deployed_fpath)
 
     # Hueristic to determine if the model needs update or not
