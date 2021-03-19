@@ -135,6 +135,7 @@ def _ensure_upgraded_model(deployed_fpath):
                     if found_version < need_version:
                         needs_update = 'to_latest'
 
+    print('needs_update = {!r}'.format(needs_update))
     if needs_update == 'to_2x':
         from bioharn.compat.upgrade_mmdet_model import upgrade_deployed_mmdet_model
         ensured_fpath = upgrade_deployed_mmdet_model({
