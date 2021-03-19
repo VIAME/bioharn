@@ -80,12 +80,22 @@ dvc_setup_and_checkout(){
     #cat .dvc/config
 
     # Point to whatever remote you want
+    REMOTE_URI=viame.kitware.com
+    dvc remote add viame ssh://$REMOTE_URI/data/dvc-caches/viame_dvc -d
     dvc remote add --global viame ssh://$REMOTE_URI/data/dvc-caches/viame_dvc -f
-    dvc remote modify --global viame url ssh://$REMOTE_URI/data/dvc-caches/viame_dvc 
+    dvc remote modify viame url ssh://$REMOTE_URI/data/dvc-caches/viame_dvc 
     dvc remote modify --global viame user $AD_USERNAME
     cat $HOME/.config/dvc/config
 
     dvc remote add --local viame ssh://$REMOTE_URI/data/dvc-caches/viame_dvc -f
+    dvc remote modify --local viame url ssh://$REMOTE_URI/data/dvc-caches/viame_dvc
+    dvc remote modify --local viame user $AD_USERNAME 
+    cat .dvc/config
+    cat .dvc/config.local
+    ko
+
+    # ON VIAME
+    dvc remote add --local viame /data/dvc-caches/viame_dvc
     dvc remote modify --local viame url ssh://$REMOTE_URI/data/dvc-caches/viame_dvc
     dvc remote modify --local viame user $AD_USERNAME 
     cat .dvc/config
@@ -805,3 +815,291 @@ feh foo.png
 rm foo.png
 
 jq ".annotations[0]" habcam_2015_2018_2019.kwcoco.json
+
+
+
+### --- 2021-03-15
+
+rsync -av /data/dvc-caches/viame_private_dvc/* /data/dvc-caches/viame_dvc
+rsync -av /data/dvc-caches/viame_dvc/viame_private_dvc/* /data/dvc-caches/viame_dvc
+
+
+SOURCE=/data/dvc-caches/viame_private_dvc/
+#SOURCE=/data/dvc-caches/viame_dvc/viame_private_dvc/
+DEST=/data/dvc-caches/viame_dvc
+cd ${SOURCE}; 
+find . -type d -exec mkdir -p ${DEST}/\{} \; 
+find . -type f -exec mv \{} ${DEST}/\{} --force \; 
+
+find . -type d
+
+find . -type d -empty -delete
+
+cd $HOME/data/dvc-repos/viame_dvc
+find $HOME/data/dvc-repos/viame_dvc/private -type l
+
+
+pycode "
+import xdev
+from xdev.search_replace import find
+import os
+
+cwd = os.getcwd()
+
+
+dpath = '/data/dvc-caches/viame_dvc'
+prog = ub.ProgIter(find(dpath=dpath, type='f', exclude=['\..*'], recursive=True), desc='walk')
+for fpath in prog:
+    if os.path.islink(fpath):
+        repo_fpath = os.readlink(fpath)
+        if not exists(repo_fpath):
+            prog.ensure_newline()
+
+            real_fpath = repo_fpath.replace('/home/joncrall/data/dvc-repos/viame_dvc/', '/data/')
+
+            repo_target_fpath = os.readlink(repo_fpath)
+            cache_fpath = repo_target_fpath.replace('viame_private_dvc', 'viame_dvc')
+
+            print('{} -> {}'.format(fpath, repo_fpath))
+            print('real file {}'.format(real_fpath))
+
+            assert exists(real_fpath) and not os.path.islink(real_fpath)
+            assert not os.path.islink(real_fpath)
+            assert os.path.islink(repo_fpath)
+            assert os.path.islink(fpath)
+            assert cache_fpath == fpath
+
+            #ub.hash_file(real_fpath, hasher='sha1')
+
+            os.unlink(cache_fpath)
+            ub.cmd('cp {} {}'.format(real_fpath, cache_fpath), verbose=2, check=True)
+            assert not os.path.islink(cache_fpath)
+
+            #ub.hash_file(cache_fpath, hasher='sha1')
+
+            os.unlink(repo_fpath)
+            ub.symlink(cache_fpath, repo_fpath)
+            #ub.cmd('ln -s {} {}'.format(cache_fpath, repo_fpath), verbose=2, check=True)
+
+            assert not os.path.islink(cache_fpath)
+            assert os.path.islink(repo_fpath)
+
+
+        #hack_fpath = fpath.replace('
+
+
+
+
+dpath = ub.expandpath('~/data/dvc-repos/viame_dvc/private/Benthic/')
+dpath = ub.expandpath('~/data/dvc-repos/viame_dvc/private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/')
+'''
+ls ~/data/dvc-repos/viame_dvc/private/Benthic/
+'''
+
+symlink_info = ub.cmd('symlinks -vr ~/data/dvc-repos/viame_dvc/private/Benthic/', shell=True)
+
+dpath = ub.expandpath('~/data/dvc-repos/viame_dvc/private/Benthic/US_NE_NEFSC_2015_HABCAM_GEORGES_BANK/')
+dpath = ub.expandpath('~/data/dvc-repos/viame_dvc/private/Benthic/US_NE_NEFSC_2016_HABCAM_GEORGES_BANK/')
+#found_iter = find(dpath=dpath, type='f', exclude=['\..*'], recursive=True)
+#prog = ub.ProgIter(found_iter, freq=1, adjust=False, desc='walk')
+#found = []
+#for fpath in prog:
+#    found.append(fpath)
+
+lines = symlink_info['out'].split('\n')
+dangling = []
+for line in lines:
+    if line.startswith('dangling'):
+        dangling.append(line.split(' ')[1])
+
+
+prog = ub.ProgIter(dangling, freq=1, adjust=False, desc='walk')
+for repo_fpath in prog:
+    if os.path.islink(repo_fpath) and not exists(repo_fpath):
+        repo_target_fpath = os.readlink(repo_fpath)
+        cache_fpath = repo_target_fpath.replace('viame_private_dvc', 'viame_dvc')
+        real_fpath = repo_fpath.replace('/home/joncrall/data/dvc-repos/viame_dvc/', '/data/')
+
+        assert exists(real_fpath) and not os.path.islink(real_fpath)
+        assert not os.path.islink(real_fpath)
+        assert os.path.islink(repo_fpath)
+
+        if not exists(cache_fpath):
+            prog.ensure_newline()
+            ub.cmd('cp {} {}'.format(real_fpath, cache_fpath), check=True, verbose=2)
+            os.unlink(repo_fpath)
+            ub.symlink(cache_fpath, repo_fpath, verbose=1)
+        else:
+            if not os.path.islink(cache_fpath):
+                prog.ensure_newline()
+                h1 = ub.hash_file(cache_fpath)
+                h2 = ub.hash_file(real_fpath)
+                assert h1 == h2
+                os.unlink(repo_fpath)
+                ub.symlink(cache_fpath, repo_fpath, verbose=1)
+            else:
+                raise Exception
+
+
+
+"
+
+ln -sf /home/joncrall/data/dvc-repos/viame_dvc/private/Benthic/US_NE_NEFSC_2015_HABCAM_MID_ATLANTIC/Left/201503.20150518.202059932.532475.png /data/dvc-caches/viame_dvc/38/8b15418a09ae78e27efe36a45ba88c
+
+
+# -----
+# REDO!!! UGGG I MESSED UP
+
+cd /data/private/./Benthic
+
+
+rsync -avrLP /data/private/./Benthic /data/dvc-repos/viame_dvc/private
+
+DVC_REPO=/data/dvc-repos/viame_dvc/private
+cd $DVC_REPO
+
+
+ext_hist(){
+    DPATH=$1
+    echo "DPATH = $DPATH"
+    find $DPATH -maxdepth 1 -type f  | rev | cut -d. -f1 | rev  | tr '[:upper:]' '[:lower:]' | sort | uniq --count | sort -rn
+}
+
+recursive_ext_hist(){
+    ROOT=$1
+    FIND_RESULT=$(find $ROOT -type d)
+    for dpath in $FIND_RESULT; do
+        ext_hist $dpath
+    done
+}
+
+recursive_ext_hist $DVC_REPO/Benthic/US_NE_2018_CFF_HABCAM
+recursive_ext_hist $DVC_REPO/Benthic/US_NE_2018_CFF_HABCAM
+
+recursive_ext_hist $DVC_REPO/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH
+
+recursive_ext_hist $DVC_REPO/Benthic/US_NE_NEFSC_2015_HABCAM_GEORGES_BANK
+recursive_ext_hist $DVC_REPO/Benthic/US_NE_NEFSC_2015_HABCAM_MID_ATLANTIC
+
+recursive_ext_hist $DVC_REPO/Benthic/US_NE_NEFSC_2016_HABCAM_GEORGES_BANK
+recursive_ext_hist $DVC_REPO/Benthic/US_NE_NEFSC_2016_HABCAM_MID_ATLANTIC
+
+sudo chgrp -R private * 
+sudo chmod -R g+r  * 
+
+
+rsync -avrLP /data/private/./Benthic /data/dvc-repos/viame_dvc/private
+
+
+DVC_REPO=/data/dvc-repos/viame_dvc/private
+cd $DVC_REPO
+
+# Moving private CFF stuff to already existing public folders
+ls /data/dvc-repos/viame_dvc/private/Benthic/US_NE_2017_CFF_HABCAM
+ls /data/dvc-repos/viame_dvc/private/Benthic/US_NE_2018_CFF_HABCAM
+ls /data/dvc-repos/viame_dvc/private/Benthic/US_NE_2019_CFF_HABCAM
+ls /data/dvc-repos/viame_dvc/private/Benthic/US_NE_2019_CFF_HABCAM_PART2
+
+mv /data/dvc-repos/viame_dvc/private/Benthic/US_NE_2017_CFF_HABCAM /data/dvc-repos/viame_dvc/public/Benthic/US_NE_2017_CFF_HABCAM/old_2017
+mv /data/dvc-repos/viame_dvc/private/Benthic/US_NE_2018_CFF_HABCAM /data/dvc-repos/viame_dvc/public/Benthic/US_NE_2018_CFF_HABCAM/old_2018
+mv /data/dvc-repos/viame_dvc/private/Benthic/US_NE_2019_CFF_HABCAM /data/dvc-repos/viame_dvc/public/Benthic/US_NE_2019_CFF_HABCAM/old_2019
+mv /data/dvc-repos/viame_dvc/private/Benthic/US_NE_2019_CFF_HABCAM_PART2 /data/dvc-repos/viame_dvc/public/Benthic/US_NE_2019_CFF_HABCAM_PART2/old_2019_part2
+
+cd /data/dvc-repos/viame_dvc
+dvc add \
+    /data/dvc-repos/viame_dvc/public/Benthic/US_NE_2017_CFF_HABCAM/old_2017 \
+    /data/dvc-repos/viame_dvc/public/Benthic/US_NE_2018_CFF_HABCAM/old_2018 \
+    /data/dvc-repos/viame_dvc/public/Benthic/US_NE_2019_CFF_HABCAM/old_2019 \
+    /data/dvc-repos/viame_dvc/public/Benthic/US_NE_2019_CFF_HABCAM_PART2/old_2019_part2
+
+find . -type d 
+find . -type f -iname "*.csv" 
+find . -type f -iname "*.json" 
+
+kwcoco validate ./US_NE_2015_NEFSC_HABCAM/annotations.kwcoco.json
+kwcoco validate ./US_NE_2017_CFF_HABCAM/annotations.kwcoco.json
+kwcoco validate ./US_NE_2018_CFF_HABCAM/annotations.kwcoco.json
+kwcoco validate ./US_NE_2019_CFF_HABCAM/annotations.kwcoco.json
+kwcoco validate ./US_NE_2019_CFF_HABCAM_PART2/annotations.kwcoco.json
+kwcoco validate ./habcam_2015_2018_2019.kwcoco.json
+
+dvc add \
+    ./US_NE_2015_NEFSC_HABCAM/Cog \
+    ./US_NE_2015_NEFSC_HABCAM/Cog \
+    ./US_NE_2015_NEFSC_HABCAM/Corrected \
+    ./US_NE_2015_NEFSC_HABCAM/Disparities \
+    ./US_NE_2017_CFF_HABCAM/Left \
+    ./US_NE_2017_CFF_HABCAM/Raws \
+    ./US_NE_2018_CFF_HABCAM/Left \
+    ./US_NE_2018_CFF_HABCAM/Raws \
+    ./US_NE_2019_CFF_HABCAM/Left \
+    ./US_NE_2019_CFF_HABCAM/Raws \
+    ./US_NE_2019_CFF_HABCAM_PART2/Left \
+    ./US_NE_2019_CFF_HABCAM_PART2/Raws \
+    ./US_NE_2015_NEFSC_HABCAM/annotations.kwcoco.json \
+    ./US_NE_2017_CFF_HABCAM/annotations.kwcoco.json \
+    ./US_NE_2018_CFF_HABCAM/annotations.kwcoco.json \
+    ./US_NE_2019_CFF_HABCAM/annotations.kwcoco.json \
+    ./US_NE_2019_CFF_HABCAM_PART2/annotations.kwcoco.json \
+    ./US_NE_2015_NEFSC_HABCAM/annotations.csv \
+    ./US_NE_2017_CFF_HABCAM/annotations.csv \
+    ./US_NE_2018_CFF_HABCAM/annotations.csv \
+    ./US_NE_2019_CFF_HABCAM/annotations.csv \
+    ./US_NE_2019_CFF_HABCAM_PART2/annotations.csv
+    
+
+       
+kwcoco subset --include_categories flatfish --src habcam_2015_2018_2019.kwcoco.json --dst habcam_2015_2018_2019_flatfish.kwcoco.json
+
+
+
+# Now the only folders in private should be
+cd /data/dvc-repos/viame_dvc/private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH
+cd /data/dvc-repos/viame_dvc/private/Benthic/US_NE_NEFSC_2015_HABCAM_GEORGES_BANK
+cd /data/dvc-repos/viame_dvc/private/Benthic/US_NE_NEFSC_2015_HABCAM_MID_ATLANTIC
+cd /data/dvc-repos/viame_dvc/private/Benthic/US_NE_NEFSC_2016_HABCAM_GEORGES_BANK
+cd /data/dvc-repos/viame_dvc/private/Benthic/US_NE_NEFSC_2016_HABCAM_MID_ATLANTIC
+
+US_NE_NEFSC_2015_HABCAM_GEORGES_BANK/Disparity
+US_NE_NEFSC_2015_HABCAM_GEORGES_BANK/Left
+US_NE_NEFSC_2015_HABCAM_GEORGES_BANK/Raw
+US_NE_NEFSC_2015_HABCAM_GEORGES_BANK/Rectified
+
+
+dvc add \
+    ./US_NE_NEFSC_2015_HABCAM_MID_ATLANTIC/Left \
+    ./US_NE_NEFSC_2015_HABCAM_MID_ATLANTIC/Raw \
+    ./US_NE_NEFSC_2015_HABCAM_MID_ATLANTIC/Disparity \
+    ./US_NE_NEFSC_2015_HABCAM_MID_ATLANTIC/Rectified \
+    ./US_NE_NEFSC_2015_HABCAM_GEORGES_BANK/Left \
+    ./US_NE_NEFSC_2015_HABCAM_GEORGES_BANK/Raw \
+    ./US_NE_NEFSC_2015_HABCAM_GEORGES_BANK/Disparity \
+    ./US_NE_NEFSC_2015_HABCAM_GEORGES_BANK/Rectified \
+    ./US_NE_NEFSC_2016_HABCAM_GEORGES_BANK/Left \
+    ./US_NE_NEFSC_2016_HABCAM_GEORGES_BANK/Raw \
+    ./US_NE_NEFSC_2016_HABCAM_GEORGES_BANK/Disparity \
+    ./US_NE_NEFSC_2016_HABCAM_GEORGES_BANK/Rectified \
+    ./US_NE_NEFSC_2016_HABCAM_MID_ATLANTIC/Left \
+    ./US_NE_NEFSC_2016_HABCAM_MID_ATLANTIC/Raw \
+    ./US_NE_NEFSC_2016_HABCAM_MID_ATLANTIC/Disparity \
+    ./US_NE_NEFSC_2016_HABCAM_MID_ATLANTIC/Rectified
+
+
+
+
+
+# Print Image IDs for the chosen category id
+python -c "import kwcoco, sys; dset = kwcoco.CocoDataset(sys.argv[1]); print(sorted(dset.index.cid_to_gids[dset._resolve_to_cid(sys.argv[2])]))" data.kwcoco.json seastar
+
+
+python -c "import kwcoco, sys, ubelt; dset = kwcoco.CocoDataset(sys.argv[1]); print(ubelt.repr2(dset.annots(dset.index.cid_to_aids[dset._resolve_to_cid(sys.argv[2])]).objs, nl=2))" data.kwcoco.json seastar
+
+
+find . -iname "*.csv" -exec grep -iH Asterias {} \; 
+find . -iname "*.csv" -exec grep -iH Henricia {} \; 
+
+find . -iname "*.csv" -exec grep -iHl Asterias {} \; | sort -u
+find . -iname "*.csv" -exec grep -iHl Henricia {} \; | sort -u
+
+find . -iname "*.json" -exec grep -iHl Asterias {} \; | sort -u
+find . -iname "*.json" -exec grep -iHl Henricia {} \; | sort -u

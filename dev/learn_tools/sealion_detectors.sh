@@ -452,17 +452,17 @@ girder-client --api-url https://data.kitware.com/api/v1 upload 604f7f8a2fa25629b
 #    $HOME/remote/namek/work/sealions/fit/name/sealion-mask-test-v5/deploy_sealion-mask-test-v6_rtzduxsw_096_JZMSVD.zip
 
 
-# Download the sealion mask model (deploy_sealion-mask-test-v6_rtzduxsw_096_JZMSVD.zip)
-girder-client --api-url https://data.kitware.com/api/v1 download 604f854a2fa25629b956b486
-
 # Download the sealion test image (sealion_test_img_2010.jpg)
 girder-client --api-url https://data.kitware.com/api/v1 download 6011a5ae2fa25629b919fe6a
 
+# Download the sealion mask model (deploy_sealion-mask-test-v6_rtzduxsw_096_JZMSVD.zip)
+girder-client --api-url https://data.kitware.com/api/v1 download 604f854a2fa25629b956b486
+
 # Download the sealion test image (20150624_SSLC0013_C.jpg)
-girder-client --api-url https://data.kitware.com/api/v1 download 5f52a390683ae84c2a4f5cc7
+girder-client --api-url https://viame.kitware.com/api/v1 download 5f52a390683ae84c2a4f5cc6
 
 python -m bioharn.detect_predict \
     --dataset=20150624_SSLC0013_C.jpg \
     --deployed=./deploy_sealion-mask-test-v6_rtzduxsw_096_JZMSVD.zip \
     --out_dpath=./test_mask_pred \
-    --draw=1 
+    --draw=1

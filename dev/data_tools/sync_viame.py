@@ -635,9 +635,7 @@ def convert_US_NE_NEFSC_2014_HABCAM_FLATFISH():
     convert_cfarm(df, bundle_dpath)
 
 
-
 def merge():
-
     import ndsampler
     split_fpaths = {
         'train':  [

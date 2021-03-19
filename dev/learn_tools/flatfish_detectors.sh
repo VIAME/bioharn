@@ -91,3 +91,413 @@ python -m bioharn.detect_fit \
     --with_mask=False \
     --balance=None \
     --bstep=4
+
+
+
+# On Numenor
+
+cd $HOME/data/dvc-repos/viame_dvc/public/Benthic
+
+REMOTE_URI=viame.kitware.com
+dvc remote modify --local viame url ssh://$REMOTE_URI/data/dvc-caches/viame_dvc 
+
+# Use the local dir
+dvc config cache.dir --unset
+
+dvc remote default viame
+dvc pull  
+
+find . -iname "*.dvc" -type f
+
+dvc pull ./public/Benthic/US_NE_2018_CFF_HABCAM/annotations.kwcoco.json.dvc \
+    ./public/Benthic/US_NE_2019_CFF_HABCAM/annotations.kwcoco.json.dvc \
+    ./public/Benthic/US_NE_2015_NEFSC_HABCAM/annotations.kwcoco.json.dvc \
+    ./public/Benthic/US_NE_2019_CFF_HABCAM_PART2/annotations.kwcoco.json.dvc \
+    ./public/Benthic/US_NE_2017_CFF_HABCAM/annotations.kwcoco.json.dvc
+
+#srun -c 2 --gres=gpu:0 
+dvc pull ./public/Benthic/US_NE_2018_CFF_HABCAM/Left.dvc \
+ ./public/Benthic/US_NE_2019_CFF_HABCAM/Left.dvc \
+ ./public/Benthic/US_NE_2017_CFF_HABCAM/Left.dvc \
+ ./public/Benthic/US_NE_2015_NEFSC_HABCAM/Cog.dvc \
+ ./public/Benthic/US_NE_2015_NEFSC_HABCAM/Disparities.dvc \
+ ./public/Benthic/US_NE_2015_NEFSC_HABCAM/Corrected.dvc \
+ ./private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/Left.dvc \
+ ./private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/Disparity.dvc \
+ ./private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/Corrected.dvc \
+ ./private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/Raw.dvc
+
+
+./public/Benthic/US_NE_2018_CFF_HABCAM/Raws.dvc
+./public/Benthic/US_NE_2019_CFF_HABCAM/Raws.dvc
+./public/Benthic/US_NE_2017_CFF_HABCAM/Raws.dvc
+
+
+dvc pull \
+    ./public/Benthic/US_NE_2018_CFF_HABCAM/annotations.csv.dvc \
+    ./public/Benthic/US_NE_2019_CFF_HABCAM/annotations.csv.dvc \
+    ./public/Benthic/US_NE_2015_NEFSC_HABCAM/annotations.csv.dvc \
+    ./public/Benthic/US_NE_2019_CFF_HABCAM_PART2/annotations.csv.dvc \
+    ./public/Benthic/US_NE_2017_CFF_HABCAM/annotations.csv.dvc \
+    ./private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/flatfish14.habcam_csv.dvc \
+
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+TRAIN_FPATH=$DVC_REPO/public/Benthic/habcam_2015_2018_2019.kwcoco.json
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations.kwcoco.json
+
+kwcoco validate $TRAIN_FPATH
+kwcoco validate $VALI_FPATH
+
+srun --gres=gpu:rtx6000:1 --cpus-per-task=4 --partition=community --account=noaa --mem 30000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-flatfish-rgb-v13 \
+        --workdir=$HOME/data/dvc-repos/viame_dvc/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=608,608 \
+        --input_dims=832,832 \
+        --window_overlap=0.3 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=10000 \
+        --augment=complex \
+        --optim=sgd \
+        --lr=1e-3 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$HOME/remote/numenor/data/dvc-repos/viame_dvc/work/models/deploy_MM_HRNetV2_w18_MaskRCNN_kqlgozei_003_MSOUGL.zip \
+        --workers=3 \
+        --xpu=auto \
+        --batch_size=8 \
+        --num_batches=4000 \
+        --sampler_backend=None \
+        --num_vali_batches=1000 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4
+
+
+# Viame DVC on numenor quickstart
+mkdir -p $HOME/tmp
+cd $HOME/tmp
+git clone git@gitlab.kitware.com:viame/viame_dvc.git
+cd viame_dvc
+dvc checkout --recursive public/Benthic
+
+
+cd $DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/
+kwcoco subset annotations.kwcoco.json --include_categories=flatfish --dst=annotations_flatfish.kwcoco.json
+
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+TRAIN_FPATH=$DVC_REPO/public/Benthic/habcam_2015_2018_2019_flatfish.kwcoco.json
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=4 --partition=community --account=noaa --mem 30000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-only-flatfish-rgb-from-v11-v14 \
+        --workdir=$HOME/data/dvc-repos/viame_dvc/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=608,608 \
+        --input_dims=832,832 \
+        --window_overlap=0.3 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=10000 \
+        --augment=complex \
+        --optim=sgd \
+        --lr=1e-3 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$HOME/remote/numenor/data/dvc-repos/viame_dvc/work/models/deploy_MM_HRNetV2_w18_MaskRCNN_kqlgozei_003_MSOUGL.zip \
+        --workers=3 \
+        --xpu=auto \
+        --batch_size=10 \
+        --sampler_backend=None \
+        --with_mask=False \
+        --balance=None \
+        --bstep=1
+
+srun --gres=gpu:rtx6000:1 --cpus-per-task=4 --partition=community --account=noaa --mem 30000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-only-flatfish-rgb-from-v11-v15 \
+        --workdir=$HOME/data/dvc-repos/viame_dvc/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=608,608 \
+        --input_dims=832,832 \
+        --window_overlap=0.3 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p5-c5 \
+        --max_epoch=10000 \
+        --augment=complex \
+        --optim=sgd \
+        --lr=1e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$HOME/remote/numenor/data/dvc-repos/viame_dvc/work/models/deploy_MM_HRNetV2_w18_MaskRCNN_kqlgozei_003_MSOUGL.zip \
+        --workers=3 \
+        --xpu=auto \
+        --batch_size=10 \
+        --sampler_backend=None \
+        --with_mask=False \
+        --balance=None \
+        --bstep=3
+
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+TRAIN_FPATH=$DVC_REPO/public/Benthic/habcam_2015_2018_2019.kwcoco.json
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations.kwcoco.json
+
+kwcoco validate $TRAIN_FPATH
+kwcoco validate $VALI_FPATH
+
+srun --gres=gpu:rtx6000:1 --cpus-per-task=2 --partition=community --account=noaa --mem 20000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-flatfish-rgb-v19 \
+        --workdir=$HOME/data/dvc-repos/viame_dvc/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=832,832 \
+        --input_dims=832,832 \
+        --window_overlap=0.3 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=10000 \
+        --augment=complex \
+        --optim=sgd \
+        --lr=3e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$HOME/remote/numenor/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/bioharn-flatfish-rgb-v13/nryfnjlw/deploy_bioharn-flatfish-rgb-v13_nryfnjlw_001_CSKAGJ.zip \
+        --workers=1 \
+        --xpu=auto \
+        --batch_size=10 \
+        --num_batches=1000 \
+        --sampler_backend=None \
+        --num_vali_batches=100 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=3
+
+srun --gres=gpu:rtx6000:2 --cpus-per-task=4 --partition=community --account=noaa --mem 50000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-flatfish-rgb-v18-no-warmup \
+        --workdir=$HOME/data/dvc-repos/viame_dvc/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=1024,1024 \
+        --input_dims=1024,1024 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=10000 \
+        --augment=complex \
+        --optim=sgd \
+        --lr=1e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$HOME/remote/numenor/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/bioharn-flatfish-rgb-v17/pohwrmdi/checkpoints/_epoch_00000008.pt \
+        --workers=3 \
+        --xpu=0,1 \
+        --batch_size=12 \
+        --num_batches=1000 \
+        --sampler_backend=None \
+        --num_vali_batches=100 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4 \
+        --warmup_iters=0
+
+
+dvc pull private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/annotations.kwcoco.json.dvc
+
+kwcoco validate private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/annotations.kwcoco.json
+
+kwcoco reroot $DVC_REPO/public/Benthic/habcam_2015_2018_2019_flatfish.kwcoco.json --dst $DVC_REPO/public/Benthic/habcam_2015_2018_2019_flatfish.kwcoco.json.abs --absolute True
+kwcoco reroot $DVC_REPO/private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/annotations.kwcoco.json --dst $DVC_REPO/private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/annotations.kwcoco.json.abs --absolute True
+
+kwcoco union \
+    --src $DVC_REPO/public/Benthic/habcam_2015_2018_2019_flatfish.kwcoco.json.abs \
+    $DVC_REPO/private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/annotations.kwcoco.json.abs \
+    --dst $DVC_REPO/habcam_2014_2015_2018_2019_flatfish.kwcoco.json.abs
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+TRAIN_FPATH=$DVC_REPO/habcam_2014_2015_2018_2019_flatfish.kwcoco.json.abs
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_flatfish.kwcoco.json
+cd $DVC_REPO
+#TRAIN_FPATH=$DVC_REPO/public/Benthic/habcam_2015_2018_2019.kwcoco.json
+
+kwcoco validate --corrupted=True $TRAIN_FPATH
+
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 15000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-flatfish-rgb-v19-warmup-0 \
+        --warmup_iters=0 \
+        --workdir=$HOME/data/dvc-repos/viame_dvc/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=832,832 \
+        --input_dims=832,832 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=100 \
+        --augment=complex \
+        --optim=sgd \
+        --lr=1e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$HOME/remote/numenor/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/bioharn-flatfish-rgb-v16/goqjyouc/deploy_bioharn-flatfish-rgb-v16_goqjyouc_001_MINKUB.zip \
+        --workers=2 \
+        --xpu=0 \
+        --batch_size=8 \
+        --num_batches=auto \
+        --sampler_backend=None \
+        --num_vali_batches=10 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4 \
+        --timeout=86400
+
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 15000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-flatfish-rgb-v19-warmup-30 \
+        --warmup_iters=30 \
+        --workdir=$HOME/data/dvc-repos/viame_dvc/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=832,832 \
+        --input_dims=832,832 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=100 \
+        --augment=complex \
+        --optim=sgd \
+        --lr=1e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$HOME/remote/numenor/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/bioharn-flatfish-rgb-v16/goqjyouc/deploy_bioharn-flatfish-rgb-v16_goqjyouc_001_MINKUB.zip \
+        --workers=2 \
+        --xpu=0 \
+        --batch_size=8 \
+        --num_batches=auto \
+        --sampler_backend=None \
+        --num_vali_batches=10 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4 \
+        --timeout=86400
+
+
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 15000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-flatfish-rgb-v19-warmup-100 \
+        --warmup_iters=100 \
+        --workdir=$HOME/data/dvc-repos/viame_dvc/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=832,832 \
+        --input_dims=832,832 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=100 \
+        --augment=complex \
+        --optim=sgd \
+        --lr=1e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$HOME/remote/numenor/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/bioharn-flatfish-rgb-v16/goqjyouc/deploy_bioharn-flatfish-rgb-v16_goqjyouc_001_MINKUB.zip \
+        --workers=2 \
+        --xpu=0 \
+        --batch_size=8 \
+        --num_batches=auto \
+        --sampler_backend=None \
+        --num_vali_batches=10 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4 \
+        --timeout=86400
+
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 15000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-flatfish-rgb-v19-warmup-800 \
+        --warmup_iters=800 \
+        --workdir=$HOME/data/dvc-repos/viame_dvc/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=832,832 \
+        --input_dims=832,832 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=100 \
+        --augment=complex \
+        --optim=sgd \
+        --lr=1e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$HOME/remote/numenor/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/bioharn-flatfish-rgb-v16/goqjyouc/deploy_bioharn-flatfish-rgb-v16_goqjyouc_001_MINKUB.zip \
+        --workers=2 \
+        --xpu=0 \
+        --batch_size=8 \
+        --num_batches=auto \
+        --sampler_backend=None \
+        --num_vali_batches=10 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4 \
+        --timeout=86400
+
+
+# What can be evaluated:
+ls $HOME/data/dvc-repos/viame_dvc/work/bioharn
+
+ls /home/khq.kitware.com/jon.crall/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/*-warmup*/*/checkpoints/*
+ls /home/khq.kitware.com/jon.crall/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/*-warmup*/*/deploy_*
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_eval \
+        --workers=2 \
+        --dataset=$VALI_FPATH \
+        "--deployed=[
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000000.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000001.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000002.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000003.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000000.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000001.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000002.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000003.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000000.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000001.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000002.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000003.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000000.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000001.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000002.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000004.pt,\
+        ]" 
