@@ -98,6 +98,7 @@ def _ensure_upgraded_model(deployed_fpath):
 
     """
     from netharn.util import zopen
+    print('Ensure upgraded model: deployed_fpath = {!r}'.format(deployed_fpath))
 
     if not exists(deployed_fpath):
         # Case where old model was upgraded and may have been deleted
