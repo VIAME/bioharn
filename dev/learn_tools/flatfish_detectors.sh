@@ -333,9 +333,14 @@ kwcoco union \
     $DVC_REPO/private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/annotations.kwcoco.json.abs \
     --dst $DVC_REPO/habcam_2014_2015_2018_2019_flatfish.kwcoco.json.abs
 
+kwcoco reroot $DVC_REPO/habcam_2014_2015_2018_2019_flatfish.kwcoco.json.abs --absolute False --old_prefix="$DVC_REPO" --new_prefix="" \
+    --dst=$DVC_REPO/habcam_2014_2015_2018_2019_flatfish.kwcoco.json
+dvc add habcam_2014_2015_2018_2019_flatfish.kwcoco.json
+
 DVC_REPO=$HOME/data/dvc-repos/viame_dvc
 TRAIN_FPATH=$DVC_REPO/habcam_2014_2015_2018_2019_flatfish.kwcoco.json.abs
 VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_flatfish.kwcoco.json
+
 cd $DVC_REPO
 #TRAIN_FPATH=$DVC_REPO/public/Benthic/habcam_2015_2018_2019.kwcoco.json
 
@@ -474,8 +479,11 @@ srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa 
 # What can be evaluated:
 ls $HOME/data/dvc-repos/viame_dvc/work/bioharn
 
+ls /home/khq.kitware.com/jon.crall/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/*-warmup*/eval
 ls /home/khq.kitware.com/jon.crall/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/*-warmup*/*/checkpoints/*
 ls /home/khq.kitware.com/jon.crall/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/*-warmup*/*/deploy_*
+
+ls /home/khq.kitware.com/jon.crall/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/*-warmup*/*/eval
 
 DVC_REPO=$HOME/data/dvc-repos/viame_dvc
 VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_flatfish.kwcoco.json
@@ -500,4 +508,230 @@ srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa 
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000001.pt,\
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000002.pt,\
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000004.pt,\
-        ]" 
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000010.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000010.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000010.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000010.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000015.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000015.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000015.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000015.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000020.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000020.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000020.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000020.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000025.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000025.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000025.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000025.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000030.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000030.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000030.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000030.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000035.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000035.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000035.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000035.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000040.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000040.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000040.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000045.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000045.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000045.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000045.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000050.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000050.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000050.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000050.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000055.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000055.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000055.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000055.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000060.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000060.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000060.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000060.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000065.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000065.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000065.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000065.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000070.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000070.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000070.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000075.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-30/fkcvtwxr/checkpoints/_epoch_00000075.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-800/nabysaeb/checkpoints/_epoch_00000075.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-100/cuvszthu/checkpoints/_epoch_00000075.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints
+        ]"
+
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+kwcoco reroot \
+    --src $DVC_REPO/public/Benthic/habcam_2015_2018_2019.kwcoco.json \
+    --dst $DVC_REPO/public/Benthic/habcam_2015_2018_2019.kwcoco.json.abs \
+    --absolute True
+
+kwcoco union --src \
+    $DVC_REPO/public/Benthic/habcam_2015_2018_2019.kwcoco.json.abs \
+    $DVC_REPO/private/Benthic/US_NE_NEFSC_2014_HABCAM_FLATFISH/annotations.kwcoco.json.abs \
+    --dst $DVC_REPO/habcam_2014_2015_2018_2019.kwcoco.json.abs
+
+jq .images[0] $DVC_REPO/habcam_2014_2015_2018_2019.kwcoco.json.abs
+kwcoco reroot $DVC_REPO/habcam_2014_2015_2018_2019.kwcoco.json.abs --absolute=False --dst $DVC_REPO/habcam_2014_2015_2018_2019.kwcoco.json
+jq .images[10000] $DVC_REPO/habcam_2014_2015_2018_2019.kwcoco.json
+dvc add habcam_2014_2015_2018_2019.kwcoco.json
+
+kwcoco stats habcam_2014_2015_2018_2019.kwcoco.json
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+TRAIN_FPATH=$DVC_REPO/habcam_2014_2015_2018_2019.kwcoco.json
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations.kwcoco.json
+
+srun --gres=gpu:rtx6000:2 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-allclass-rgb-v20\
+        --warmup_iters=0 \
+        --workdir=$DVC_REPO/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=928,928 \
+        --input_dims=928,928 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=100 \
+        --augment=complex \
+        --optim=rmsprop \
+        --lr=1e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-rgb-v19-warmup-0/udquckjh/checkpoints/_epoch_00000045.pt \
+        --workers=2 \
+        --xpu=0,1 \
+        --batch_size=16 \
+        --num_batches=1000 \
+        --sampler_backend=None \
+        --num_vali_batches=100 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4
+
+
+sacct -o "Account,User,ReqMem,JobID,JobName,ExitCode,ReqTRES,State" -j 1603
+sacct -o "Account,User,ReqMem,JobID,JobName,ExitCode,ReqTRES,State" -j 1606
+
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_eval \
+        --workers=2 \
+        --draw=0 \
+        --dataset=$VALI_FPATH \
+        "--deployed=[
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000000.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000001.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000002.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000004.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000005.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000006.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000010.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000011.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000015.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000016.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000017.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000020.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000021.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000023.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000025.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000030.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000035.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000040.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000045.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000050.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000055.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000060.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000065.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000070.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000071.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000072.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000073.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000074.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000075.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000076.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000077.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000078.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000079.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000080.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000081.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000082.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000083.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000084.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000085.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000086.pt,\
+        ]"
+
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+TRAIN_FPATH=$DVC_REPO/habcam_2014_2015_2018_2019_flatfish.kwcoco.json.abs
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:2 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-flatfish-finetune-rgb-v21\
+        --warmup_iters=0 \
+        --workdir=$DVC_REPO/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb" \
+        --window_dims=928,928 \
+        --input_dims=928,928 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=100 \
+        --augment=complex \
+        --optim=sgd \
+        --lr=1e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=imagenet \
+        --init=$DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000081.pt \
+        --workers=2 \
+        --xpu=0,1 \
+        --batch_size=16 \
+        --num_batches=auto \
+        --sampler_backend=None \
+        --num_vali_batches=auto \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4
+
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_eval \
+        --workers=2 \
+        --draw=0 \
+        --dataset=$VALI_FPATH \
+        "--deployed=[
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000000.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000001.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000002.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000003.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000004.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000005.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000006.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000007.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000008.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000009.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000010.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000011.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000012.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000013.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000014.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000015.pt,\
+        ]"

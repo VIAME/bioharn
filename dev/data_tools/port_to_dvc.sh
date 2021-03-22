@@ -146,7 +146,8 @@ dvc_create_new_dvc_server(){
 
     # Set cache-type strategy preferences
     dvc config cache.type reflink,symlink,copy
-    dvc config cache.type copy
+    dvc config cache.protected true # to make links RO so that we you don't corrupt them accidentally
+    dvc config cache.shared group  # ensure cache has group permissions
 
     dvc checkout --relink
 
