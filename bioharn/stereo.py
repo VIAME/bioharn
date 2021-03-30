@@ -388,6 +388,13 @@ class StereoCamera(ub.NiceRepr, DictProxy):
         return ub.repr2(camera.proxy, nl=2)
 
     def _precache(camera, img_dsize):
+        """
+        Precomputes distortion and undistortion maps for a given image size.
+
+        In other words for each pixel we need to be able to compute a mapping
+        for where it should go, so we need the image size to allocate and
+        populate that mapping.
+        """
         camera._undistort_rectify_map(img_dsize)
         camera._distort_unrectify_map(img_dsize)
         camera._inv_PR()

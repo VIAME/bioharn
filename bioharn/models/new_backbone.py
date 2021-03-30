@@ -57,6 +57,8 @@ class HRModule(nn.Module):
         self.fuse_layers = self._make_fuse_layers()
         self.relu = nn.ReLU(inplace=False)
 
+        self.out_channels = num_channels[-1]
+
     def _check_branches(self, num_branches, num_blocks, in_channels,
                         num_channels):
         if num_branches != len(num_blocks):
@@ -231,7 +233,7 @@ class HRNet_V2(nn.Module):
 
     Example:
         >>> # xdoctest: +REQUIRES(module:mmdet)
-        >>> from mmdet.models import HRNet
+        >>> from bioharn.models.new_backbone import *  # NOQA
         >>> import torch
         >>> extra = dict(
         >>>     stage1=dict(
@@ -298,6 +300,8 @@ class HRNet_V2(nn.Module):
         # stem net
         self.norm1_name, norm1 = mm_cnn.build_norm_layer(self.norm_cfg, 64, postfix=1)
         self.norm2_name, norm2 = mm_cnn.build_norm_layer(self.norm_cfg, 64, postfix=2)
+
+        self.in_channels = in_channels
 
         self.conv1 = mm_cnn.build_conv_layer(
             self.conv_cfg,
@@ -366,6 +370,9 @@ class HRNet_V2(nn.Module):
                                                        num_channels)
         self.stage4, pre_stage_channels = self._make_stage(
             self.stage4_cfg, num_channels)
+
+        self.out_channels = self.stage4_cfg['num_channels']
+        # self.out_channels = num_channels[-1]
 
     @property
     def norm1(self):

@@ -16,6 +16,7 @@ def gather_evaluation_metrics():
     import parse
 
     run_globs = [
+        'bioharn-flatfish-finetune-rgb-v21',
         'bioharn-allclass-rgb-v20',
         '*-warmup*'
     ]
@@ -142,11 +143,6 @@ def gather_evaluation_metrics():
         if 0:
             print(df1[df1.epoch_num < 10][['flatfish_ap', 'nocls_ap', 'epoch_num', 'name']])
             print(df2[df2.epoch_num < 10][['flatfish_ap', 'nocls_ap', 'epoch_num', 'name', 'ap', 'ap_type']])
-
-        ax1 = kwplot.figure(fnum=1, pnum=(1, 1, 1), doclf=True).gca()
-        sns.lineplot(
-            data=df1, x='epoch_num', y='flatfish_ap', hue='name', ax=ax1)
-        ax1.set_title('Flatfish AP')
 
         ax1 = kwplot.figure(fnum=2, pnum=(1, 2, 1), doclf=True).gca()
         sns.lineplot(

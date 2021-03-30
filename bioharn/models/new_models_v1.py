@@ -366,7 +366,7 @@ class LateFusionPyramidBackbone(nn.Module):
 
         >>> nh.util.number_of_parameters(self)
     """
-    def __init__(self, channels='rgb', input_stats=None):
+    def __init__(self, channels='rgb', input_stats=None, fuse_method='cat'):
         super().__init__()
         channels = ChannelSpec.coerce(channels)
         chann_norm = channels.normalize()
@@ -374,6 +374,11 @@ class LateFusionPyramidBackbone(nn.Module):
             assert set(input_stats.keys()) == set(chann_norm.keys())
 
         # norm_cfg = {'type': 'BN'}
+
+        hack_shrink_channels = {
+            # Hack to shrink model size for this type of data
+            'disparity',
+        }
 
         chan_backbones = {}
         for chan_key, chan_labels in chann_norm.items():
@@ -384,45 +389,113 @@ class LateFusionPyramidBackbone(nn.Module):
 
             # TODO: generalize so different channels can use different
             # backbones
-            hrnet_backbone_config = {
-                'extra': {
-                    'stage1': {
-                        'block': 'BOTTLENECK',
-                        'num_blocks': (4,),
-                        'num_branches': 1,
-                        'num_channels': (64,),
-                        'num_modules': 1,
+            if chan_key in hack_shrink_channels:
+                hrnet_backbone_config = {
+                    'extra': {
+                        'stage1': {
+                            'block': 'BOTTLENECK',
+                            'num_blocks': (4,),
+                            'num_branches': 1,
+                            'num_channels': (32,),
+                            'num_modules': 1,
+                        },
+                        'stage2': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4),
+                            'num_branches': 2,
+                            'num_channels': (6, 12),
+                            'num_modules': 1,
+                        },
+                        'stage3': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4, 4),
+                            'num_branches': 3,
+                            'num_channels': (6, 12, 24),
+                            'num_modules': 4,
+                        },
+                        'stage4': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4, 4, 4),
+                            'num_branches': 4,
+                            'num_channels': (6, 12, 24, 48),
+                            'num_modules': 3,
+                        }
                     },
-                    'stage2': {
-                        'block': 'BASIC',
-                        'num_blocks': (4, 4),
-                        'num_branches': 2,
-                        'num_channels': (18, 36),
-                        'num_modules': 1,
+                    'in_channels': len(chan_labels),
+                    'input_stats': chan_input_stats,
+                    'norm_cfg': {'type': 'GN', 'num_groups': 'auto'},
+                    'type': HRNet_V2
+                }
+            else:
+                hrnet_backbone_config = {
+                    'extra': {
+                        'stage1': {
+                            'block': 'BOTTLENECK',
+                            'num_blocks': (4,),
+                            'num_branches': 1,
+                            'num_channels': (64,),
+                            'num_modules': 1,
+                        },
+                        'stage2': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4),
+                            'num_branches': 2,
+                            'num_channels': (18, 36),
+                            'num_modules': 1,
+                        },
+                        'stage3': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4, 4),
+                            'num_branches': 3,
+                            'num_channels': (18, 36, 72),
+                            'num_modules': 4,
+                        },
+                        'stage4': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4, 4, 4),
+                            'num_branches': 4,
+                            'num_channels': (18, 36, 72, 144),
+                            'num_modules': 3,
+                        }
                     },
-                    'stage3': {
-                        'block': 'BASIC',
-                        'num_blocks': (4, 4, 4),
-                        'num_branches': 3,
-                        'num_channels': (18, 36, 72),
-                        'num_modules': 4,
-                    },
-                    'stage4': {
-                        'block': 'BASIC',
-                        'num_blocks': (4, 4, 4, 4),
-                        'num_branches': 4,
-                        'num_channels': (18, 36, 72, 144),
-                        'num_modules': 3,
-                    }
-                },
-                'in_channels': len(chan_labels),
-                'input_stats': chan_input_stats,
-                'norm_cfg': {'type': 'GN', 'num_groups': 'auto'},
-                'type': HRNet_V2
-            }
+                    'in_channels': len(chan_labels),
+                    'input_stats': chan_input_stats,
+                    'norm_cfg': {'type': 'GN', 'num_groups': 'auto'},
+                    'type': HRNet_V2
+                }
             chan_backbone = build_backbone(hrnet_backbone_config)
             chan_backbones[chan_key] = chan_backbone
+
+        self.channels = channels
         self.chan_backbones = torch.nn.ModuleDict(chan_backbones)
+
+        # self.chan_backbones['disparity'].out_channels
+        self.fuse_method = fuse_method
+
+        # Once channels are combined we will smooth them at each level using
+        # the same 1x1 convolution
+        # self.smoother = torch.nn.Conv2d(
+
+        prefused_level_shapes = ub.ddict(dict)
+        for chan_key, bb in self.chan_backbones.items():
+            for level, num in enumerate(bb.stage4_cfg['num_channels']):
+                prefused_level_shapes[level][chan_key] = num
+
+        level_smoothers_ = {}
+        out_channels = []
+        for level, chan_to_num in prefused_level_shapes.items():
+            # for chan_key, num in chan_to_num.items():
+            #     # level_smoothers_[level] = torch.nn.Conv2d(numu
+            if self.fuse_method == 'cat':
+                t = sum(n for n in chan_to_num.values())
+            elif self.fuse_method == 'sum':
+                t = max(n for n in chan_to_num.values())
+            else:
+                raise KeyError(self.fuse_method)
+            out_channels.append(t)
+            level_smoothers_[str(level)] = torch.nn.Conv2d(t, t, 1, 1, 0, bias=True)
+
+        self.level_smoothers = torch.nn.ModuleDict(level_smoothers_)
 
     def forward(self, inputs):
         prefused_outputs = ub.ddict(dict)
@@ -434,14 +507,26 @@ class LateFusionPyramidBackbone(nn.Module):
             for level, lvl_out in enumerate(chan_outputs):
                 prefused_outputs[level][chan_key] = lvl_out
 
+        # prefused_shapes = ub.map_vals(lambda x: ub.map_vals( lambda y: y.shape,  x), prefused_outputs)
+        # print('prefused_shapes = {}'.format(ub.repr2(prefused_shapes, nl=1)))
+
         fused_outputs = []
         for level, prefused in prefused_outputs.items():
             # Fuse by summing.
             # TODO: if the input streams are not aligned we should do that
             # here.
             # TODO: allow alternate late fusion schemes other than sum?
-            fused = sum(prefused.values())
-            fused_outputs.append(fused)
+            smoother = self.level_smoothers[str(level)]
+            if self.fuse_method == 'sum':
+                fused = sum(prefused.values())
+            if self.fuse_method == 'cat':
+                # list(map(lambda x: x.shape, prefused.values()))
+                fused = torch.cat(list(prefused.values()), dim=1)
+            else:
+                raise KeyError(self.fuse_method)
+
+            smoothed = smoother(fused)
+            fused_outputs.append(smoothed)
 
         return fused_outputs
 
@@ -510,7 +595,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
     pretrained_url = 'open-mmlab://msra/hrnetv2_w18'
 
     def __init__(self, classes=None, input_stats=None, channels='rgb',
-                 with_mask=True):
+                 with_mask=True, fuse_method='sum'):
         classes = kwcoco.CategoryTree.coerce(classes)
         channels = ChannelSpec.coerce(channels)
 
@@ -635,6 +720,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
                 'backbone': {
                     'channels': channels,
                     'input_stats': input_stats,
+                    'fuse_method': fuse_method,
                     'type': LateFusionPyramidBackbone
                 },
                 'neck': {

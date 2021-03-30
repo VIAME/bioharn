@@ -86,6 +86,7 @@ class DetectFitConfig(scfg.Config):
         ),
 
         'with_mask': scfg.Value(True, help='enables / disables mask heads for mask-detection models'),
+        'fuse_method': scfg.Value('cat', help='either sum or cat, for late fusion'),
 
         'optim': scfg.Value('sgd', help='torch optimizer, sgd, adam, adamw, etc...'),
         'batch_size': scfg.Value(4, help='number of images that run through the network at a time'),
@@ -987,6 +988,7 @@ def setup_harn(cmdline=True, **kw):
             channels=config['channels'],
             input_stats=input_stats,
             with_mask=config['with_mask'],
+            fuse_method=config['fuse_method'],
         )
         model = new_models_v1.MM_HRNetV2_w18_MaskRCNN(**initkw)
         model._initkw = initkw

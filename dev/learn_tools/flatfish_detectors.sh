@@ -725,13 +725,51 @@ srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa 
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000004.pt,\
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000005.pt,\
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000006.pt,\
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000007.pt,\
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000008.pt,\
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000009.pt,\
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000010.pt,\
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000011.pt,\
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000012.pt,\
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000013.pt,\
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000014.pt,\
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000015.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000020.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000025.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000030.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000035.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000040.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000045.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000050.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000055.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000060.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000061.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000062.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000063.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000064.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000065.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000066.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000067.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000068.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000069.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000070.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000071.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000072.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000073.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000074.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000075.pt,\
         ]"
+
+
+python -m torch_liberator \
+    --model MM_HRNetV2_w18_MaskRCNN_9aeb83.py \
+    --weights $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/checkpoints/_epoch_00000006.pt \
+    --info train_info.json \
+    --dst deploy_bioharn-flatfish-finetune-rgb-v21_uffjlobk_006_custom.zip
+
+dvc add deploy_bioharn-flatfish-finetune-rgb-v21_uffjlobk_006_custom.zip
+
+cd $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww
+
+python -m torch_liberator \
+    --model MM_HRNetV2_w18_MaskRCNN_9aeb83.py \
+    --weights $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/checkpoints/_epoch_00000081.pt \
+    --info train_info.json \
+    --dst deploy_bioharn-allclass-rgb-v20_vitklgww_081_custom.zip
+
+dvc add deploy_bioharn-allclass-rgb-v20_vitklgww_081_custom.zip
