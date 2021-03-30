@@ -188,16 +188,16 @@ def update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
     disp_unrect_dpath1 = ub.ensuredir((
         dset.bundle_dpath, 'images', 'disparity_unrect_left'))
 
-    left_dpath = join(dset.bundle_dpath, 'images', 'raw-left')
-    right_dpath = join(dset.bundle_dpath, 'images', 'raw-right')
+    rgb_left_dpath = join(dset.bundle_dpath, 'images', 'rgb-left')
+    rgb_right_dpath = join(dset.bundle_dpath, 'images', 'rgb-right')
 
     disp_tasks = []
-    disp_jobs = util_futures.JobPool('thread', max_workers=0)
+    disp_jobs = util_futures.JobPool('thread', max_workers=8)
     for gid, img in dset.imgs.items():
         fname = basename(img['file_name'])
 
-        gpath1 = join(left_dpath, fname)
-        gpath2 = join(right_dpath, fname)
+        gpath1 = join(rgb_left_dpath, fname)
+        gpath2 = join(rgb_right_dpath, fname)
         assert exists(gpath1)
         assert exists(gpath2)
 
