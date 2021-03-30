@@ -19,7 +19,7 @@ def update_cfarm_datasets_with_disparity():
     r"""
     import sys, ubelt
     sys.path.append(ubelt.expandpath('~/code/bioharn/dev/data_tools'))
-    from cfarm_preproc import *  # NOQA
+    from cfarm_preproc_v2 import *  # NOQA
 
     cd $HOME/data/dvc-repos/viame_dvc
 
@@ -30,7 +30,6 @@ def update_cfarm_datasets_with_disparity():
         public/Benthic/US_NE_2018_CFF_HABCAM/Raws.dvc \
         public/Benthic/US_NE_2019_CFF_HABCAM/Raws.dvc \
         public/Benthic/US_NE_2019_CFF_HABCAM_PART2/Raws.dvc
-
 
 
     """
@@ -55,6 +54,7 @@ def update_cfarm_datasets_with_disparity():
             'extrinsics_fpath': extrinsics_fpath,
             'intrinsics_fpath': intrinsics_fpath,
         })
+    info = dset_infos[-1]
 
     for info in dset_infos:
         raws_dpath = info['raws_dpath']
@@ -95,32 +95,53 @@ def update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
 
     split_jobs = util_futures.JobPool('thread', max_workers=8)
     dset_dir = dset.bundle_dpath
-    left_dpath = ub.ensuredir((dset_dir, 'images', 'raw-left'))
-    right_dpath = ub.ensuredir((dset_dir, 'images', 'raw-right'))
+    raw_left_dpath = ub.ensuredir((dset_dir, 'images', 'raw-left'))
+    raw_right_dpath = ub.ensuredir((dset_dir, 'images', 'raw-right'))
 
     for raw_gpath in raw_gpaths:
-        split_jobs.submit(split_raws, raw_gpath, left_dpath, right_dpath)
+        split_jobs.submit(split_raws, raw_gpath, raw_left_dpath, raw_right_dpath)
 
-    left_paths = []
-    right_paths = []
+    left_raw_paths = []
+    right_raw_paths = []
     for job in ub.ProgIter(split_jobs.as_completed(), total=len(split_jobs),
                            desc='collect split jobs'):
         left_gpath, right_gpath = job.result()
-        left_paths.append(left_gpath)
-        right_paths.append(right_gpath)
+        left_raw_paths.append(left_gpath)
+        right_raw_paths.append(right_gpath)
 
-    assert len(dset.imgs) == len(right_paths)
-    assert len(dset.imgs) == len(left_paths)
+    assert len(dset.imgs) == len(right_raw_paths)
+    assert len(dset.imgs) == len(left_raw_paths)
 
     # TODO: could ensure images are output as cog here.
 
     # Produces the same images (with same sha1) that were already in
     # the root Left folder
-    do_debayer(left_dpath, left_paths, viame_install)
-    do_debayer(right_dpath, right_paths, viame_install)
+
+    rgb_left_dpath = ub.ensuredir((dset_dir, 'images', 'rgb-left'))
+    rgb_right_dpath = ub.ensuredir((dset_dir, 'images', 'rgb-right'))
+
+    # raw_dpath = raw_left_dpath
+    # raw_fpaths = left_raw_paths
+    # rgb_dpath = rgb_left_dpath
+    """
+    mkdir -p rgb-left
+    mkdir -p rgb-right
+    mv raw-left/*.png rgb-left
+    mv raw-right/*.png rgb-right
+
+    tree --filelimit 100
+    """
+    left_rgb_fpaths = do_debayer(raw_left_dpath, left_raw_paths, rgb_left_dpath, viame_install)
+    right_rgb_fpaths = do_debayer(raw_right_dpath, right_raw_paths, rgb_right_dpath, viame_install)
 
     if __debug__:
-        for raw_gpath in raw_gpaths:
+        for img in dset.imgs.values():
+            fname = basename(img['file_name'])
+            fpath = dset.get_image_fpath(img['id'])
+            assert exists(fpath)
+
+            raw_gpath = ub.augpath(fname, dpath=raws_dpath, ext='.tif')
+
             raw_dpath = dirname(raw_gpath)
             dset_dir = dirname(raw_dpath)
             right_dpath = join(dset_dir, 'images')
@@ -144,8 +165,8 @@ def update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
             assert exists(png_fpath2)
 
             if 0:
-                ub.hash_file(png_fpath1)
-                ub.hash_file(png_fpath1)
+                assert exists(fpath)
+                assert ub.hash_file(fpath) == ub.hash_file(png_fpath1)
 
     # Prepopulate disparity maps, assuming a constant image size
     images = dset.images()
@@ -167,7 +188,7 @@ def update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
     right_dpath = join(dset.bundle_dpath, 'images', 'raw-right')
 
     disp_tasks = []
-    disp_jobs = util_futures.JobPool('thread', max_workers=8)
+    disp_jobs = util_futures.JobPool('thread', max_workers=0)
     for gid, img in dset.imgs.items():
         fname = basename(img['file_name'])
 
@@ -277,25 +298,44 @@ def compute_disparity_worker(gpath1, gpath2, disp_unrect_fpath1, cali):
     return disp_unrect_fpath1
 
 
-def do_debayer(dpath, fpaths, viame_install):
-    debayer_input_fpath = join(dpath, 'input_list_raw_images.txt')
-    with open(debayer_input_fpath, 'w') as file:
-        file.write('\n'.join(fpaths))
-    sh_text = ub.codeblock(
-        r'''
-        #!/bin/sh
-        # Setup VIAME Paths (no need to run multiple times if you already ran it)
-        export VIAME_INSTALL="{viame_install}"
-        source $VIAME_INSTALL/setup_viame.sh
-        # Run pipeline
-        kwiver runner $VIAME_INSTALL/configs/pipelines/filter_debayer_and_enhance.pipe \
-                      -s input:video_filename={debayer_input_fpath}
+def do_debayer(raw_dpath, raw_fpaths, rgb_dpath, viame_install):
+    """
+    raw_dpath = raw_left_dpath
+    raw_fpaths = left_raw_paths[0:3]
+    rgb_dpath = rgb_left_dpath
+    """
+    rgb_fpaths = []
+    convert_fpaths = []
+    for raw_fpath in raw_fpaths:
+        rgb_fpath = ub.augpath(raw_fpath, ext='.png', dpath=rgb_dpath)
+        rgb_fpaths.append(rgb_fpath)
+        if not exists(rgb_fpath):
+            convert_fpaths.append(raw_fpath)
 
-        ''').format(viame_install=viame_install, debayer_input_fpath=debayer_input_fpath)
-    sh_fpath = join(dpath, 'debayer.sh')
-    ub.writeto(sh_fpath, sh_text)
-    ub.cmd('chmod +x ' + sh_fpath)
-    ub.cmd('bash ' + sh_fpath, cwd=dpath, shell=0, verbose=3)
+    if convert_fpaths:
+        debayer_input_fpath = join(raw_dpath, 'input_list_raw_images.txt')
+        with open(debayer_input_fpath, 'w') as file:
+            file.write('\n'.join(raw_fpaths))
+        sh_text = ub.codeblock(
+            r'''
+            #!/bin/sh
+            # Setup VIAME Paths (no need to run multiple times if you already ran it)
+            export VIAME_INSTALL="{viame_install}"
+            source $VIAME_INSTALL/setup_viame.sh
+            # Run pipeline
+            kwiver runner $VIAME_INSTALL/configs/pipelines/filter_debayer_and_enhance.pipe \
+                          -s input:video_filename={debayer_input_fpath}
+
+            ''').format(
+                viame_install=viame_install,
+                debayer_input_fpath=debayer_input_fpath
+            )
+        sh_fpath = join(raw_dpath, 'debayer.sh')
+        ub.writeto(sh_fpath, sh_text)
+        ub.cmd('chmod +x ' + sh_fpath)
+        ub.cmd('bash ' + sh_fpath, cwd=rgb_dpath, shell=0, verbose=3)
+
+    return rgb_fpaths
 
 
 def split_raws(raw_gpath, left_dpath, right_dpath):
