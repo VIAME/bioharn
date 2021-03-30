@@ -793,7 +793,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
                     'instance': backbone,
                 },
                 'neck': {
-                    'in_channels': backbone_cfg['in_channels'],
+                    'in_channels': backbone_cfg['out_channels'],
                     'out_channels': 256,
                     'type': HRFPN_V2,
                     'norm_cfg': {'type': 'GN', 'num_groups': 32},
