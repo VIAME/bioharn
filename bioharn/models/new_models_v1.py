@@ -489,13 +489,15 @@ class LateFusionPyramidBackbone(nn.Module):
             if self.fuse_method == 'cat':
                 # hack, we need this to be a specific value for now
                 # TODO FIXME
-                t = sum(n for n in chan_to_num.values()) // 2
+                t_in = sum(n for n in chan_to_num.values())
+                t_out = t_in // 2
             elif self.fuse_method == 'sum':
-                t = max(n for n in chan_to_num.values())
+                t_in = max(n for n in chan_to_num.values())
+                t_out = t_in
             else:
                 raise KeyError(self.fuse_method)
-            out_channels.append(t)
-            level_smoothers_[str(level)] = torch.nn.Conv2d(t, t, 1, 1, 0, bias=True)
+            out_channels.append(t_out)
+            level_smoothers_[str(level)] = torch.nn.Conv2d(t_in, t_out, 1, 1, 0, bias=True)
 
         self.level_smoothers = torch.nn.ModuleDict(level_smoothers_)
 
