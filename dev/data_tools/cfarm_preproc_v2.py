@@ -24,6 +24,8 @@ def update_cfarm_datasets_with_disparity():
     cd $HOME/data/dvc-repos/viame_dvc
 
     find . -iname "*.json.dvc" -exec dvc pull {} \;
+    find . -iname "Left.dvc" -exec dvc pull {} \;
+    find . -iname "Raws.dvc" -exec dvc pull {} \;
 
     dvc pull -r viame \
         public/Benthic/US_NE_2017_CFF_HABCAM/Raws.dvc \
@@ -54,7 +56,7 @@ def update_cfarm_datasets_with_disparity():
             'extrinsics_fpath': extrinsics_fpath,
             'intrinsics_fpath': intrinsics_fpath,
         })
-    info = dset_infos[-1]
+    info = dset_infos[-2]
 
     for info in dset_infos:
         raws_dpath = info['raws_dpath']
@@ -159,8 +161,10 @@ def update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
             assert exists(tif_fpath1)
             assert exists(tif_fpath2)
 
-            png_fpath1 = join(left_dpath, png_fname)
-            png_fpath2 = join(right_dpath, png_fname)
+            left_dpath2 = join(dset_dir, 'images', 'rgb-left')
+            right_dpath2 = join(dset_dir, 'images', 'rgb-right')
+            png_fpath1 = join(left_dpath2, png_fname)
+            png_fpath2 = join(right_dpath2, png_fname)
             assert exists(png_fpath1)
             assert exists(png_fpath2)
 
@@ -312,8 +316,10 @@ def do_debayer(raw_dpath, raw_fpaths, rgb_dpath, viame_install):
         if not exists(rgb_fpath):
             convert_fpaths.append(raw_fpath)
 
+    debayer_input_fpath = join(raw_dpath, 'input_list_raw_images.txt')
+    sh_fpath = join(raw_dpath, 'debayer.sh')
+
     if convert_fpaths:
-        debayer_input_fpath = join(raw_dpath, 'input_list_raw_images.txt')
         with open(debayer_input_fpath, 'w') as file:
             file.write('\n'.join(raw_fpaths))
         sh_text = ub.codeblock(
@@ -330,11 +336,12 @@ def do_debayer(raw_dpath, raw_fpaths, rgb_dpath, viame_install):
                 viame_install=viame_install,
                 debayer_input_fpath=debayer_input_fpath
             )
-        sh_fpath = join(raw_dpath, 'debayer.sh')
         ub.writeto(sh_fpath, sh_text)
         ub.cmd('chmod +x ' + sh_fpath)
         ub.cmd('bash ' + sh_fpath, cwd=rgb_dpath, shell=0, verbose=3)
 
+    ub.delete(sh_fpath, verbose=1)
+    ub.delete(debayer_input_fpath, verbose=1)
     return rgb_fpaths
 
 
