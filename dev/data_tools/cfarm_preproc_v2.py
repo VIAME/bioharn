@@ -41,6 +41,9 @@ def update_cfarm_datasets_with_disparity():
     extrinsics_fpath = join(dvc_repo, 'public/Benthic/US_NE_CFF_HABCAM_V3_CALIBRATION/calibration-kw-produced/extrinsics.yml')
     intrinsics_fpath = join(dvc_repo, 'public/Benthic/US_NE_CFF_HABCAM_V3_CALIBRATION/calibration-kw-produced/intrinsics.yml')
 
+    import gdal
+    print('gdal.Open = {!r}'.format(gdal.Open))
+
     dset_names = [
         'US_NE_2017_CFF_HABCAM',
         'US_NE_2018_CFF_HABCAM',
@@ -63,6 +66,7 @@ def update_cfarm_datasets_with_disparity():
         coco_fpath = info['coco_fpath']
         intrinsics_fpath = info['intrinsics_fpath']
         extrinsics_fpath = info['extrinsics_fpath']
+        print('coco_fpath = {!r}'.format(coco_fpath))
         update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
                                       intrinsics_fpath)
 
