@@ -95,7 +95,9 @@ def update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
     viame_install = ub.expandpath('$HOME/remote/namek/data/raid/viame_install/viame')
     assert exists(viame_install)
 
-    split_jobs = util_futures.JobPool('thread', max_workers=8)
+    workers = 0
+
+    split_jobs = util_futures.JobPool('thread', max_workers=workers)
     dset_dir = dset.bundle_dpath
     raw_left_dpath = ub.ensuredir((dset_dir, 'images', 'raw-left'))
     raw_right_dpath = ub.ensuredir((dset_dir, 'images', 'raw-right'))
@@ -192,7 +194,7 @@ def update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
     rgb_right_dpath = join(dset.bundle_dpath, 'images', 'rgb-right')
 
     disp_tasks = []
-    disp_jobs = util_futures.JobPool('thread', max_workers=8)
+    disp_jobs = util_futures.JobPool('thread', max_workers=workers)
     for gid, img in dset.imgs.items():
         fname = basename(img['file_name'])
 
