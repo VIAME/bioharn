@@ -417,7 +417,7 @@ class LateFusionPyramidBackbone(nn.Module):
                             'block': 'BASIC',
                             'num_blocks': (4, 4, 4, 4),
                             'num_branches': 4,
-                            'num_channels': (6, 12, 24, 48),
+                            'num_channels': (18, 36, 72, 144),  # hack, we need this to be the same for now
                             'num_modules': 3,
                         }
                     },
@@ -487,7 +487,9 @@ class LateFusionPyramidBackbone(nn.Module):
             # for chan_key, num in chan_to_num.items():
             #     # level_smoothers_[level] = torch.nn.Conv2d(numu
             if self.fuse_method == 'cat':
-                t = sum(n for n in chan_to_num.values())
+                # hack, we need this to be a specific value for now
+                # TODO FIXME
+                t = sum(n for n in chan_to_num.values()) // 2
             elif self.fuse_method == 'sum':
                 t = max(n for n in chan_to_num.values())
             else:

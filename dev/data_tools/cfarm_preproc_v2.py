@@ -13,10 +13,14 @@ import ubelt as ub
 from os.path import join
 from ndsampler.utils import util_futures
 import kwcoco
+]
+
 
 
 def update_cfarm_datasets_with_disparity():
     r"""
+    xdoctest ~/code/bioharn/dev/data_tools/cfarm_preproc_v2.py update_cfarm_datasets_with_disparity
+
     import sys, ubelt
     sys.path.append(ubelt.expandpath('~/code/bioharn/dev/data_tools'))
     from cfarm_preproc_v2 import *  # NOQA
@@ -33,6 +37,18 @@ def update_cfarm_datasets_with_disparity():
         public/Benthic/US_NE_2019_CFF_HABCAM/Raws.dvc \
         public/Benthic/US_NE_2019_CFF_HABCAM_PART2/Raws.dvc
 
+    ls US_NE_2017_CFF_HABCAM/images/disparity_unrect_left
+    dvc add US_NE_2018_CFF_HABCAM/images/disparity_unrect_left US_NE_2019_CFF_HABCAM/images/disparity_unrect_left
+
+    dvc add US_NE_2017_CFF_HABCAM/annotations_disp.kwcoco.json \
+            US_NE_2019_CFF_HABCAM/annotations_disp.kwcoco.json \
+            US_NE_2019_CFF_HABCAM_PART2/annotations_disp.kwcoco.json \
+            US_NE_2018_CFF_HABCAM/annotations_disp.kwcoco.json
+
+    ls US_NE_2019_CFF_HABCAM_PART2/images/
+
+    find . -iname "annotations_disp.kwcoco.json.dvc"
+    dvc pull ./Benthic/US_NE_2019_CFF_HABCAM/annotations_disp.kwcoco.json.dvc ./Benthic/US_NE_2017_CFF_HABCAM/annotations_disp.kwcoco.json.dvc ./Benthic/US_NE_2018_CFF_HABCAM/annotations_disp.kwcoco.json.dvc ./Benthic/US_NE_2019_CFF_HABCAM_PART2/annotations_disp.kwcoco.json.dvc
 
     """
     # workdir = ub.ensuredir((root, 'data/noaa_habcam'))
@@ -69,6 +85,17 @@ def update_cfarm_datasets_with_disparity():
         print('coco_fpath = {!r}'.format(coco_fpath))
         update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
                                       intrinsics_fpath)
+
+    if 0:
+        for info in dset_infos:
+            coco_fpath = info['coco_fpath']
+            dpath = dirname(coco_fpath)
+            print('dpath = {!r}'.format(dpath))
+            disp_fpath = join(dpath, 'images/disparity_unrect_left')
+            assert exists(disp_fpath)
+            import glob
+            for fpath in ub.ProgIter(glob.glob(join(disp_fpath, '*.tif')), desc='check', verbose=1):
+                kwimage.imread(fpath)
 
 
 def update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
