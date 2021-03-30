@@ -994,9 +994,9 @@ srun --gres=gpu:rtx6000:2 --cpus-per-task=3 --partition=priority --account=noaa 
 DVC_REPO=$HOME/data/dvc-repos/viame_dvc
 TRAIN_FPATH=$DVC_REPO/public/Benthic/habcam_2015_2018_2019_disp.kwcoco.json
 VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp_flatfish.kwcoco.json
-srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+srun --gres=gpu:rtx6000:2 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
     python -m bioharn.detect_fit \
-        --name=bioharn-allclass-rgb-v26\
+        --name=bioharn-allclass-rgb-v27\
         --warmup_iters=0 \
         --workdir=$DVC_REPO/work/bioharn \
         --train_dataset=$TRAIN_FPATH \
@@ -1014,12 +1014,42 @@ srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa 
         --multiscale=False \
         --patience=75 \
         --normalize_inputs=True \
-        --workers=2 \
-        --xpu=0 \
-        --batch_size=4 \
-        --num_batches=1000 \
+        --workers=4 \
+        --xpu=0,1 \
+        --batch_size=12 \
+        --num_batches=100 \
         --sampler_backend=None \
         --num_vali_batches=10 \
         --with_mask=False \
         --balance=None \
         --bstep=4
+
+
+ls /home/khq.kitware.com/jon.crall/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/bioharn-allclass-rgb-v26/nclkeqxr/checkpoints
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_eval \
+        --workers=2 \
+        --draw=0 \
+        --dataset=$VALI_FPATH \
+        "--deployed=[
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v26/nclkeqxr/checkpoints/_epoch_00000000.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v26/nclkeqxr/checkpoints/_epoch_00000001.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v26/nclkeqxr/checkpoints/_epoch_00000002.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v26/nclkeqxr/checkpoints/_epoch_00000003.pt,\
+        ]"
+
+ls /home/khq.kitware.com/jon.crall/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/bioharn-allclass-rgb-v26/nclkeqxr/checkpoints
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_eval \
+        --workers=2 \
+        --draw=0 \
+        --dataset=$VALI_FPATH \
+        "--deployed=[
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v25/ttmsxele/checkpoints/_epoch_00000000.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v25/ttmsxele/checkpoints/_epoch_00000001.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v25/ttmsxele/checkpoints/_epoch_00000002.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v25/ttmsxele/checkpoints/_epoch_00000003.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v25/ttmsxele/checkpoints/_epoch_00000004.pt,\
+        ]"
