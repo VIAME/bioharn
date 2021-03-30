@@ -5,19 +5,14 @@ For updating disparity into the DVC repo.
 from os.path import relpath
 import numpy as np
 import kwimage
-import kwimage
 from bioharn.disparity import multipass_disparity
-import kwarray
-import pandas as pd
 from os.path import basename
 from os.path import dirname
 from os.path import exists
 import ubelt as ub
 from os.path import join
-import glob
 from ndsampler.utils import util_futures
 import kwcoco
-from os.path import normpath, realpath, abspath
 
 
 def update_cfarm_datasets_with_disparity():
@@ -316,66 +311,6 @@ def split_raws(raw_gpath, left_dpath, right_dpath):
         kwimage.imwrite(right_gpath, right_img)
         kwimage.imwrite(left_gpath, left_img)
     return left_gpath, right_gpath
-
-
-def _ensure_cfarm_disparity_frame(coco_dset, gid, cali):
-    """
-    import kwplot
-    kwplot.autompl()
-    import xdev
-    aids = coco_dset.index.cid_to_aids[coco_dset._alias_to_cat('flatfish')['id']]
-    gids = list(coco_dset.annots(aids).gids)
-
-    from bioharn.stereo import StereoCalibration
-    cali_root = ub.expandpath('~/remote/namek/data/noaa_habcam/extras/calibration_habcam_2019_leotta')
-    extrinsics_fpath = join(cali_root, 'extrinsics.yml')
-    intrinsics_fpath = join(cali_root, 'intrinsics.yml')
-    cali = StereoCalibration.from_cv2_yaml(intrinsics_fpath, extrinsics_fpath)
-
-    for gid in xdev.InteractiveIter(gids):
-        img = coco_dset.imgs[gid]
-        gpath2 = join(coco_dset.img_root, img['right_cog_name'])
-        gpath1 = join(coco_dset.img_root, img['file_name'])
-
-        info = _compute_disparity(gpath1, gpath2, cali)
-
-        _disp1_rect = kwimage.make_heatmask(info['disp1_rect'], 'magma')[..., 0:3]
-        _disp1_unrect = kwimage.make_heatmask(info['disp1_unrect'], 'magma')[..., 0:3]
-        canvas_rect = kwimage.overlay_alpha_layers([
-            kwimage.ensure_alpha_channel(_disp1_rect, 0.6), info['img1_rect']])
-        canvas_unrect = kwimage.overlay_alpha_layers([
-            kwimage.ensure_alpha_channel(_disp1_unrect, 0.6), info['img1']])
-
-        _, ax1 = kwplot.imshow(info['img1_rect'], pnum=(2, 3, 1), fnum=1, title='left rectified')
-        _, ax2 = kwplot.imshow(info['disp1_rect'], pnum=(2, 3, 2), fnum=1, title='left rectified disparity')
-        _, ax3 = kwplot.imshow(info['img2_rect'], pnum=(2, 3, 3), fnum=1, title='right rectified')
-        _, ax4 = kwplot.imshow(canvas_rect, pnum=(2, 3, 4), fnum=1, title='left rectified')
-        _, ax5 = kwplot.imshow(canvas_unrect, pnum=(2, 3, 5), fnum=1, title='left unrectified')
-        _, ax6 = kwplot.imshow(info['img2'], pnum=(2, 3, 6), fnum=1, title='right unrectified')
-
-        if coco_dset is not None:
-            annots = coco_dset.annots(gid=gid)
-            unrect_dets1 = annots.detections
-            rect_dets1 = unrect_dets1.warp(camera1.rectify_points)
-            rect_dets1.draw(ax=ax1)
-            rect_dets1.boxes.draw(ax=ax2)
-            unrect_dets1.boxes.draw(ax=ax5)
-        xdev.InteractiveIter.draw()
-    """
-    img = coco_dset.imgs[gid]
-    gpath1 = join(coco_dset.img_root, img['file_name'])
-    gpath2 = join(coco_dset.img_root, img['right_cog_name'])
-
-    disp_unrect_dpath1 = ub.ensuredir((
-        coco_dset.img_root, 'images', 'left_disparity_unrect'))
-    disp_unrect_fpath1 = join(disp_unrect_dpath1, basename(img['file_name']))
-
-    if not exists(disp_unrect_fpath1):
-        info = _compute_disparity(gpath1, gpath2, cali)
-        # Note: probably should be atomic
-        kwimage.imwrite(disp_unrect_fpath1, info['disp1_unrect'],
-                        backend='gdal', compress='DEFLATE')
-    return disp_unrect_fpath1
 
 
 def _compute_disparity(gpath1, gpath2, cali, coco_dset=None, gid=None):
