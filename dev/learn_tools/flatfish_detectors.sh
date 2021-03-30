@@ -988,3 +988,38 @@ srun --gres=gpu:rtx6000:2 --cpus-per-task=3 --partition=priority --account=noaa 
         --with_mask=False \
         --balance=None \
         --bstep=1
+
+
+# ON NUMENOR
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+TRAIN_FPATH=$DVC_REPO/public/Benthic/habcam_2015_2018_2019_disp.kwcoco.json
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-allclass-rgb-v26\
+        --warmup_iters=0 \
+        --workdir=$DVC_REPO/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb,disparity" \
+        --window_dims=928,928 \
+        --input_dims=928,928 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=100 \
+        --augment=complex \
+        --optim=adam \
+        --lr=3e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=True \
+        --workers=2 \
+        --xpu=0 \
+        --batch_size=4 \
+        --num_batches=1000 \
+        --sampler_backend=None \
+        --num_vali_batches=10 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4

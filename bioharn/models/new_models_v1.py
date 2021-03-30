@@ -612,7 +612,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
     pretrained_url = 'open-mmlab://msra/hrnetv2_w18'
 
     def __init__(self, classes=None, input_stats=None, channels='rgb',
-                 with_mask=True, fuse_method='sum'):
+                 with_mask=True, fuse_method='sum', hack_shrink=False):
         classes = kwcoco.CategoryTree.coerce(classes)
         channels = ChannelSpec.coerce(channels)
 
@@ -782,6 +782,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
             'input_stats': input_stats,
             'fuse_method': fuse_method,
             'out_channels': [18, 36, 72, 144],
+            'hack_shrink': hack_shrink,
             'type': LateFusionPyramidBackbone
         }
         backbone = build_backbone(backbone_cfg)
