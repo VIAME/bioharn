@@ -13,8 +13,6 @@ import ubelt as ub
 from os.path import join
 from ndsampler.utils import util_futures
 import kwcoco
-]
-
 
 
 def update_cfarm_datasets_with_disparity():
@@ -48,8 +46,10 @@ def update_cfarm_datasets_with_disparity():
     ls US_NE_2019_CFF_HABCAM_PART2/images/
 
     find . -iname "annotations_disp.kwcoco.json.dvc"
+    find . -iname "disparity_unrect_left.dvc"
     dvc pull ./Benthic/US_NE_2019_CFF_HABCAM/annotations_disp.kwcoco.json.dvc ./Benthic/US_NE_2017_CFF_HABCAM/annotations_disp.kwcoco.json.dvc ./Benthic/US_NE_2018_CFF_HABCAM/annotations_disp.kwcoco.json.dvc ./Benthic/US_NE_2019_CFF_HABCAM_PART2/annotations_disp.kwcoco.json.dvc
 
+    dvc pull ./Benthic/US_NE_2019_CFF_HABCAM/images/disparity_unrect_left.dvc ./Benthic/US_NE_2017_CFF_HABCAM/images/disparity_unrect_left.dvc ./Benthic/US_NE_2018_CFF_HABCAM/images/disparity_unrect_left.dvc ./Benthic/US_NE_2019_CFF_HABCAM_PART2/images/disparity_unrect_left.dvc
     """
     # workdir = ub.ensuredir((root, 'data/noaa_habcam'))
     dvc_repo = ub.expandpath('$HOME/data/dvc-repos/viame_dvc/')
@@ -262,7 +262,7 @@ def update_dataset_with_disparity(coco_fpath, raws_dpath, extrinsics_fpath,
                                      dset.bundle_dpath)
         img = dset.imgs[gid]
         img['channels'] = 'rgb'
-        img['auxillary'] = [
+        img['auxiliary'] = [
             {
                 'channels': 'disparity',
                 'file_name': disp_unrect_fname1,
@@ -476,3 +476,44 @@ def _ensure_rgb_cog(dset, gid, cog_root):
         img1 = dset.load_image(gid)
         kwimage.imwrite(cog_fpath, img1, backend='gdal', compress='DEFLATE')
     return cog_fpath
+
+
+def _hack_disparity_in_2015():
+    """
+
+    cd /home/joncrall/data/dvc-repos/viame_dvc/public/Benthic/US_NE_2015_NEFSC_HABCAM
+    cd /home/joncrall/data/dvc-repos/viame_dvc/public/Benthic/US_NE_2017_CFF_HABCAM
+    cd /home/joncrall/data/dvc-repos/viame_dvc/public/Benthic/US_NE_2018_CFF_HABCAM
+    cd /home/joncrall/data/dvc-repos/viame_dvc/public/Benthic/US_NE_2019_CFF_HABCAM
+    cd /home/joncrall/data/dvc-repos/viame_dvc/public/Benthic/US_NE_2019_CFF_HABCAM_PART2
+
+    dvc unprotect annotations_disp.kwcoco.json
+    sed -i "s/auxillary/auxiliary/g" annotations_disp.kwcoco.json
+    dvc add annotations_disp.kwcoco.json
+    git add annotations_disp.kwcoco.json.dvc
+
+    jq .images[0] annotations_disp.kwcoco.json
+    """
+    fpath = '/home/joncrall/data/dvc-repos/viame_dvc/public/Benthic/US_NE_2015_NEFSC_HABCAM'
+    import kwcoco
+    dset = kwcoco.CocoDataset(fpath)
+    # I had already computed and checked in disparities for 2015,
+    # just rehacking them into the manifest file.
+    for img in dset.imgs.values():
+        base = basename(img['file_name'])
+        disp_dpath = join(dset.bundle_dpath, 'Disparities')
+        disp_base = base.replace('.cog.tif', '_disp_v7.cog.tif')
+        disp_fpath = join(disp_dpath, disp_base)
+        assert exists(disp_fpath)
+        disp_fname = relpath(disp_fpath, dset.bundle_dpath)
+        img['channels'] = 'rgb'
+        img['auxiliary'] = [
+            {
+                'channels': 'disparity',
+                'file_name': disp_fname,
+                'width': img['width'],
+                'height': img['height']
+            },
+        ]
+    new_fpath = ub.augpath(dset.fpath, suffix='_disp', multidot=True)
+    dset.dump(new_fpath, newlines=True)

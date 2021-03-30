@@ -15,7 +15,7 @@ print(closer.current_sourcecode())
 from abc import ABCMeta
 from collections import OrderedDict
 from abc import abstractmethod
-from mmcv.runner import auto_fp16
+from mmcv.runner import auto_fp16  # NOQA
 from mmdet.models.builder import build_backbone
 from mmdet.models.builder import build_head
 from mmdet.models.builder import build_neck
@@ -372,7 +372,10 @@ class TwoStageDetector_V2(BaseDetector_V2):
                  test_cfg=None,
                  pretrained=None):
         super().__init__()
-        self.backbone = build_backbone(backbone)
+        if isinstance(backbone, dict) and set(backbone) == {'instance'}:
+            self.backbone = backbone['instance']
+        else:
+            self.backbone = build_backbone(backbone)
 
         if neck is not None:
             self.neck = build_neck(neck)

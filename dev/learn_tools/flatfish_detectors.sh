@@ -782,19 +782,45 @@ dvc add deploy_bioharn-allclass-rgb-v20_vitklgww_081_custom.zip
 # WORK ON FUSION
 
 
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
 kwcoco union --src \
+    $DVC_REPO/public/Benthic/US_NE_2015_NEFSC_HABCAM/annotations_disp.kwcoco.json \
     $DVC_REPO/public/Benthic/US_NE_2018_CFF_HABCAM/annotations_disp.kwcoco.json \
-    $DVC_REPO/public/Benthic/US_NE_2019_CFF_HABCAM/annotations_disp.kwcoco.json
-    $DVC_REPO/public/Benthic/US_NE_2019_CFF_HABCAM_PART2/annotations_disp.kwcoco.json
+    $DVC_REPO/public/Benthic/US_NE_2019_CFF_HABCAM/annotations_disp.kwcoco.json \
+    $DVC_REPO/public/Benthic/US_NE_2019_CFF_HABCAM_PART2/annotations_disp.kwcoco.json \
+    --dst $DVC_REPO/public/Benthic/habcam_2015_2018_2019_disp.kwcoco.json 
+
+
+jq .images[0] $DVC_REPO/public/Benthic/US_NE_2015_NEFSC_HABCAM/annotations_disp.kwcoco.json
+jq .images[0] $DVC_REPO/public/Benthic/US_NE_2018_CFF_HABCAM/annotations_disp.kwcoco.json
+
+jq .images[30000] $DVC_REPO/public/Benthic/habcam_2015_2018_2019_disp.kwcoco.json
+jq .images[0] $DVC_REPO/public/Benthic/habcam_2015_2018_2019_disp.kwcoco.json
+
+kwcoco validate $DVC_REPO/public/Benthic/habcam_2015_2018_2019_disp.kwcoco.json
+
+cd $DVC_REPO/public/Benthic
+kwcoco subset habcam_2015_2018_2019_disp.kwcoco.json --include_categories=flatfish --dst=habcam_2015_2018_2019_disp_flatfish.kwcoco.json
+dvc add habcam_2015_2018_2019_disp.kwcoco.json habcam_2015_2018_2019_disp_flatfish.kwcoco.json
+
+cd $DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/
+kwcoco subset annotations_disp.kwcoco.json --include_categories=flatfish --dst=annotations_disp_flatfish.kwcoco.json
+kwcoco stats annotations_disp_flatfish.kwcoco.json
+dvc add annotations_disp_flatfish.kwcoco.json
+
+
+dvc pull public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp_flatfish.kwcoco.json.dvc \
+    public/Benthic/habcam_2015_2018_2019_disp.kwcoco.json.dvc \
+    public/Benthic/habcam_2015_2018_2019_disp_flatfish.kwcoco.json.dvc
 
 DVC_REPO=$HOME/data/dvc-repos/viame_dvc
 TRAIN_FPATH=$DVC_REPO/public/Benthic/US_NE_2018_CFF_HABCAM/annotations_disp.kwcoco.json
 VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp.kwcoco.json
 
 #srun --gres=gpu:rtx6000:2 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+# ON NAMEK
     python -m bioharn.detect_fit \
         --name=bioharn-allclass-rgb-v23\
-        --nice=bioharn-allclass-fusion-hrnet18-habcam-v2 \
         --warmup_iters=0 \
         --workdir=$DVC_REPO/work/bioharn \
         --train_dataset=$TRAIN_FPATH \
@@ -821,3 +847,144 @@ VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp.kwcoc
         --with_mask=False \
         --balance=None \
         --bstep=4
+
+
+# ON NUMENOR
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+TRAIN_FPATH=$DVC_REPO/public/Benthic/US_NE_2018_CFF_HABCAM/annotations_disp.kwcoco.json
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-allclass-rgb-v24\
+        --warmup_iters=0 \
+        --workdir=$DVC_REPO/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb,disparity" \
+        --window_dims=928,928 \
+        --input_dims=928,928 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=100 \
+        --augment=complex \
+        --optim=adam \
+        --lr=1e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=True \
+        --workers=2 \
+        --xpu=0 \
+        --batch_size=4 \
+        --num_batches=1000 \
+        --sampler_backend=None \
+        --num_vali_batches=100 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4
+
+
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_eval \
+        --workers=2 \
+        --draw=0 \
+        --dataset=$VALI_FPATH \
+        "--deployed=[
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000000.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000001.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000002.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000003.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000004.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000005.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000007.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000009.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000010.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000012.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000014.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000015.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000016.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000020.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000025.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000030.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000031.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000032.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000033.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000034.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000035.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000036.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000037.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000038.pt,\
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000039.pt,\
+        ]"
+
+
+# ON NUMENOR
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+TRAIN_FPATH=$DVC_REPO/public/Benthic/habcam_2015_2018_2019_disp.kwcoco.json
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-allclass-rgb-v25\
+        --warmup_iters=0 \
+        --workdir=$DVC_REPO/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb,disparity" \
+        --window_dims=928,928 \
+        --input_dims=928,928 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=100 \
+        --augment=complex \
+        --optim=rmsprop \
+        --init=$DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000039.pt \
+        --lr=1e-4 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=True \
+        --workers=2 \
+        --xpu=0 \
+        --batch_size=4 \
+        --num_batches=1000 \
+        --sampler_backend=None \
+        --num_vali_batches=10 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=4
+
+
+DVC_REPO=$HOME/data/dvc-repos/viame_dvc
+TRAIN_FPATH=$DVC_REPO/public/Benthic/habcam_2015_2018_2019_disp.kwcoco.json
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp_flatfish.kwcoco.json
+srun --gres=gpu:rtx6000:2 --cpus-per-task=3 --partition=priority --account=noaa --mem 30000 \
+    python -m bioharn.detect_fit \
+        --name=bioharn-allclass-rgb-v26\
+        --warmup_iters=0 \
+        --workdir=$DVC_REPO/work/bioharn \
+        --train_dataset=$TRAIN_FPATH \
+        --vali_dataset=$VALI_FPATH \
+        --channels="rgb,disparity" \
+        --window_dims=928,928 \
+        --input_dims=928,928 \
+        --window_overlap=0.0 \
+        --arch=MM_HRNetV2_w18_MaskRCNN \
+        --schedule=ReduceLROnPlateau-p15-c15 \
+        --max_epoch=100 \
+        --augment=complex \
+        --optim=adam \
+        --init=$DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-fusion-hrnet18-habcam-v2/lyxlmrfz/checkpoints/_epoch_00000039.pt \
+        --lr=1e-3 \
+        --multiscale=False \
+        --patience=75 \
+        --normalize_inputs=True \
+        --workers=4 \
+        --xpu=0,1 \
+        --batch_size=8 \
+        --num_batches=1000 \
+        --sampler_backend=None \
+        --num_vali_batches=10 \
+        --with_mask=False \
+        --balance=None \
+        --bstep=1
