@@ -435,12 +435,12 @@ class DetectFitDataset(torch.utils.data.Dataset):
             class_idxs = np.array([
                 classes.id_to_idx[self.cat_mapping['id'][cid]] for cid in cids])
 
-            detskw = {
-                'boxes': boxes,
-                'class_idxs': class_idxs,
-                'weights': np.array(weights, dtype=np.float32),
-                'classes': classes,
-            }
+        detskw = {
+            'boxes': boxes,
+            'class_idxs': class_idxs,
+            'weights': np.array(weights, dtype=np.float32),
+            'classes': classes,
+        }
 
         if 'rel_kpts' in sample_annots:
             detskw['keypoints'] = sample_annots['rel_kpts']
