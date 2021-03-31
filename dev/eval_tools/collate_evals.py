@@ -3,6 +3,69 @@ Gather and collate evaluation metrics together in custom plots
 """
 
 
+def tabulate_results2(all_single_results):
+    import itertools as it
+    import pandas as pd
+    import kwarray
+
+    rows = []
+
+    for single in all_single_results:
+        epoch_num = single.epoch_num
+        if epoch_num is None:
+            continue
+        name = single.train_config['name']
+
+        catname = 'nocls'
+        measure = single.nocls_measures
+
+        miter = it.chain([[catname, measure]], single.ovr_measures.items())
+        for catname, measure in miter:
+
+            row = {
+                'name': name,
+                'epoch': single.epoch_num,
+                'catname': catname,
+                'ap': measure['ap'],
+                'auc': measure['auc'],
+                'nsupport': measure['nsupport'],
+            }
+            rows.append(row)
+
+    df = pd.DataFrame(rows)
+
+    bestrows = []
+    for catname, subdf in df.groupby('catname'):
+        for name, subsubdf in subdf.groupby('name'):
+            idx = subsubdf['ap'].argmax()
+            cand = subsubdf.iloc[idx]
+            bestrows.append(cand)
+    best = pd.DataFrame(bestrows)
+    best = best.sort_values(['catname', 'name'])
+
+    relevant_classes = {'nocls', 'flatfish', 'live_sea_scallop'}
+    relevant_flags = kwarray.isect_flags(best['catname'].values,  relevant_classes)
+    relevant = best[relevant_flags].reset_index(drop=True)
+    print(relevant)
+
+    name_to_fulldf = dict(list(df.groupby('name')))
+
+    relevant2_members = []
+    for name, subdf in relevant.groupby('name'):
+        # Get info for all classes for each "best" epoch
+        subdf_full = name_to_fulldf[name]
+        relevant_epochs = set(subdf['epoch'])
+        flags1 = kwarray.isect_flags(subdf_full['epoch'].values, relevant_epochs)
+        flags2 = kwarray.isect_flags(subdf_full['catname'].values,  relevant_classes)
+        expanded = subdf_full[flags1 & flags2]
+        relevant2_members.append(expanded)
+
+    relevant2 = pd.concat(relevant2_members).sort_values(['catname', 'name', 'epoch']).reset_index(drop=True)
+    print(relevant2)
+
+    print(relevant2.pivot(index=['name', 'epoch'], columns='catname'))
+
+
 def gather_evaluation_metrics():
     """
     ls $HOME/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/*-warmup*/*/eval
@@ -18,7 +81,9 @@ def gather_evaluation_metrics():
     run_globs = [
         'bioharn-flatfish-finetune-rgb-v21',
         'bioharn-allclass-rgb-v20',
-        '*-warmup*'
+        '*-warmup*',
+        'bioharn-flatfish-finetune-rgb-disp-v31',
+        'bioharn-allclass-scratch-rgb-disp-v30',
     ]
     workdir = ub.expandpath('$HOME/data/dvc-repos/viame_dvc/work/bioharn')
 
@@ -111,7 +176,6 @@ def gather_evaluation_metrics():
             else:
                 single.epoch_num = None
 
-
         # Expand out even futher
         longerform = []
         for row_ in longform:
@@ -144,17 +208,20 @@ def gather_evaluation_metrics():
             print(df1[df1.epoch_num < 10][['flatfish_ap', 'nocls_ap', 'epoch_num', 'name']])
             print(df2[df2.epoch_num < 10][['flatfish_ap', 'nocls_ap', 'epoch_num', 'name', 'ap', 'ap_type']])
 
+        # Look at model average statistics plotted over time (epochs)
         ax1 = kwplot.figure(fnum=2, pnum=(1, 2, 1), doclf=True).gca()
         sns.lineplot(
             data=df2, x='epoch_num', y='ap', hue='name', style='ap_type',
             ax=ax1)
         ax1.set_title('AP')
+        ax1.set_ylim(0, 1)
 
         ax2 = kwplot.figure(fnum=2, pnum=(1, 2, 2)).gca()
         sns.lineplot(
             data=df2, x='epoch_num', y='auc', hue='name', style='auc_type',
             ax=ax2)
         ax2.set_title('AUC')
+        ax2.set_ylim(0, 1)
 
         name_to_best_epoch = {}
         for name, subdf in df1.groupby('name'):
@@ -196,7 +263,8 @@ def gather_evaluation_metrics():
 
         chosen_ovr_longform = []
         for single in chosen:
-            # TODO: add to Measures
+            # TODO: add the above method to Measures that produces the longform
+            # table.
             # self = single.ovr_measures['flatfish']
             # single.ovr_measures.draw(key='pr', ax=ax)
             name = single.train_config['name']
@@ -206,14 +274,14 @@ def gather_evaluation_metrics():
             single_longform = []
             for catname, ovr in single.ovr_measures.items():
                 if ovr['realpos_total'] > 0:
-                    f = measures_longform(ovr, name=name + ' (' + str(single.epoch_num) + ')')
+                    f = measures_longform(ovr, name=name + ' (epoch' + str(single.epoch_num) + ')')
                     single_longform.extend(f)
 
             f = measures_longform(single.nocls_measures, name=name)
             single_longform.extend(f)
 
             for row in single_longform:
-                row['name'] = single.train_config['name'] + ' ' + str(single.epoch_num)
+                row['name'] = single.train_config['name'] + ' (epoch' + str(single.epoch_num) + ')'
                 row['epoch_num'] = single.epoch_num
                 if row['catname'] is None:
                     row['catname'] = 'nocls'
@@ -230,6 +298,8 @@ def gather_evaluation_metrics():
         sns.lineplot(
             data=ovr_df, x='fpr', y='tpr', hue='name', style='catname', legend='full', ax=ax2)
         ax2.set_title('ROC Curves')
+        ax1.set_ylim(0, 1)
+        ax2.set_ylim(0, 1)
 
         ax1 = kwplot.figure(fnum=5, pnum=(1, 2, 1), doclf=True).gca()
         sns.lineplot(
@@ -239,6 +309,8 @@ def gather_evaluation_metrics():
         sns.lineplot(
             data=ovr_df, x='fpr', y='tpr', hue='auc_label', legend='brief', ax=ax2)
         ax2.set_title('ROC Curves')
+        ax1.set_ylim(0, 1)
+        ax2.set_ylim(0, 1)
 
         if 0:
             ax1 = kwplot.figure(fnum=1, pnum=(1, 2, 1), doclf=True).gca()
