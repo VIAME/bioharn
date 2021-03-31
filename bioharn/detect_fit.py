@@ -795,8 +795,6 @@ def setup_harn(cmdline=True, **kw):
     subsets = coco_datasets
 
     classes = subsets['train'].object_categories()
-    import xdev
-    xdev.embed()
 
     if 0:
         for k, subset in subsets.items():
@@ -825,14 +823,53 @@ def setup_harn(cmdline=True, **kw):
                       if c['name'] != 'background'}
             subset.rename_categories(mapper)
 
-    classes = subsets['train'].object_categories()
-    if config['ensure_background_class']:
-        # HACK: ENSURE BACKGROUND IS CLASS IDX 0 for mmdet 1.x
-        print('classes = {!r}'.format(classes))
-        if 'background' not in classes:
-            for k, subset in subsets.items():
-                # mmdet 1.x wants id=0, but 2.x wants id=len(classes)
-                subset.add_category('background', id=0)
+    def catid_compat_mapping(classes1, classes2):
+        """
+        If the train / validation datasets have the same class names
+        but different class ids / idxs, we need to make a cat_mapping.
+        """
+        def _normalize_name(name):
+            return name.lower().replace(' ', '_')
+
+        norm_to_names1 = ub.group_items(classes1, _normalize_name)
+        norm_to_names2 = ub.group_items(classes2, _normalize_name)
+        assert max(map(len, norm_to_names1.values())) == 1
+        assert max(map(len, norm_to_names2.values())) == 1
+        norm_to_name1 = ub.map_vals(lambda x: x[0], norm_to_names1)
+        norm_to_name2 = ub.map_vals(lambda x: x[0], norm_to_names2)
+
+        unreg = set(norm_to_name2) - set(norm_to_name1)
+        if len(unreg):
+            print('classes1 = {!r}'.format(norm_to_name2))
+            print('classes2 = {!r}'.format(norm_to_name1))
+            raise Exception('Vali/Test has categories not registered in train: {}'.format(unreg))
+
+        cat_mapping = {
+            'target': classes1,
+            'node': {},
+            'idx': {},
+            'id': {},
+        }
+        for node2, id2 in classes2.node_to_id.items():
+            norm2 = _normalize_name(node2)
+            node1 = norm_to_name1[norm2]
+            id1 = classes1.node_to_id[node1]
+            idx1 = classes1.id_to_idx[id1]
+            idx2 = classes2.node_to_idx[node2]
+            cat_mapping['id'][id2] = id1
+            cat_mapping['idx'][idx2] = idx1
+            cat_mapping['node'][node2] = node1
+        return cat_mapping
+
+    compat_mappings = {}
+    for tag, subset in ub.dict_diff(coco_datasets, {'train'}).items():
+        other_cats = subset.object_categories()
+        classes1 = classes
+        classes2 = other_cats
+        cat_mapping = catid_compat_mapping(classes1, classes2)
+        compat_mappings[tag] = cat_mapping
+
+    print('compat_mappings = {}'.format(ub.repr2(compat_mappings, nl=1)))
 
     classes = subsets['train'].object_categories()
     print('classes = {!r}'.format(classes))
@@ -859,6 +896,7 @@ def setup_harn(cmdline=True, **kw):
             augment=config['augment'] if (tag == 'train') else False,
             gravity=config['gravity'],
             channels=config['channels'],
+            cat_mapping=compat_mappings.get(tag, None),
             segmentation_bootstrap=config['segmentation_bootstrap'],
         )
         for tag, sampler in samplers.items()

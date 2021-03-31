@@ -74,7 +74,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
                  factor=32, with_mask=True, gravity=0.0,
                  classes_of_interest=None, channels='rgb',
-                 blackout_ignore=True, segmentation_bootstrap=None):
+                 blackout_ignore=True, segmentation_bootstrap=None,
+                 cat_mapping=None):
         super(DetectFitDataset, self).__init__()
 
         self.sampler = sampler
@@ -122,6 +123,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         self.window_jitter = window_jitter
 
         self.blackout_ignore = blackout_ignore
+
+        self.cat_mapping = cat_mapping
 
         # assert np.all(self.input_dims % self.factor == 0)
         # FIXME: multiscale training is currently not enabled
@@ -422,13 +425,22 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 if catname.lower() not in self.classes_of_interest:
                     weights[idx] = 0
 
-        classes = self.sampler.classes
-        detskw = {
-            'boxes': boxes,
-            'class_idxs': np.array([classes.id_to_idx[cid] for cid in cids]),
-            'weights': np.array(weights, dtype=np.float32),
-            'classes': classes,
-        }
+        if self.cat_mapping is None:
+            classes = self.sampler.classes
+            class_idxs = np.array([classes.id_to_idx[cid] for cid in cids])
+        else:
+            # Ensure we are using the class ids / idxs of the "training" or
+            # target categories that were passed to the network
+            classes = self.cat_mapping['target']
+            class_idxs = np.array([
+                classes.id_to_idx[self.cat_mapping['id'][cid]] for cid in cids])
+
+            detskw = {
+                'boxes': boxes,
+                'class_idxs': class_idxs,
+                'weights': np.array(weights, dtype=np.float32),
+                'classes': classes,
+            }
 
         if 'rel_kpts' in sample_annots:
             detskw['keypoints'] = sample_annots['rel_kpts']
