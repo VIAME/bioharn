@@ -1469,13 +1469,12 @@ python -m bioharn.detect_fit \
     --augment=complex \
     --optim=rmsprop \
     --lr=1e-4 \
-    --init=$DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-scratch-rgb-disp-v30/tzqwohsu/checkpoints/_epoch_00000045.pt \
     --multiscale=False \
     --patience=75 \
     --normalize_inputs=True \
     --workers=2 \
     --xpu=0 \
-    --batch_size=5 \
+    --batch_size=2 \
     --num_batches=auto \
     --sampler_backend=None \
     --num_vali_batches=10 \

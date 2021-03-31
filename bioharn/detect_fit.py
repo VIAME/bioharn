@@ -795,6 +795,8 @@ def setup_harn(cmdline=True, **kw):
     subsets = coco_datasets
 
     classes = subsets['train'].object_categories()
+    import xdev
+    xdev.embed()
 
     if 0:
         for k, subset in subsets.items():
