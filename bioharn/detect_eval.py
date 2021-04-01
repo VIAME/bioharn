@@ -26,7 +26,8 @@ from netharn.data import data_containers  # NOQA
 
 class DetectEvaluateConfig(scfg.Config):
     default = {
-        'deployed': scfg.Value(None, help='deployed network filepath'),
+
+        'deployed': scfg.PathList(None, help='deployed network filepath'),
 
         # Evaluation dataset
         'dataset': scfg.Value(None, help='path to an mscoco dataset'),
