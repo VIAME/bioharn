@@ -73,6 +73,8 @@ class DetectPredictConfig(scfg.Config):
         'nms_thresh': 0.4,
         'conf_thresh': 0.1,
 
+        'skip_upgrade': scfg.Value(False, help='if true skips upgrade model checks'),
+
         'verbose': 1,
     }
 
@@ -293,7 +295,8 @@ class DetectPredictor(object):
             xpu = ContainerXPU.coerce(predictor.config['xpu'])
             deployed = predictor.config['deployed']
             if isinstance(predictor.config['deployed'], str):
-                deployed = _ensure_upgraded_model(deployed)
+                if not predictor.config['skip_upgrade']:
+                    deployed = _ensure_upgraded_model(deployed)
             deployed = torch_liberator.DeployedModel.coerce(deployed)
             model = deployed.load_model()
             model.train(False)

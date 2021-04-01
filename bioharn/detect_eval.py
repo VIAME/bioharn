@@ -115,6 +115,8 @@ class DetectEvaluateConfig(scfg.Config):
 
         'iou_bias': scfg.Value(0, help=(
             'pycocotools setting is 1, but 0 may be better')),
+
+        'skip_upgrade': scfg.Value(False, help='if true skips upgrade model checks'),
     }
 
 

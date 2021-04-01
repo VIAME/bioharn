@@ -1394,8 +1394,24 @@ srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa 
         --dataset=$VALI_FPATH \
         "--deployed=[
             $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000000.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000001.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000002.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000005.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000009.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000010.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000011.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000012.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000013.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000014.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000015.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000016.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000017.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000018.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000019.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000020.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000025.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000026.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000027.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000028.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-partxfer-rgb-disp-v32/iirqaosn/checkpoints/_epoch_00000029.pt, \
         ]"
 
 
@@ -1443,41 +1459,36 @@ srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa 
         --dataset=$VALI_FPATH \
         "--deployed=[
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000000.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000000.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000001.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000002.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000003.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000004.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000005.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000006.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000007.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000008.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000009.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000010.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000011.pt, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000012.pt, \
         ]"
 
 
+
+# Full Evaluatation
 DVC_REPO=$HOME/data/dvc-repos/viame_dvc
-TRAIN_FPATH=$DVC_REPO/public/Benthic/habcam_2015_2018_2019_disp_flatfish.kwcoco.json
-VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp_flatfish.kwcoco.json
+VALI_FPATH=$DVC_REPO/public/Benthic/US_NE_2017_CFF_HABCAM/annotations.kwcoco.json
+srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa --mem 20000 \
+    python -m bioharn.detect_eval \
+        --workers=2 \
+        --draw=0 \
+        --dataset=$VALI_FPATH \
+        "--deployed=[
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/deploy_bioharn-flatfish-finetune-rgb-v21_uffjlobk_006_custom.zip, \
+            $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/deploy_bioharn-allclass-rgb-v20_vitklgww_081_custom.zip, \
+        ]"
 
-jq .categories $TRAIN_FPATH
-jq .categories $VALI_FPATH
+#$HOME/remote/viame/work/bioharn/fit/runs/bioharn-flatfish-rgb-v11/kqlgozei/deploy_MM_HRNetV2_w18_MaskRCNN_kqlgozei_003_MSOUGL.zip, \
+#$HOME/remote/viame/work/bioharn/fit/runs/bioharn-flatfish-rgb-v10/svytnbjg/deploy_MM_HRNetV2_w18_MaskRCNN_svytnbjg_016_MYFSVM.zip, \
 
-python -m bioharn.detect_fit \
-    --name=debug-vali \
-    --warmup_iters=10 \
-    --workdir=$DVC_REPO/work/bioharn \
-    --train_dataset=$TRAIN_FPATH \
-    --vali_dataset=$VALI_FPATH \
-    --channels="rgb,disparity" \
-    --window_dims=928,928 \
-    --input_dims=928,928 \
-    --window_overlap=0.0 \
-    --arch=MM_HRNetV2_w18_MaskRCNN \
-    --schedule=ReduceLROnPlateau-p20-c20 \
-    --max_epoch=100 \
-    --augment=complex \
-    --optim=rmsprop \
-    --lr=1e-4 \
-    --multiscale=False \
-    --patience=75 \
-    --normalize_inputs=True \
-    --workers=2 \
-    --xpu=0 \
-    --batch_size=2 \
-    --num_batches=auto \
-    --sampler_backend=None \
-    --num_vali_batches=10 \
-    --with_mask=False \
-    --balance=None \
-    --bstep=2
