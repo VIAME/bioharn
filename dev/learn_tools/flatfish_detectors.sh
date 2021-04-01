@@ -1457,22 +1457,23 @@ srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa 
         --workers=2 \
         --draw=0 \
         --dataset=$VALI_FPATH \
-        "--deployed=[
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000000.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000000.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000001.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000002.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000003.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000004.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000005.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000006.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000007.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000008.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000009.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000010.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000011.pt, \
-            $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000012.pt, \
-        ]"
+        --deployed $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/*
+
+        #_epoch_00000000.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000000.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000001.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000002.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000003.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000004.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000005.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000006.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000007.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000008.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000009.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000010.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000011.pt, \
+        #    $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-disp-v33/gnnivtnt/checkpoints/_epoch_00000012.pt, \
+        #]"
 
 
 
@@ -1487,7 +1488,7 @@ srun --gres=gpu:rtx6000:1 --cpus-per-task=3 --partition=priority --account=noaa 
         "--deployed=[
             $DVC_REPO/work/bioharn/fit/runs/bioharn-flatfish-finetune-rgb-v21/uffjlobk/deploy_bioharn-flatfish-finetune-rgb-v21_uffjlobk_006_custom.zip, \
             $DVC_REPO/work/bioharn/fit/runs/bioharn-allclass-rgb-v20/vitklgww/deploy_bioharn-allclass-rgb-v20_vitklgww_081_custom.zip, \
-        ]"
+        ]" --skip_upgrade=True
 
 #$HOME/remote/viame/work/bioharn/fit/runs/bioharn-flatfish-rgb-v11/kqlgozei/deploy_MM_HRNetV2_w18_MaskRCNN_kqlgozei_003_MSOUGL.zip, \
 #$HOME/remote/viame/work/bioharn/fit/runs/bioharn-flatfish-rgb-v10/svytnbjg/deploy_MM_HRNetV2_w18_MaskRCNN_svytnbjg_016_MYFSVM.zip, \

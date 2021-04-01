@@ -79,11 +79,13 @@ def gather_evaluation_metrics():
     import parse
 
     run_globs = [
+        # 'bioharn-flatfish-finetune-rgb-v21',
+        # 'bioharn-allclass-rgb-v20',
+        # '*-warmup*',
+        # 'bioharn-flatfish-finetune-rgb-disp-v31',
+        # 'bioharn-allclass-scratch-rgb-disp-v30',
         'bioharn-flatfish-finetune-rgb-v21',
         'bioharn-allclass-rgb-v20',
-        '*-warmup*',
-        'bioharn-flatfish-finetune-rgb-disp-v31',
-        'bioharn-allclass-scratch-rgb-disp-v30',
     ]
     workdir = ub.expandpath('$HOME/data/dvc-repos/viame_dvc/work/bioharn')
 
@@ -139,6 +141,8 @@ def gather_evaluation_metrics():
         longform = []
 
         for single in all_single_results:
+            if 'annotations.kwcoc' != single.meta['dset_tag']:
+                continue
             single.meta['train_info']['train_dpath']
 
             # hack to extract train config
@@ -147,34 +151,50 @@ def gather_evaluation_metrics():
             single.train_config = train_config
 
             result = parse.parse('{}_epoch_{num:d}.pt', deploy_fpath)
+            # hack to extract train config
+            train_config = eval(single.meta['train_info']['extra']['config'], {}, {})
+            deploy_fpath = single.meta['eval_config']['deployed']
+            single.train_config = train_config
+
+            result = parse.parse('{}_epoch_{num:d}.pt', deploy_fpath)
             if result:
                 epoch_num = result.named['num']
-                warmup_iters = train_config['warmup_iters']
-                dpath = single.meta['train_info']['train_dpath']
+            else:
+                import torch_liberator
+                deploy = torch_liberator.DeployedModel(deploy_fpath)
+                snap = deploy.extract_snapshot()
+                import netharn as nh
+                state = nh.XPU('cpu').load(snap)
+                epoch_num = int(state['epoch'])
 
-                single.epoch_num = epoch_num
+            warmup_iters = train_config['warmup_iters']
+            dpath = single.meta['train_info']['train_dpath']
 
-                row = {
-                    'name': train_config['name'],
-                    'epoch_num': epoch_num,
-                    'warmup_iters': warmup_iters,
-                    'flatfish_ap': single.ovr_measures['flatfish']['ap'],
-                    'flatfish_auc': single.ovr_measures['flatfish']['auc'],
-                    'nocls_ap': single.nocls_measures['ap'],
-                    'nocls_auc': single.nocls_measures['auc'],
-                }
+            single.epoch_num = epoch_num
+            print('deploy_fpath = {!r}'.format(deploy_fpath))
 
-                # Add data from tensorboard
+            row = {
+                'name': train_config['name'],
+                'epoch_num': epoch_num,
+                'warmup_iters': warmup_iters,
+                'flatfish_ap': single.ovr_measures['flatfish']['ap'],
+                'flatfish_auc': single.ovr_measures['flatfish']['auc'],
+                'nocls_ap': single.nocls_measures['ap'],
+                'nocls_auc': single.nocls_measures['auc'],
+            }
+
+            # Add data from tensorboard
+            try:
                 tb_scalars = train_dpath_to_tbscalars[dpath]
                 single.tb_scalars = tb_scalars
                 for tbkey in tbkeys:
                     lossdata = tb_scalars[tbkey]
                     idx = lossdata['xdata'].index(epoch_num)
                     row[tbkey] = lossdata['ydata'][idx]
+            except Exception:
+                pass
 
-                longform.append(row)
-            else:
-                single.epoch_num = None
+            longform.append(row)
 
         # Expand out even futher
         longerform = []
