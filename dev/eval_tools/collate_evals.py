@@ -8,9 +8,21 @@ def tabulate_results2(all_single_results):
     import pandas as pd
     import kwarray
 
-    rows = []
+    # dups = ub.find_duplicates([(single.train_config['name'], single.epoch_num) for single in all_single_results])
+    # # hack:
+    # for x in sorted(ub.flatten([v[1:] for v in dups.values()]))[::-1]:
+    #     del all_single_results[x]
 
+    # x = all_single_results[2]
+    # # .meta['train_info']['train_dpath']
+    # y = all_single_results[12]
+    # .meta['train_info']['train_dpath']
+
+    rows = []
     for single in all_single_results:
+        # if 'annotations_disp_flatfish.kwcoc' != single.meta['dset_tag']:
+        #     print('cont')
+        #     continue
         epoch_num = single.epoch_num
         if epoch_num is None:
             continue
@@ -66,27 +78,34 @@ def tabulate_results2(all_single_results):
     print(relevant2.pivot(index=['name', 'epoch'], columns='catname'))
 
 
-def gather_evaluation_metrics():
+def gather_evaluation_metrics(run_globs):
     """
     ls $HOME/data/dvc-repos/viame_dvc/work/bioharn/fit/runs/*-warmup*/*/eval
     """
     from os.path import join
     import glob
     import ubelt as ub
-    from kwcoco.metrics import confusion_vectors
+    # from kwcoco.metrics import confusion_vectors
     from kwcoco.coco_evaluator import CocoResults
     import json
     import parse
+    import netharn as nh
 
-    run_globs = [
-        # 'bioharn-flatfish-finetune-rgb-v21',
-        # 'bioharn-allclass-rgb-v20',
-        # '*-warmup*',
-        # 'bioharn-flatfish-finetune-rgb-disp-v31',
-        # 'bioharn-allclass-scratch-rgb-disp-v30',
-        'bioharn-flatfish-finetune-rgb-v21',
-        'bioharn-allclass-rgb-v20',
-    ]
+    # run_globs = [
+    #     # 'bioharn-flatfish-finetune-rgb-v21',
+    #     # 'bioharn-allclass-rgb-v20',
+    #     # '*-warmup*',
+    #     # 'bioharn-flatfish-finetune-rgb-disp-v31',
+    #     # 'bioharn-allclass-scratch-rgb-disp-v30',
+    #     # 'bioharn-flatfish-finetune-rgb-v21',
+    #     # 'bioharn-allclass-rgb-v20',
+
+    #     # 'bioharn-allclass-rgb-v20',
+    #     # 'bioharn-allclass-rgb-v20',
+    #     # 'bioharn-allclass-partxfer-rgb-disp-v32',
+    #     # 'bioharn-flatfish-finetune-rgb-disp-v33',
+    #     'bioharn-allclass-partxfer-rgb-disp-cont-v34',
+    # ]
     workdir = ub.expandpath('$HOME/data/dvc-repos/viame_dvc/work/bioharn')
 
     metric_fpaths = []
@@ -99,18 +118,12 @@ def gather_evaluation_metrics():
         with open(fpath, 'r') as file:
             data = json.load(file)
         results = CocoResults.from_json(data)
+        results.metric_fpath = results
+        for r in list(results.values()):
+            r.metrics_fpath = fpath
         all_results.append(results)
 
     allkeys = set(ub.flatten(r.keys() for r in all_results))
-
-    # Plot AP versus epoch vs Loss
-    import kwplot
-    kwplot.autompl()
-    import seaborn as sns
-    sns.set()
-
-    import netharn as nh
-    import pandas as pd
 
     # Tensorboard keys of interest
     tbkeys = [
@@ -126,6 +139,8 @@ def gather_evaluation_metrics():
         'train_epoch_loss_rpn_cls_loss',
     ]
 
+    expt_to_single_results = {}
+
     for expt_key in allkeys:
         all_single_results = [r[expt_key] for r in all_results if expt_key in r]
 
@@ -138,11 +153,11 @@ def gather_evaluation_metrics():
             for dpath in all_train_dpaths
         }
 
-        longform = []
-
         for single in all_single_results:
-            if 'annotations.kwcoc' != single.meta['dset_tag']:
-                continue
+            # if 'annotations.kwcoc' != single.meta['dset_tag']:
+            #     continue
+            # if 'annotations_disp_flatfish.kwcoc' != single.meta['dset_tag']:
+            #     continue
             single.meta['train_info']['train_dpath']
 
             # hack to extract train config
@@ -160,6 +175,7 @@ def gather_evaluation_metrics():
             if result:
                 epoch_num = result.named['num']
             else:
+                # continue
                 import torch_liberator
                 deploy = torch_liberator.DeployedModel(deploy_fpath)
                 snap = deploy.extract_snapshot()
@@ -193,7 +209,45 @@ def gather_evaluation_metrics():
                     row[tbkey] = lossdata['ydata'][idx]
             except Exception:
                 pass
+            single.row = row
 
+        expt_to_single_results[expt_key] = all_single_results
+    return expt_to_single_results
+
+
+def flatfish_plots():
+    import pandas as pd
+    # Plot AP versus epoch vs Loss
+    import kwplot
+    kwplot.autompl()
+    import seaborn as sns
+    sns.set()
+
+    run_globs = [
+        # 'bioharn-flatfish-finetune-rgb-v21',
+        # 'bioharn-allclass-rgb-v20',
+        # '*-warmup*',
+        # 'bioharn-flatfish-finetune-rgb-disp-v31',
+        # 'bioharn-allclass-scratch-rgb-disp-v30',
+        # 'bioharn-flatfish-finetune-rgb-v21',
+        # 'bioharn-allclass-rgb-v20',
+
+        # 'bioharn-allclass-rgb-v20',
+        # 'bioharn-allclass-rgb-v20',
+        # 'bioharn-allclass-partxfer-rgb-disp-v32',
+        # 'bioharn-flatfish-finetune-rgb-disp-v33',
+        'bioharn-allclass-partxfer-rgb-disp-cont-v34',
+        'bioharn-flatfish-finetune-rgb-v21',
+        'bioharn-flatfish-finetune-rgb-disp-v33',
+    ]
+
+    expt_to_single_results = gather_evaluation_metrics(run_globs)
+
+    for expt_key, all_single_results in expt_to_single_results.items():
+
+        longform = []
+        for single in all_single_results:
+            row = single.row
             longform.append(row)
 
         # Expand out even futher
@@ -366,3 +420,121 @@ def gather_evaluation_metrics():
             sns.lineplot(
                 data=df, x='epoch_num', y='vali_epoch_loss_rpn_bbox_loss', hue='warmup_iters', ax=ax2)
             ax2.set_title('Validation Loss')
+
+
+def check_complementaryness():
+    """
+    Find a case where one model detects something but the other doesn't
+    """
+    run_globs = [
+        'bioharn-flatfish-finetune-rgb-v21',
+        'bioharn-flatfish-finetune-rgb-disp-v33',
+    ]
+    expt_to_single_results = gather_evaluation_metrics(run_globs)
+
+    import kwplot
+
+    legend = kwplot.make_legend_img({
+        'truth': 'green',
+        'disp-v33': 'orange',
+        'rgb-v21': 'purple',
+    })
+    legend = kwimage.ensure_float01(legend)
+
+    for expt_key, all_single_results in expt_to_single_results.items():
+
+        best_singles = {}
+        for single in all_single_results:
+            name = single.train_config['name']
+            curr = best_singles.get(name, None)
+            if curr is None or curr.row['flatfish_ap'] < single.row['flatfish_ap']:
+                curr = single
+            best_singles[name] = curr
+
+        # Hack to find miss vs hit
+        from os.path import dirname, join
+        name_to_preds = {}
+        for name, single in best_singles.items():
+            pred_dpath = join(dirname(dirname(single.metrics_fpath)), 'pred')
+            name_to_preds[name] = pred_dpath
+
+        name_to_results = {}
+        name_to_evaler = {}
+        for name, pred_dpath in name_to_preds.items():
+            # HACK FOR TRUTH PATH
+            truth_fpath = '/home/khq.kitware.com/jon.crall/data/dvc-repos/viame_dvc/public/Benthic/US_NE_2017_CFF_HABCAM/annotations_disp_flatfish.kwcoco.json'
+            # import kwcoco
+            # truth = kwcoco.CocoDataset(truth_fpath)
+            from kwcoco import coco_evaluator
+            coco_eval = coco_evaluator.CocoEvaluator({
+                'true_dataset': truth_fpath,
+                'pred_dataset': pred_dpath,
+            })
+            results = coco_eval.evaluate()
+            main_results = results[expt_key]
+            name_to_results[name] = main_results
+            name_to_evaler[name] = coco_eval
+
+        res1, res2 = name_to_results.values()
+        evaler1, evaler2 = name_to_evaler.values()
+
+        true_dset2 = evaler2.true_extra['coco_dset']
+        true_dset1 = evaler1.true_extra['coco_dset']
+
+        res1.cfsn_vecs
+        res2.cfsn_vecs
+
+        ff_idx1 = res1.cfsn_vecs.classes.node_to_idx['flatfish']
+        ff_cid1 = res1.cfsn_vecs.classes.node_to_id['flatfish']
+        ff_idx2 = res2.cfsn_vecs.classes.node_to_idx['flatfish']
+        ff_cid2 = res2.cfsn_vecs.classes.node_to_id['flatfish']
+
+        df1 = res1.cfsn_vecs.data.pandas()
+        df2 = res2.cfsn_vecs.data.pandas()
+
+        cases1 = df1[df1['true'] == ff_idx1]
+        cases2 = df2[df2['true'] == ff_idx2]
+
+        cases2 = cases2.sort_values('score')
+        cases1 = cases1.sort_values('score')
+
+        missed1 = cases2.gid[cases2['score'] < 0]
+        missed2 = cases1.gid[cases1['score'] < 0]
+
+        gids = sorted(set(missed2) - set(missed1))
+        set(missed1) - set(missed2)
+
+        gids = cases2.gids.values
+        gid = gids[12]
+
+        det2 = evaler2.gid_to_pred[gid]
+        det1 = evaler1.gid_to_pred[gid]
+
+        canvas = true_dset2.load_image(gid)
+        gpath = true_dset2.get_image_fpath(gid)
+        title = '/'.join(gpath.split('/')[-3:])
+
+        true_det = true_dset2.annots(gid=gid).detections
+
+        canvas = true_det.draw_on(canvas, color='green')
+
+        # det2 = det2.compress(det2.scores > 0.6)
+        # det1 = det1.compress(det1.scores > 0.6)
+
+        canvas = det2.draw_on(canvas, color='orange')
+        canvas = det1.draw_on(canvas, color='purple')
+
+        import kwimage
+        import numpy as np
+        legend_transparent = np.zeros_like(canvas)
+        legend_transparent = kwimage.ensure_alpha_channel(legend_transparent, alpha=0)
+        legend_transparent[0:legend.shape[0], 0:legend.shape[1], 0:3] = legend
+        legend_transparent[0:legend.shape[0], 0:legend.shape[1], 3] = 1
+        canvas = kwimage.overlay_alpha_layers([canvas, legend_transparent])
+        canvas = kwimage.overlay_alpha_layers([legend_transparent, canvas])
+
+        import kwplot
+        kwplot.imshow(canvas, title=title)
+
+
+

@@ -424,8 +424,16 @@ class DetectEvaluator(object):
             else:
                 model_tag = nice + '_' + ub.augpath(deployed.path, dpath='', ext='', multidot=True)
 
+
+        def removesuffix(self: str, suffix: str, /) -> str:
+            """ 3.9 backport https://www.python.org/dev/peps/pep-0616/ """
+            if suffix and self.endswith(suffix):
+                return self[:-len(suffix)]
+            else:
+                return self[:]
+
         evaluator.model_tag = model_tag
-        evaluator.dset_tag = evaluator.sampler.dset.tag.rstrip('.json')
+        evaluator.dset_tag = removesuffix(evaluator.sampler.dset.tag, '.json')
 
         # Load the trained model
         pred_keys = set(detect_predict.DetectPredictConfig.default.keys()) - {'verbose'}
