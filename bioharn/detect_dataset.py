@@ -874,6 +874,9 @@ def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
         data_slice, extra_padding, st_dims = sampler._rectify_tr(
             tr, data_dims, window_dims=None, pad=pad)
 
+        # data_slice, extra_padding = kwarray.embed_slice(
+        #     requested_slice, data_dims, pad)
+
         if part != key:
             # disk input is prefused, need to separate it out
             data_slice = data_slice + tuple(subindex)

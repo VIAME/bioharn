@@ -2,7 +2,7 @@ imgaug
 torch
 six
 numpy
-opencv_python
+# opencv_python
 kwarray >= 0.5.8
 kwplot
 kwcoco >= 0.1.10
