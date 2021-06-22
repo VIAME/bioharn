@@ -836,9 +836,22 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
             },
         })
 
+        from distutils.version import LooseVersion
+        import mmdet
+
+        MMDET_GT_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
+
+        if MMDET_GT_2_12:
+            # mmdet v2.12.0 introduced new registry stuff that forces use of
+            # config dictionaries
+            mm_cfg = mmcv.ConfigDict(mm_cfg)
+
         from mmdet.models import build_detector
         detector = build_detector(
             mm_cfg['model'], train_cfg=default_args['train_cfg'],
             test_cfg=default_args['test_cfg'])
+
+        if MMDET_GT_2_12:
+            detector.init_weights()
 
         super().__init__(detector, classes=classes, channels=channels)

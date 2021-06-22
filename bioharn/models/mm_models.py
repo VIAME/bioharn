@@ -16,8 +16,9 @@ import kwimage
 import kwarray
 from collections import OrderedDict
 import warnings  # NOQA
-from netharn.data.channel_spec import ChannelSpec
+from netharn.data.channel_spec import ChannelSpec  # TODO: kwcoco.ChannelSpec
 from netharn.data import data_containers
+from distutils.version import LooseVersion
 
 
 def _hack_mm_backbone_in_channels(backbone_cfg):
@@ -71,12 +72,14 @@ def _hack_mmdet_masks(gt_masks):
 
     Example:
         >>> # xdoctest: +REQUIRES(module:mmdet)
+        >>> channels = 3
         >>> batch = _demo_batch(bsize=4, with_mask='bitmap', channels=channels)
         >>> gt_masks = batch['label']['class_masks']
         >>> bitmask_container = _hack_mmdet_masks(gt_masks)
         >>> gt_masks = batch['label']['class_masks'].data[0]
         >>> bitmask_single = _hack_mmdet_masks(gt_masks)
 
+        >>> channels = 3
         >>> batch = _demo_batch(bsize=4, with_mask='polygon', channels=channels)
         >>> gt_masks = batch['label']['class_masks']
         >>> poly_container = _hack_mmdet_masks(gt_masks)
@@ -165,9 +168,11 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
 
 
         >>> batch = _demo_batch(bsize=4, with_mask='bitmap', channels=channels)
+
         gt_masks = batch['label']['class_masks'].data[0]
 
         >>> batch = _demo_batch(bsize=4, with_mask='polygon', channels=channels)
+
         gt_masks = batch['label']['class_masks'].data[0]
 
         >>> mm_inputs = _batch_to_mm_inputs(batch)
@@ -307,12 +312,19 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
 
 
 def _dummy_img_metas(B, H, W, C):
+    import mmdet
+    MMDET_GT_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
+    if MMDET_GT_2_12:
+        scale_factor = np.array([1., 1.0])
+    else:
+        scale_factor = 1.0
+
     img_metas = [{
         'img_shape': (H, W, C),
         'ori_shape': (H, W, C),
         'pad_shape': (H, W, C),
         'filename': '<memory>.png',
-        'scale_factor': 1.0,
+        'scale_factor': scale_factor,
         'flip': False,
     } for _ in range(B)]
     return img_metas
@@ -630,7 +642,6 @@ class MM_Coder(object):
             elif isinstance(result, list):
                 # Hack for mmdet 2.4+ (not sure exactly what format change is
                 # so this may need to be reworked)
-                from distutils.version import LooseVersion
                 import mmdet
                 if LooseVersion(mmdet.__version__) >= LooseVersion('2.4.0'):
 
@@ -701,8 +712,10 @@ class MM_Detector(nh.layers.Module):
                  classes=None, input_stats=None, channels=None):
         super(MM_Detector, self).__init__()
         import mmcv
+        import mmdet
         from mmdet.models import build_detector
         import kwcoco
+        from distutils.version import LooseVersion
 
         if input_stats is None:
             input_stats = {}
@@ -739,8 +752,20 @@ class MM_Detector(nh.layers.Module):
         if test_cfg is not None:
             test_cfg = mmcv.utils.config.ConfigDict(test_cfg)
 
+        MMDET_GT_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
+
+        if MMDET_GT_2_12:
+            # mmdet v2.12.0 introduced new registry stuff that forces use of
+            # config dictionaries
+            mm_model = mmcv.ConfigDict(mm_model)
+            train_cfg = mmcv.ConfigDict(train_cfg)
+            test_cfg = mmcv.ConfigDict(test_cfg)
+
         self.detector = build_detector(
             mm_model, train_cfg=train_cfg, test_cfg=test_cfg)
+
+        if MMDET_GT_2_12:
+            self.detector.init_weights()
 
         self.coder = MM_Coder(self.classes)
 
@@ -1178,6 +1203,8 @@ class MM_MaskRCNN(MM_Detector):
                 pos_weight=-1,
                 debug=False),
             rpn_proposal=dict(
+                nms=dict(type='nms', iou_threshold=0.7),  # hack for mmdet=2.12.0
+                max_per_img=2000,  # hack for mmdet=2.12.0
                 nms_across_levels=False,
                 nms_pre=2000,
                 nms_post=2000,
@@ -1202,6 +1229,8 @@ class MM_MaskRCNN(MM_Detector):
                 debug=False))
         test_cfg = dict(
             rpn=dict(
+                nms=dict(type='nms', iou_threshold=0.7),  # hack for mmdet=2.12.0
+                max_per_img=1000,  # hack for mmdet=2.12.0
                 nms_across_levels=False,
                 nms_pre=1000,
                 nms_post=1000,
@@ -1445,6 +1474,8 @@ class MM_CascadeRCNN(MM_Detector):
                 pos_weight=-1,
                 debug=False),
             rpn_proposal=dict(
+                nms=dict(type='nms', iou_threshold=0.7),  # hack for mmdet=2.12.0
+                max_per_img=1000,  # hack for mmdet=2.12.0
                 nms_across_levels=False,
                 nms_pre=2000,
                 nms_post=2000,
@@ -1505,6 +1536,8 @@ class MM_CascadeRCNN(MM_Detector):
 
         test_cfg = dict(
             rpn=dict(
+                nms=dict(type='nms', iou_threshold=0.7),  # hack for mmdet=2.12.0
+                max_per_img=1000,  # hack for mmdet=2.12.0
                 nms_across_levels=False,
                 nms_pre=1000,
                 nms_post=1000,

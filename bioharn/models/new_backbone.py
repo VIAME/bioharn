@@ -260,7 +260,7 @@ class HRNet_V2(nn.Module):
         >>>         block='BASIC',
         >>>         num_blocks=(4, 4, 4, 4),
         >>>         num_channels=(32, 64, 128, 256)))
-        >>> self = HRNet(extra, in_channels=1)
+        >>> self = HRNet_V2(extra, in_channels=1)
         >>> self.eval()
         >>> inputs = torch.rand(1, 1, 32, 32)
         >>> level_outputs = self.forward(inputs)
