@@ -142,7 +142,7 @@ def main():
     """
     import kwarray
     import kwimage
-    import ndsampler
+    import kwcoco
     import ubelt as ub
     import numpy as np
     from os.path import basename
@@ -152,7 +152,7 @@ def main():
 
     # Load the COCO dataset we are goint to modify
     print('base_fpath = {!r}'.format(base_fpath))
-    orig_coco_dset = ndsampler.CocoDataset(base_fpath)
+    orig_coco_dset = kwcoco.CocoDataset(base_fpath)
     coco_dset = orig_coco_dset.copy()
     coco_dset._resolve_to_cat('Dead Pup')['alias'] = ['DeadPup', 'DeadNP']
     coco_dset.ensure_category('Ignore')
@@ -366,7 +366,7 @@ def main():
             xdev.InteractiveIter.draw()
 
     if 0:
-        coco_dset = ndsampler.CocoDataset(out_fpath)
+        coco_dset = kwcoco.CocoDataset(out_fpath)
     coco_dset.dump(out_fpath, newlines=True)
     coco_dset.fpath = out_fpath
 

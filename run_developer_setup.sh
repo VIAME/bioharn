@@ -123,7 +123,7 @@ python -c "import torch; print(torch.version.cuda)"
 
 
 #MMCV_VERSION=1.3.0
-MMCV_VERSION=1.2.6
+MMCV_VERSION=1.3.0
 MMCV_URL=$(python -c "
 from distutils.version import LooseVersion
 import torch
@@ -157,6 +157,8 @@ print(mmcv_url)
 ")
 echo "MMCV_URL = $MMCV_URL"
 
+
+# See: https://github.com/open-mmlab/mmdetection/blob/master/docs/get_started.md
 
 # mmcv is weird about resolving this
 #pip install pycocotools  

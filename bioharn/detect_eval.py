@@ -343,12 +343,11 @@ class DetectEvaluator(object):
             >>> print('config = {}'.format(ub.repr2(config, nl=1)))
         """
         from bioharn import detect_fit
-        import ndsampler
         aux = False
 
-        train_dset = ndsampler.CocoDataset.demo('shapes8', aux=aux)
+        train_dset = kwcoco.CocoDataset.demo('shapes8', aux=aux)
         dpath = ub.ensure_app_cache_dir('bioharn/demodata')
-        test_dset = ndsampler.CocoDataset.demo('shapes4', aux=aux)
+        test_dset = kwcoco.CocoDataset.demo('shapes4', aux=aux)
         workdir = ub.ensuredir((dpath, 'work'))
 
         train_dset.fpath = join(dpath, 'shapes_train.mscoco')
@@ -423,7 +422,6 @@ class DetectEvaluator(object):
                 model_tag = nice + '_' + ub.augpath(deployed._info['snap_fpath'], dpath='', ext='', multidot=True)
             else:
                 model_tag = nice + '_' + ub.augpath(deployed.path, dpath='', ext='', multidot=True)
-
 
         def removesuffix(self: str, suffix: str, /) -> str:
             """ 3.9 backport https://www.python.org/dev/peps/pep-0616/ """

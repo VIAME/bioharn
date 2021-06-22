@@ -9,9 +9,9 @@ def _test_train_and_eval_model(aux):
     """
     from bioharn import detect_fit
     from bioharn import detect_eval
-    import ndsampler
+    import kwcoco
 
-    dset = ndsampler.CocoDataset.demo('shapes8', aux=aux)
+    dset = kwcoco.CocoDataset.demo('shapes8', aux=aux)
     dpath = ub.ensure_app_cache_dir('bioharn/tests')
     ub.delete(dpath)  # start fresh
 

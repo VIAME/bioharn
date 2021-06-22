@@ -636,7 +636,7 @@ def convert_US_NE_NEFSC_2014_HABCAM_FLATFISH():
 
 
 def merge():
-    import ndsampler
+    import kwcoco
     split_fpaths = {
         'train':  [
             '/home/joncrall/data/private/US_NE_2017_CFARM_HABCAM/_dev/US_NE_2017_CFARM_HABCAM_g001921_a00024144_c0010_v3_44_train.mscoco.json',
@@ -660,7 +660,7 @@ def merge():
         print('tag = {!r}'.format(tag))
         dsets = []
         for fpath in ub.ProgIter(paths, desc='read datasets'):
-            dset = ndsampler.CocoDataset(fpath)
+            dset = kwcoco.CocoDataset(fpath)
             dset.rebase(absolute=True)
             dsets.append(dset)
         splits[tag] = dsets
@@ -670,7 +670,7 @@ def merge():
     combo_dsets = {}
     for tag, dsets in splits.items():
         print('merging')
-        combo_dset = ndsampler.CocoDataset.union(*dsets, tag=tag)
+        combo_dset = kwcoco.CocoDataset.union(*dsets, tag=tag)
         combo_dset.fpath = join(out_dpath, 'cfarm_{}.mscoco.json'.format(tag))
         print('{!r}'.format(combo_dset.fpath))
         combo_dset.rebase(out_dpath)
@@ -681,7 +681,7 @@ def merge():
 
     for tag, combo_dset in combo_dsets.items():
 
-        combo_dset = ndsampler.CocoDataset(combo_dset.fpath)
+        combo_dset = kwcoco.CocoDataset(combo_dset.fpath)
 
         for gid, img in ub.ProgIter(list(combo_dset.imgs.items()),
                                     desc='test load gids'):

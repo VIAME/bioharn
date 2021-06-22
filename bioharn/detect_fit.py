@@ -777,7 +777,7 @@ def setup_harn(cmdline=True, **kw):
         except Exception:
             pass
 
-    # Load ndsampler.CocoDataset objects from info in the config
+    # Load kwcoco.CocoDataset objects from info in the config
     subsets = coerce_data.coerce_datasets(config)
     coco_datasets = subsets
 

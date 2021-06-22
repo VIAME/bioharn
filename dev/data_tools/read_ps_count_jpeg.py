@@ -153,8 +153,8 @@ def make_correspondence():
             catnames.add(ann['category_name'])
     catnames = list(catnames)
 
-    import ndsampler
-    dset = ndsampler.CocoDataset(img_root=dpath)
+    import kwcoco
+    dset = kwcoco.CocoDataset(img_root=dpath)
     for name in catnames:
         dset.add_category(name)
 
@@ -243,8 +243,8 @@ def hack_extract_all():
             catnames.add(ann['category_name'])
     catnames = list(catnames)
 
-    import ndsampler
-    dset = ndsampler.CocoDataset(img_root=dpath)
+    import kwcoco
+    dset = kwcoco.CocoDataset(img_root=dpath)
     for name in catnames:
         dset.add_category(name)
 
