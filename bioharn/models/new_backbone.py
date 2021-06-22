@@ -9,19 +9,25 @@ Ignore:
     closer._lazy_close()
     print(closer.current_sourcecode())
 """
-from mmdet.models.backbones.resnet import BasicBlock
-from mmdet.models.backbones.resnet import Bottleneck
-from torch.nn.modules.batchnorm import _BatchNorm
-from mmcv import cnn as mm_cnn
-# from mmcv.cnn import build_conv_layer
-# from mmcv.cnn import build_norm_layer
-# from mmcv.cnn import constant_init
-# from mmcv.cnn import kaiming_init
-from mmdet.utils import get_root_logger
-from mmcv.runner import load_checkpoint
-import torch.nn as nn
 
+from torch.nn.modules.batchnorm import _BatchNorm
+import torch.nn as nn
 import netharn as nh
+
+try:
+    from mmdet.models.backbones.resnet import BasicBlock
+    from mmdet.models.backbones.resnet import Bottleneck
+    from mmcv import cnn as mm_cnn
+    # from mmcv.cnn import build_conv_layer
+    # from mmcv.cnn import build_norm_layer
+    # from mmcv.cnn import constant_init
+    # from mmcv.cnn import kaiming_init
+    from mmdet.utils import get_root_logger
+    from mmcv.runner import load_checkpoint
+except Exception as ex:
+    print('ex = {!r}'.format(ex))
+    BasicBlock = object
+    Bottleneck = object
 
 
 class HRModule(nn.Module):

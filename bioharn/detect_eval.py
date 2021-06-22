@@ -423,7 +423,7 @@ class DetectEvaluator(object):
             else:
                 model_tag = nice + '_' + ub.augpath(deployed.path, dpath='', ext='', multidot=True)
 
-        def removesuffix(self: str, suffix: str, /) -> str:
+        def removesuffix(self, suffix):
             """ 3.9 backport https://www.python.org/dev/peps/pep-0616/ """
             if suffix and self.endswith(suffix):
                 return self[:-len(suffix)]

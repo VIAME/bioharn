@@ -9,12 +9,16 @@ Ignore:
     closer._lazy_close()
     print(closer.current_sourcecode())
 """
-from mmcv.cnn import ConvModule
 import torch.nn.functional as F
-from mmcv.cnn import caffe2_xavier_init
 from torch.utils.checkpoint import checkpoint
 import torch.nn as nn
 import torch
+
+try:
+    from mmcv.cnn import caffe2_xavier_init
+    from mmcv.cnn import ConvModule
+except Exception as ex:
+    print('ex = {!r}'.format(ex))
 
 
 class HRFPN_V2(nn.Module):

@@ -33,37 +33,46 @@ from abc import ABCMeta
 import torch.nn.functional as F
 from torch.nn.modules.utils import _pair
 from abc import abstractmethod
-from mmdet.models.losses import accuracy
-from mmcv.runner import auto_fp16
-from mmdet.core import bbox2result
-from mmdet.core import bbox2roi
-from mmdet.core import bbox_mapping
-from mmdet.core import build_assigner
-from mmdet.core import build_bbox_coder
-from mmdet.models.builder import build_head
-from mmdet.models.builder import build_loss
-from mmdet.models.builder import build_roi_extractor
-from mmdet.core import build_sampler
-from mmdet.models.builder import build_shared_head
-from mmdet.utils.contextmanagers import completed
-from mmcv.runner import force_fp32
-from mmdet.core import merge_aug_bboxes
-from mmdet.core import merge_aug_masks
-from mmdet.core import multi_apply
-# from mmdet.core import multiclass_nms
 import torch.nn as nn
 import sys
 import torch
-from mmcv.cnn import ConvModule
-
-from mmcv.ops.carafe import CARAFEPack
-from mmcv.cnn import Conv2d
-from mmcv.cnn import build_upsample_layer
-from mmdet.core import mask_target
 import numpy as np
-from mmcv.ops.nms import batched_nms
-
 import kwcoco
+
+def _mock_callable_decor(*args, **kw):
+    def _mock_decor(func):
+        return func
+    return _mock_decor
+
+try:
+    from mmdet.models.losses import accuracy
+    from mmcv.runner import auto_fp16
+    from mmdet.core import bbox2result
+    from mmdet.core import bbox2roi
+    from mmdet.core import bbox_mapping
+    from mmdet.core import build_assigner
+    from mmdet.core import build_bbox_coder
+    from mmdet.models.builder import build_head
+    from mmdet.models.builder import build_loss
+    from mmdet.models.builder import build_roi_extractor
+    from mmdet.core import build_sampler
+    from mmdet.models.builder import build_shared_head
+    from mmdet.utils.contextmanagers import completed
+    from mmcv.runner import force_fp32
+    from mmdet.core import merge_aug_bboxes
+    from mmdet.core import merge_aug_masks
+    from mmdet.core import multi_apply
+    # from mmdet.core import multiclass_nms
+    from mmcv.cnn import ConvModule
+    from mmcv.ops.carafe import CARAFEPack
+    from mmcv.cnn import Conv2d
+    from mmcv.cnn import build_upsample_layer
+    from mmdet.core import mask_target
+    from mmcv.ops.nms import batched_nms
+except Exception as ex:
+    auto_fp16 = _mock_callable_decor
+    force_fp32 = _mock_callable_decor
+    print('ex = {!r}'.format(ex))
 
 
 GPU_MEM_LIMIT = (1024 ** 3)
@@ -371,6 +380,7 @@ class BBoxHead(nn.Module):
             list[Tensor]: Refined bboxes of each image in a mini-batch.
 
         Example:
+            >>> # xdoctest: +REQUIRES(module:mmdet)
             >>> # xdoctest: +REQUIRES(module:kwarray)
             >>> import kwarray
             >>> import numpy as np

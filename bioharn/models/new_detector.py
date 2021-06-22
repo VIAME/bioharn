@@ -15,17 +15,21 @@ print(closer.current_sourcecode())
 from abc import ABCMeta
 from collections import OrderedDict
 from abc import abstractmethod
-from mmcv.runner import auto_fp16  # NOQA
-from mmdet.models.builder import build_backbone
-from mmdet.models.builder import build_head
-from mmdet.models.builder import build_neck
 import torch.distributed as dist
-from mmdet.utils import get_root_logger
-import mmcv
 import torch.nn as nn
 import numpy as np
-from mmcv.utils import print_log
 import torch
+
+try:
+    from mmcv.runner import auto_fp16  # NOQA
+    from mmdet.models.builder import build_backbone
+    from mmdet.models.builder import build_head
+    from mmdet.models.builder import build_neck
+    from mmdet.utils import get_root_logger
+    from mmcv.utils import print_log
+    import mmcv
+except Exception as ex:
+    print('ex = {!r}'.format(ex))
 
 
 class BaseDetector_V2(nn.Module, metaclass=ABCMeta):

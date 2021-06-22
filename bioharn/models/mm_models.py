@@ -78,14 +78,14 @@ def _hack_mmdet_masks(gt_masks):
         >>> bitmask_container = _hack_mmdet_masks(gt_masks)
         >>> gt_masks = batch['label']['class_masks'].data[0]
         >>> bitmask_single = _hack_mmdet_masks(gt_masks)
-
+        >>> #
         >>> channels = 3
         >>> batch = _demo_batch(bsize=4, with_mask='polygon', channels=channels)
         >>> gt_masks = batch['label']['class_masks']
         >>> poly_container = _hack_mmdet_masks(gt_masks)
         >>> gt_masks = batch['label']['class_masks'].data[0]
         >>> poly_single = _hack_mmdet_masks(gt_masks)
-
+        >>> #
         >>> print('\nbitmask_single = {!r}'.format(bitmask_single))
         >>> print('\npoly_single = {!r}'.format(poly_single))
         >>> print('\nbitmask_container = {!r}'.format(bitmask_container))
@@ -1088,6 +1088,7 @@ class MM_MaskRCNN(MM_Detector):
         >>> mask.draw()
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> from bioharn.models.mm_models import *  # NOQA
         >>> import torch
         >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']

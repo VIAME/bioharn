@@ -36,10 +36,19 @@ Ignore:
 import ubelt as ub
 import warnings  # NOQA
 from netharn.data.channel_spec import ChannelSpec
-# from mmdet.models.detectors.base import BaseDetector
-from mmdet.models.builder import build_backbone
-# from mmdet.models.builder import build_head
-# from mmdet.models.builder import build_neck
+
+try:
+    import mmdet
+    import mmcv
+except Exception:
+    mmdet = None
+    mmcv = None
+else:
+    # from mmdet.models.detectors.base import BaseDetector
+    from mmdet.models.builder import build_backbone
+    # from mmdet.models.builder import build_head
+    # from mmdet.models.builder import build_neck
+
 import torch.nn as nn
 import torch
 
@@ -50,7 +59,6 @@ from bioharn.models.new_head import StandardRoIHead_V2
 from bioharn.models.new_head import FCNMaskHead_V2
 from bioharn.models.new_detector import MaskRCNN_V2
 
-import mmcv
 import kwcoco
 import netharn as nh
 from collections import OrderedDict
@@ -167,7 +175,7 @@ def monkeypatch_build_norm_layer():
     # new_backbone.build_norm_layer = build_norm_layer_hack
 
 MMCV_MONKEY_PATCH = 1
-if MMCV_MONKEY_PATCH:
+if MMCV_MONKEY_PATCH and mmdet is not None:
     monkeypatch_build_norm_layer()
 
 
