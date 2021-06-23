@@ -175,7 +175,7 @@ def monkeypatch_build_norm_layer():
     # new_backbone.build_norm_layer = build_norm_layer_hack
 
 MMCV_MONKEY_PATCH = 1
-if MMCV_MONKEY_PATCH and mmdet is not None:
+if MMCV_MONKEY_PATCH and mmcv is not None and mmdet is not None:
     monkeypatch_build_norm_layer()
 
 
