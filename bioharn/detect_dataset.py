@@ -838,6 +838,7 @@ def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
 
     Example:
         >>> # xdoctest: +REQUIRES(module:gdal)
+        >>> from bioharn.detect_dataset import *  # NOQA
         >>> import ndsampler
         >>> from netharn.data.channel_spec import ChannelSpec
         >>> want_aux = ChannelSpec.coerce('disparity,flowx|flowy').unique()
@@ -871,11 +872,12 @@ def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
 
         aux_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
         data_dims = aux_frame.shape[0:2]
-        data_slice, extra_padding, st_dims = sampler._rectify_tr(
-            tr, data_dims, window_dims=None, pad=pad)
 
-        # data_slice, extra_padding = kwarray.embed_slice(
-        #     requested_slice, data_dims, pad)
+        tr = sampler._infer_target_attributes(tr)
+        data_slice, extra_padding = kwarray.embed_slice(
+            tr['space_slice'], data_dims=data_dims, pad=pad)
+        # data_slice, extra_padding, st_dims = sampler._rectify_tr(
+        #     tr, data_dims, window_dims=None, pad=pad)
 
         if part != key:
             # disk input is prefused, need to separate it out
