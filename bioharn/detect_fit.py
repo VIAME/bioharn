@@ -27,6 +27,7 @@ class DetectFitConfig(scfg.Config):
 
         # System Options
         'workdir': scfg.Path('~/work/bioharn', help='path where this script can dump stuff'),
+        'sampler_workdir': scfg.Path(None, help='workdir for data caches'),
         'workers': scfg.Value(0, help='number of DataLoader processes'),
         'xpu': scfg.Value('argv', help='a CUDA device or a CPU'),
 
@@ -36,7 +37,9 @@ class DetectFitConfig(scfg.Config):
         'vali_dataset': scfg.Value(None, help='override vali with a custom coco dataset'),
         'test_dataset': scfg.Value(None, help='override test with a custom coco dataset'),
 
-        'sampler_backend': scfg.Value('auto', help='backend for ndsampler'),
+        'sql_cache_view': scfg.Value(False, help='if True json-based COCO datasets are cached as SQL views'),
+
+        'sampler_backend': scfg.Value(None, help='backend for ndsampler'),
 
         # Dataset options
         'multiscale': False,
@@ -67,7 +70,8 @@ class DetectFitConfig(scfg.Config):
             If 'imagenet' use standard mean/std values (default).
             ''')),
         # 'augment': scfg.Value('simple', help='key indicating augmentation strategy', choices=['medium', 'simple']),
-        'augment': scfg.Value('medium', help='key indicating augmentation strategy', choices=['medium', 'low', 'simple', 'complex', None]),
+        'augment': scfg.Value('medium', help='key indicating augmentation strategy',
+                              choices=['medium', 'low', 'simple', 'complex', 'no_hue', None]),
         'gravity': scfg.Value(0.0, help='how often to assume gravity vector for augmentation'),
         'balance': scfg.Value(None),
 
@@ -82,6 +86,7 @@ class DetectFitConfig(scfg.Config):
         ),
 
         'with_mask': scfg.Value(True, help='enables / disables mask heads for mask-detection models'),
+        'fuse_method': scfg.Value('cat', help='either sum or cat, for late fusion models'),
 
         'optim': scfg.Value('sgd', help='torch optimizer, sgd, adam, adamw, etc...'),
         'batch_size': scfg.Value(4, help='number of images that run through the network at a time'),
@@ -94,8 +99,8 @@ class DetectFitConfig(scfg.Config):
         'decay': scfg.Value(1e-4, help='weight decay'),
 
         'schedule': scfg.Value('Exponential-g0.98-s1', help='learning rate / momentum scheduler'),
-        'max_epoch': scfg.Value(50, help='Maximum number of epochs'),
-        'patience': scfg.Value(10, help='Maximum number of bad epochs on validation before stopping'),
+        'max_epoch': scfg.Value(100, help='Maximum number of epochs'),
+        'patience': scfg.Value(40, help='Maximum number of bad epochs on validation before stopping'),
         'min_lr': scfg.Value(1e-9, help='minimum learning rate before termination'),
 
         # Initialization
@@ -123,6 +128,18 @@ class DetectFitConfig(scfg.Config):
 
         'classes_of_interest': scfg.Value([], help='if specified only these classes are given weight'),
 
+        'segmentation_bootstrap': scfg.Value(None, help=ub.paragraph(
+            '''
+            Specify the method for bootstraping segmentations. If None uses
+            segmentations in the annotation. Otherwise the string specifies how
+            to coerce soft annotations. Under development. Methods might include:
+
+            boxes, grabcut, keypoints, ellipse, given.
+
+            methods can be combined with the + character.
+            '''
+        )),
+
         'collapse_classes': scfg.Value(False, help='force one-class detector'),
 
         'ensure_background_class': scfg.Value(False, help='ensure a background category exists'),
@@ -132,7 +149,7 @@ class DetectFitConfig(scfg.Config):
         'timeout': scfg.Value(
             float('inf'), help='maximum number of seconds to wait for training'),
 
-        'allow_unicode': scfg.Value(not ub.WIN32, help=(
+        'allow_unicode': scfg.Value(True, help=(
             'allow for unicode characters in messages, otherwise '
             ' we approximate them with ascii')),
 
@@ -173,6 +190,9 @@ class DetectFitConfig(scfg.Config):
         elif key == 'lightnet':
             from bioharn.models.yolo2 import yolo2
             self['pretrained'] = yolo2.demo_voc_weights()
+
+        if self['sampler_workdir'] is None:
+            self['sampler_workdir'] = self['workdir']
 
         if self['pretrained'] is not None:
             self['init'] = 'pretrained'
@@ -605,8 +625,6 @@ class DetectHarn(nh.FitHarn):
                 canvas = true_dets.draw_on(canvas, color='green')
                 canvas = pred_dets.draw_on(canvas, color='blue')
             except Exception as ex:
-                import xdev
-                xdev.embed()
                 harn.warn('In draw_batch ex = {!r}'.format(ex))
                 canvas = kwimage.draw_text_on_image(
                     canvas, 'drawing-error', org=(0, 0), valign='top')
@@ -677,7 +695,9 @@ class DetectHarn(nh.FitHarn):
 
         """
         from bioharn import detect_eval
-
+        # TODO: FIX
+        # AttributeError: 'CocoSqlDatabase' object has no attribute 'fpath'
+        # In SQL MODE
         if harn.script_config['test_on_finish']:
             eval_dataset = harn.datasets.get('test', None)
             if eval_dataset is None:
@@ -744,6 +764,7 @@ def setup_harn(cmdline=True, **kw):
 
     nh.configure_hacks(config)  # fix opencv bugs
     ub.ensuredir(config['workdir'])
+    ub.ensuredir(config['sampler_workdir'])
 
     if False:
         # Hack to fix: https://github.com/pytorch/pytorch/issues/973
@@ -756,22 +777,40 @@ def setup_harn(cmdline=True, **kw):
         except Exception:
             pass
 
-    # Load ndsampler.CocoDataset objects from info in the config
+    # Load kwcoco.CocoDataset objects from info in the config
     subsets = coerce_data.coerce_datasets(config)
+    coco_datasets = subsets
+
+    print('coco_datasets = {}'.format(ub.repr2(coco_datasets, nl=1)))
+    for tag, dset in coco_datasets.items():
+        dset._build_hashid(hash_pixels=False)
+
+    if config['sql_cache_view']:
+        from kwcoco.coco_sql_dataset import ensure_sql_coco_view
+        for tag, dset in list(coco_datasets.items()):
+            sql_dset = ensure_sql_coco_view(dset)
+            sql_dset.hashid = dset.hashid + '-hack-sql'
+            print('sql_dset.uri = {!r}'.format(sql_dset.uri))
+            coco_datasets[tag] = sql_dset
+    subsets = coco_datasets
 
     classes = subsets['train'].object_categories()
-    for k, subset in subsets.items():
-        # TODO: better handling
-        special_catnames = ['negative',
-                            # 'ignore',
-                            'test']
-        for k in special_catnames:
-            try:
-                subset.remove_categories([k], keep_annots=False, verbose=1)
-            except KeyError:
-                pass
+
+    if 0:
+        for k, subset in subsets.items():
+            # TODO: better handling
+            special_catnames = ['negative',
+                                # 'ignore',
+                                'test']
+            for k in special_catnames:
+                try:
+                    subset.remove_categories([k], keep_annots=False, verbose=1)
+                except KeyError:
+                    pass
 
     if config['collapse_classes']:
+        # DEPRECATE.
+        # USE KWCOCO PREPROCESSING INSTEAD
         print('Collapsing all category labels')
         import six
         if isinstance(config['collapse_classes'], six.string_types):
@@ -784,14 +823,53 @@ def setup_harn(cmdline=True, **kw):
                       if c['name'] != 'background'}
             subset.rename_categories(mapper)
 
-    classes = subsets['train'].object_categories()
-    if config['ensure_background_class']:
-        # HACK: ENSURE BACKGROUND IS CLASS IDX 0 for mmdet 1.x
-        print('classes = {!r}'.format(classes))
-        if 'background' not in classes:
-            for k, subset in subsets.items():
-                # mmdet 1.x wants id=0, but 2.x wants id=len(classes)
-                subset.add_category('background', id=0)
+    def catid_compat_mapping(classes1, classes2):
+        """
+        If the train / validation datasets have the same class names
+        but different class ids / idxs, we need to make a cat_mapping.
+        """
+        def _normalize_name(name):
+            return name.lower().replace(' ', '_')
+
+        norm_to_names1 = ub.group_items(classes1, _normalize_name)
+        norm_to_names2 = ub.group_items(classes2, _normalize_name)
+        assert max(map(len, norm_to_names1.values())) == 1
+        assert max(map(len, norm_to_names2.values())) == 1
+        norm_to_name1 = ub.map_vals(lambda x: x[0], norm_to_names1)
+        norm_to_name2 = ub.map_vals(lambda x: x[0], norm_to_names2)
+
+        unreg = set(norm_to_name2) - set(norm_to_name1)
+        if len(unreg):
+            print('classes1 = {!r}'.format(norm_to_name2))
+            print('classes2 = {!r}'.format(norm_to_name1))
+            raise Exception('Vali/Test has categories not registered in train: {}'.format(unreg))
+
+        cat_mapping = {
+            'target': classes1,
+            'node': {},
+            'idx': {},
+            'id': {},
+        }
+        for node2, id2 in classes2.node_to_id.items():
+            norm2 = _normalize_name(node2)
+            node1 = norm_to_name1[norm2]
+            id1 = classes1.node_to_id[node1]
+            idx1 = classes1.id_to_idx[id1]
+            idx2 = classes2.node_to_idx[node2]
+            cat_mapping['id'][id2] = id1
+            cat_mapping['idx'][idx2] = idx1
+            cat_mapping['node'][node2] = node1
+        return cat_mapping
+
+    compat_mappings = {}
+    for tag, subset in ub.dict_diff(coco_datasets, {'train'}).items():
+        other_cats = subset.object_categories()
+        classes1 = classes
+        classes2 = other_cats
+        cat_mapping = catid_compat_mapping(classes1, classes2)
+        compat_mappings[tag] = cat_mapping
+
+    print('compat_mappings = {}'.format(ub.repr2(compat_mappings, nl=1)))
 
     classes = subsets['train'].object_categories()
     print('classes = {!r}'.format(classes))
@@ -799,7 +877,7 @@ def setup_harn(cmdline=True, **kw):
     samplers = {}
     for tag, subset in subsets.items():
         print('subset = {!r}'.format(subset))
-        sampler = ndsampler.CocoSampler(subset, workdir=config['workdir'],
+        sampler = ndsampler.CocoSampler(subset, workdir=config['sampler_workdir'],
                                         backend=config['sampler_backend'])
 
         sampler.frames.prepare(workers=config['workers'])
@@ -818,6 +896,8 @@ def setup_harn(cmdline=True, **kw):
             augment=config['augment'] if (tag == 'train') else False,
             gravity=config['gravity'],
             channels=config['channels'],
+            cat_mapping=compat_mappings.get(tag, None),
+            segmentation_bootstrap=config['segmentation_bootstrap'],
         )
         for tag, sampler in samplers.items()
     }
@@ -912,7 +992,7 @@ def setup_harn(cmdline=True, **kw):
     print('input_stats = {!r}'.format(input_stats))
 
     initializer_ = nh.Initializer.coerce(
-        config, leftover='kaiming_normal', association='embedding')
+        config, leftover='kaiming_normal', association='isomorphism')
     print('initializer_ = {!r}'.format(initializer_))
 
     arch = config['arch']
@@ -948,6 +1028,8 @@ def setup_harn(cmdline=True, **kw):
             channels=config['channels'],
             input_stats=input_stats,
             with_mask=config['with_mask'],
+            fuse_method=config['fuse_method'],
+            hack_shrink=True,
         )
         model = new_models_v1.MM_HRNetV2_w18_MaskRCNN(**initkw)
         model._initkw = initkw
@@ -1190,18 +1272,24 @@ if __name__ == '__main__':
             --num_batches=10 \
             --max_epoch=10
 
+        kwcoco toydata shapes256
+        kwcoco toydata shapes32
+
+        TRAIN_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_256_dqikwsaiwlzjup/data.kwcoco.json"
+        VALI_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_32_kahspdeebbfocp/data.kwcoco.json"
+
         python -m bioharn.detect_fit \
-            --name=bioharn_shapes_example3 \
-            --train_dataset=vidshapes32-aux \
-            --vali_dataset=vidshapes8-aux \
+            --name=bioharn_shapes_example4 \
+            --train_dataset=$TRAIN_DSET \
+            --vali_dataset=$VALI_DSET \
             --augment=simple \
-            "--channels=rgb|disparity" \
+            "--channels=rgb" \
             --init=noop \
-            --arch=efficientdet \
+            --arch=MM_HRNetV2_w18_MaskRCNN \
             --optim=sgd --lr=1e-8 \
             --schedule=ReduceLROnPlateau-p10-c10 \
             --patience=100 \
-            --input_dims=256,256 \
+            --input_dims=224,224 \
             --window_dims=512,512 \
             --window_overlap=0.0 \
             --normalize_inputs=True \
@@ -1209,21 +1297,14 @@ if __name__ == '__main__':
             --sampler_backend=cog \
             --test_on_finish=True \
             --num_batches=10 \
+            --sql_cache_view=True \
             --max_epoch=10
     """
-    if 0:
-        def make_warnings_print_tracebacks():
-            import warnings
-            import traceback
-            _orig_formatwarning = warnings.formatwarning
-            warnings._orig_formatwarning = _orig_formatwarning
-            def _monkeypatch_formatwarning_tb(*args, **kwargs):
-                s = _orig_formatwarning(*args, **kwargs)
-                if len(s.strip()):
-                    tb = traceback.format_stack()
-                    s += ''.join(tb[:-1])
-                return s
-            warnings.formatwarning = _monkeypatch_formatwarning_tb
+    # Ideally this would be done beforehand by another program
+    import matplotlib
+    matplotlib.use('Agg')
 
-        make_warnings_print_tracebacks()
+    if 0:
+        import xdev
+        xdev.make_warnings_print_tracebacks()
     fit()

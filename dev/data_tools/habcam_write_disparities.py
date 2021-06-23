@@ -6,14 +6,14 @@ import ubelt as ub
 
 
 def main():
-    import ndsampler
+    import kwcoco
     from ndsampler.utils import util_futures
 
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_train.mscoco.json'))
+    dset = kwcoco.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_train.mscoco.json'))
 
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json'))
+    dset = kwcoco.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_test.mscoco.json'))
 
-    dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_vali.mscoco.json'))
+    dset = kwcoco.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v3_vali.mscoco.json'))
 
     jobs = util_futures.JobPool(mode='thread', max_workers=0)
 

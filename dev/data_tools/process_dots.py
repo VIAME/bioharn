@@ -415,7 +415,8 @@ def gather_raw_biologist_data():
     good_rows = _build_dot_original_fpath_association()
 
     import ndsampler
-    dset = ndsampler.CocoDataset()
+    imoprt kwcoco
+    dset = kwcoco.CocoDataset()
 
     from ndsampler import util_futures
 
@@ -451,7 +452,7 @@ def gather_raw_biologist_data():
 
             gid = dset.add_image(file_name=orig_fpath)
 
-            single_dset = ndsampler.CocoDataset()
+            single_dset = kwcoco.CocoDataset()
             gid = single_dset.add_image(**dset.imgs[gid])
             for x, y, c in zip(xs, ys, colors):
                 bbox = kwimage.Boxes([[x, y, 10, 10]], 'cxywh').to_xywh().data[0].tolist()
@@ -499,7 +500,7 @@ def _dev_verify():
     dpath = '/home/joncrall/data/raid/noaa/sealions/BLACKEDOUT/extracted/coco-wip'
     fpaths = sorted(glob.glob(join(dpath, '*.json')))
     for fpath in xdev.InteractiveIter(fpaths):
-        dset = ndsampler.CocoDataset(fpath)
+        dset = kwcoco.CocoDataset(fpath)
         gid = ub.peek(dset.imgs)
         dset.show_image(gid)
         xdev.InteractiveIter.draw()
@@ -693,17 +694,17 @@ def _prepare_master_coco():
     # Load all the single-image jpeg-dot processed coco files
     datasets = []
     for fpath in ub.ProgIter(fpaths):
-        dset = ndsampler.CocoDataset(fpath)
+        dset = kwcoco.CocoDataset(fpath)
         datasets.append(dset)
     # Merge the jpeg-dot coco files into a single coco file
-    merged_dots = ndsampler.CocoDataset.union(*datasets)
+    merged_dots = kwcoco.CocoDataset.union(*datasets)
 
     # POSTPROCESS THE JPEG DOT COCO FILES. FIX BBOX SIZES AND CATEGORIES
     _postprocess_merged_dot_coco(merged_dots)
 
     # Load the photoshop-processed annotations
     fpath = '/home/joncrall/data/noaa/sealions/sealions_photoshop_annots_v1.mscoco.json'
-    ps_dset = ndsampler.CocoDataset(fpath)
+    ps_dset = kwcoco.CocoDataset(fpath)
     ps_img_root = '/home/joncrall/data/noaa/sealions/BLACKEDOUT/extracted'
 
     real_img_root = '/home/joncrall/data/noaa/sealions'
@@ -711,7 +712,7 @@ def _prepare_master_coco():
         gpath = join(ps_img_root, img['file_name'])
         img['file_name'] = gpath
 
-    merged = ndsampler.CocoDataset.union(merged_dots, ps_dset)
+    merged = kwcoco.CocoDataset.union(merged_dots, ps_dset)
 
     for img in merged.imgs.values():
         dpath = dirname(img['file_name'])

@@ -4,6 +4,9 @@ Tested against mmdet 1.0 on sha 4c94f10d0ebb566701fb5319f5da6808df0ebf6a
 
 Notes:
     https://github.com/open-mmlab/mmdetection/blob/master/docs/MODEL_ZOO.md
+
+SeeAlso:
+    ~/code/bioharn/dev/misc/autogen_mm_models.py
 """
 import numpy as np
 import ubelt as ub
@@ -13,123 +16,9 @@ import kwimage
 import kwarray
 from collections import OrderedDict
 import warnings  # NOQA
-from netharn.data.channel_spec import ChannelSpec
+from netharn.data.channel_spec import ChannelSpec  # TODO: kwcoco.ChannelSpec
 from netharn.data import data_containers
-
-
-def _autogen_class_from_mm_config(fpath):
-    """
-    Autogen code corresonding to a mmdetection config.
-
-    cd $HOME/code/mmdetection/configs
-    find . -iname "*mask*"
-    find . -iname "*mask*" | grep -i fcos
-    find . -iname "*mask*" | grep -i cascade
-    find . -iname "*mask*" | grep -i hrnet
-    find . -iname "*mask*" | grep -i hrnet
-
-    fpath = ub.expandpath('$HOME/code/mmdetection/configs/hrnet/cascade_mask_rcnn_hrnetv2p_w18_20e_coco.py')
-    fpath = ub.expandpath('$HOME/code/mmdetection/configs/hrnet/mask_rcnn_hrnetv2p_w18_1x_coco.py')
-    _autogen_class_from_mm_config(fpath)
-    """
-    from mmcv import Config
-    from os.path import dirname, exists, join
-    mm_config = Config.fromfile(fpath)
-
-    def _get_config_directory():
-        """Find the predefined detector config directory."""
-        try:
-            # Assume we are running in the source mmdetection repo
-            repo_dpath = dirname(dirname(dirname(__file__)))
-        except NameError:
-            # For IPython development when this __file__ is not defined
-            import mmdet
-            repo_dpath = dirname(dirname(mmdet.__file__))
-        config_dpath = join(repo_dpath, 'configs')
-        if not exists(config_dpath):
-            raise Exception('Cannot find config path')
-        return config_dpath
-
-    from kwcoco.util.util_json import IndexableWalker
-    mm_model = mm_config['model'].to_dict()
-    train_cfg = mm_config['train_cfg'].to_dict()
-    test_cfg = mm_config['test_cfg'].to_dict()
-
-    mm_cfg = {
-        'model': mm_model,
-        'train_cfg': train_cfg,
-        'test_cfg': test_cfg,
-    }
-
-    class ForwardReprRef(object):
-        """
-        Helper for ensuring text representation can contain forward
-        references to variables that will be defined in the context of
-        the template init
-        """
-        def __init__(self, value):
-            self.value = value
-        def __repr__(self):
-            return str(self.value)
-        def __str__(self):
-            return str(self.value)
-
-    walker = IndexableWalker(mm_cfg)
-    pretrained_url = None
-    for path, value in walker:
-        if path[-1] == 'pretrained':
-            pretrained_url = value
-            walker[path] = None
-        if isinstance(value, dict) and 'type' in value:
-            if value['type'] == 'HRNet':
-                value['in_channels'] = ForwardReprRef('in_channels')
-        if path[-1] == 'num_classes':
-            walker[path] = ForwardReprRef('len(classes)')
-
-    mm_cfg_text = 'mm_cfg = mmcv.Config(' + ub.repr2(mm_cfg, nl=-1) + ')'
-
-    template = ub.codeblock(
-        '''
-        class {classname}(MM_Detector):
-            """
-            Example:
-                >>> # xdoctest: +REQUIRES(module:mmdet)
-                >>> # xdoctest: +REQUIRES(--cuda)
-                >>> self = {classname}(classes=3)
-                >>> print(nh.util.number_of_parameters(self))
-                >>> self.to(0)
-                >>> batch = self.demo_batch()
-                >>> outputs = self.forward(batch)
-                >>> batch_dets = self.coder.decode_batch(outputs)
-            """
-            pretrained_url = {pretrained_url!r}
-
-            def __init__(self, classes=None, input_stats=None, channels='rgb'):
-                import mmcv
-                import kwcoco
-                classes = kwcoco.CategoryTree.coerce(classes)
-                channels = ChannelSpec.coerce(channels)
-                chann_norm = channels.normalize()
-                assert len(chann_norm) == 1
-                in_channels = len(ub.peek(chann_norm.values()))
-
-        {mm_cfg_def}
-
-                super().__init__(
-                        mm_cfg['model'], train_cfg=mm_cfg['train_cfg'],
-                        test_cfg=mm_cfg['test_cfg'],
-                        classes=classes, input_stats=input_stats,
-                        channels=channels)
-        ''')
-
-    fmtkw = {
-        'classname': 'MM_{}_{}'.format(mm_model['backbone']['type'], mm_model['type']),
-        'mm_cfg_def': ub.indent(mm_cfg_text, ' ' * 8),
-        'pretrained_url': pretrained_url,
-    }
-
-    text = template.format(**fmtkw)
-    print(text)
+from distutils.version import LooseVersion
 
 
 def _hack_mm_backbone_in_channels(backbone_cfg):
@@ -177,10 +66,77 @@ def _ensure_unwrapped_and_mounted(mm_inputs, xpu):
     return mm_inputs
 
 
+def _hack_mmdet_masks(gt_masks):
+    r"""
+    Convert masks into a mmdet compliant format
+
+    Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
+        >>> channels = 3
+        >>> batch = _demo_batch(bsize=4, with_mask='bitmap', channels=channels)
+        >>> gt_masks = batch['label']['class_masks']
+        >>> bitmask_container = _hack_mmdet_masks(gt_masks)
+        >>> gt_masks = batch['label']['class_masks'].data[0]
+        >>> bitmask_single = _hack_mmdet_masks(gt_masks)
+        >>> #
+        >>> channels = 3
+        >>> batch = _demo_batch(bsize=4, with_mask='polygon', channels=channels)
+        >>> gt_masks = batch['label']['class_masks']
+        >>> poly_container = _hack_mmdet_masks(gt_masks)
+        >>> gt_masks = batch['label']['class_masks'].data[0]
+        >>> poly_single = _hack_mmdet_masks(gt_masks)
+        >>> #
+        >>> print('\nbitmask_single = {!r}'.format(bitmask_single))
+        >>> print('\npoly_single = {!r}'.format(poly_single))
+        >>> print('\nbitmask_container = {!r}'.format(bitmask_container))
+        >>> print('\npoly_container = {!r}'.format(poly_container))
+
+    """
+    if isinstance(gt_masks, data_containers.BatchContainer):
+        # handle data containers as well
+        DC = type(gt_masks)
+        kw = gt_masks.meta
+        gt_masks_ = DC([_hack_mmdet_masks(d) for d in gt_masks.data], **kw)
+        return gt_masks_
+    else:
+        def _hack_hw(m):
+            w, h = 1, 1
+            for obj_poly in m:
+                flat_coords = list(ub.flatten(obj_poly))
+                xs = flat_coords[0::2]
+                ys = flat_coords[1::2]
+                w = max(w, max(xs))
+                h = max(h, max(ys))
+            w = int(np.ceil(w))
+            h = int(np.ceil(h))
+            return {'height': h, 'width': w}
+
+        if isinstance(gt_masks, list) and len(gt_masks) > 0:
+            if isinstance(gt_masks[0], list):
+                # Input is determined to be mmdet polygons
+                from mmdet.core.mask import PolygonMasks
+                poly_masks = [PolygonMasks(m, **_hack_hw(m)) for m in gt_masks]
+                return poly_masks
+            elif isinstance(gt_masks[0], (torch.Tensor, np.array)):
+                from mmdet.core.mask import BitmapMasks
+                # Input is determined to be mmdet bitmasks
+
+                numpy_masks = [kwarray.ArrayAPI.numpy(mask) for mask in gt_masks]
+                bitmap_masks = [
+                    BitmapMasks(m, height=m.shape[1], width=m.shape[2])
+                    for m in numpy_masks]
+                return bitmap_masks
+            else:
+                raise Exception('unknown case 1')
+        else:
+            raise Exception('unknown case 2')
+
+
 def _hack_numpy_gt_masks(gt_masks):
     # mmdet only allows numpy inputs
     from mmdet.core.mask import BitmapMasks
     numpy_masks = [kwarray.ArrayAPI.numpy(mask) for mask in gt_masks]
+
     bitmap_masks = [
         BitmapMasks(m, height=m.shape[1], width=m.shape[2])
         for m in numpy_masks]
@@ -209,6 +165,35 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
         >>> #
         >>> #batch = _demo_batch(bsize=4, with_mask=True, channels=channels, packed=True)
         >>> #mm_inputs = _batch_to_mm_inputs(batch)
+
+
+        >>> batch = _demo_batch(bsize=4, with_mask='bitmap', channels=channels)
+
+        gt_masks = batch['label']['class_masks'].data[0]
+
+        >>> batch = _demo_batch(bsize=4, with_mask='polygon', channels=channels)
+
+        gt_masks = batch['label']['class_masks'].data[0]
+
+        >>> mm_inputs = _batch_to_mm_inputs(batch)
+
+        from mmdet.core.mask import PolygonMasks
+        for ms in batch['label']['class_masks'].data:
+            for m in ms:
+                PolygonMasks(m, **_hack_hw(m))
+
+        DC
+        data_containers.BatchContainer(
+            [[PolygonMasks(m, **_hack_hw(m)) for m in ms] for ms in batch['label']['class_masks'].data],
+            stack=False
+        )
+
+        [0][0][0])
+
+    Ignore:
+        import xdev
+        globals().update(**xdev.get_func_kwargs(_demo_batch))
+        with_mask = 'polygon'
     """
     rng = kwarray.ensure_rng(0)
     if isinstance(bsize, list):
@@ -241,13 +226,36 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
 
         # Extract segmentations if they exist
         if with_mask:
+
+            if isinstance(with_mask, str):
+                if with_mask not in {'bitmap', 'polygon'}:
+                    raise KeyError(with_mask)
+
+            # Not supported by mmdet as of 2.9.0
+            USE_RELATIVE_MASKS = False
+            USE_POLYGON_MASKS = with_mask == 'polygon'
+
             has_mask_list = []
             class_mask_list = []
             for sseg in dets.data['segmentations']:
                 if sseg is not None:
-                    mask = sseg.to_mask(dims=(H, W))
-                    c_mask = mask.to_c_mask().data
-                    mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
+
+                    if USE_POLYGON_MASKS:
+                        # Coerce into polygons for mmdet
+                        pts = sseg.to_coco(style='orig')
+                        pts = [np.array(p) for p in pts]
+                        class_mask_list.append(pts)
+                        has_mask_list.append(1)
+                        continue
+                    elif USE_RELATIVE_MASKS:
+                        mask = sseg.to_relative_mask()
+                        c_mask = mask.to_c_mask().data
+                        mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
+                    else:
+                        mask = sseg.to_mask(dims=(H, W))
+                        c_mask = mask.to_c_mask().data
+                        mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
+
                     class_mask_list.append(mask_tensor[None, :])
                     has_mask_list.append(1)
                 else:
@@ -255,10 +263,15 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
                     has_mask_list.append(-1)
 
             has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
-            if len(class_mask_list) == 0:
-                class_masks = torch.empty((0, H, W), dtype=torch.uint8)
+            if USE_POLYGON_MASKS:
+                class_masks = class_mask_list
+            elif USE_RELATIVE_MASKS:
+                class_masks = class_mask_list
             else:
-                class_masks = torch.cat(class_mask_list, dim=0)
+                if len(class_mask_list) == 0:
+                    class_masks = torch.empty((0, H, W), dtype=torch.uint8)
+                else:
+                    class_masks = torch.cat(class_mask_list, dim=0)
         else:
             class_masks = None
 
@@ -270,8 +283,8 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
         }
 
         if with_mask:
-            label['class_masks'] = data_containers.ItemContainer(class_masks, stack=False)
-            label['has_mask'] = data_containers.ItemContainer(has_mask, stack=False)
+            label['class_masks'] = data_containers.ItemContainer(class_masks, stack=False, cpu_only=True)
+            label['has_mask'] = data_containers.ItemContainer(has_mask, stack=False, cpu_only=True)
 
         item = {
             'inputs': {
@@ -299,12 +312,19 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
 
 
 def _dummy_img_metas(B, H, W, C):
+    import mmdet
+    MMDET_GT_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
+    if MMDET_GT_2_12:
+        scale_factor = np.array([1., 1.0])
+    else:
+        scale_factor = 1.0
+
     img_metas = [{
         'img_shape': (H, W, C),
         'ori_shape': (H, W, C),
         'pad_shape': (H, W, C),
         'filename': '<memory>.png',
-        'scale_factor': 1.0,
+        'scale_factor': scale_factor,
         'flip': False,
     } for _ in range(B)]
     return img_metas
@@ -339,7 +359,21 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
         mm_inputs = _batch_to_mm_inputs(batch)
         mm_inputs = _batch_to_mm_inputs(batch.pack())
 
-        # Test the packed non-batch container style inputs
+        batch = _demo_batch(bsize=4, with_mask='polygon', channels=channels, packed=False)
+        mm_inputs = _batch_to_mm_inputs(batch)
+        z = mm_inputs['gt_masks']
+        z = z.to(0)
+
+        # Note: padded collate seems to not work in this case
+        from kwcoco.util.util_json import IndexableWalker
+        self = batch['label']['class_masks']
+        inbatch = list(ub.flatten(self.data))
+        walker = IndexableWalker(inbatch)
+        for path, val in walker:
+            if isinstance(val, np.ndarray):
+                walker[path] = torch.from_numpy(val)
+        from netharn.data.collate import padded_collate
+        packed = padded_collate(inbatch, fill_value=self.padding_value)
     """
     if isinstance(batch, torch.Tensor):
         # Absolute simplest case where the input is given as a
@@ -464,7 +498,7 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                     label['tlbr'].padding_value)
 
             if 'class_masks' in label:
-                mm_inputs['gt_masks'] = label['class_masks']
+                mm_inputs['gt_masks'] = _hack_mmdet_masks(label['class_masks'])
                 # .data
                 # [mask for mask in label['class_masks'].data]
 
@@ -521,7 +555,7 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                     mm_inputs['gt_bboxes'] = label['tlbr']
 
                 if 'class_masks' in label:
-                    mm_inputs['gt_masks'] = label['class_masks']
+                    mm_inputs['gt_masks'] = _hack_mmdet_masks(label['class_masks'])
 
                 if 0:
                     # TODO:
@@ -531,54 +565,6 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                         mm_inputs['gt_bboxes_ignore'] = gt_bboxes_ignore
             else:
                 raise NotImplementedError('use batch containers')
-                # Old padded way
-                gt_bboxes = []
-                gt_labels = []
-                gt_masks = []
-                batch_tlbr = None
-                batch_cxywh = None
-                batch_has_mask = None
-                batch_mask = None
-
-                batch_cidxs = label['class_idxs'].view(B, -1)
-                batch_flags = batch_cidxs > -1
-                if 'tlbr' in label:
-                    batch_tlbr = label['tlbr'].view(B, -1, 4)
-                if 'cxywh' in label:
-                    batch_cxywh = label['cxywh'].view(B, -1, 4)
-
-                if 'class_masks' in label:
-                    batch_has_mask = label['has_mask'].view(B, -1)
-                    batch_mask = label['class_masks'].view(B, -1, H, W)
-
-                if 'weight' in label:
-                    raise NotImplementedError
-
-                for bx in range(B):
-                    flags = batch_flags[bx]
-                    flags = flags.view(-1)
-                    if batch_tlbr is not None:
-                        gt_bboxes.append(batch_tlbr[bx][flags])
-                    if batch_cxywh is not None:
-                        assert len(gt_bboxes) == 0, 'already have boxes'
-                        _boxes = kwimage.Boxes(batch_cxywh[bx][flags], 'cxywh')
-                        gt_bboxes.append(_boxes.to_tlbr().data)
-                    if batch_has_mask is not None:
-                        mask_flags = (batch_has_mask[bx] > 0)
-                        _masks = batch_mask[bx][mask_flags]
-                        gt_masks.append(_masks)
-
-                    gt_labels.append(batch_cidxs[bx][flags].view(-1).long())
-                    # gt_bboxes_ignore = weight < 0.5
-                    # weight = label.get('weight', None)
-
-                mm_inputs.update({
-                    'gt_bboxes': gt_bboxes,
-                    'gt_labels': gt_labels,
-                    'gt_bboxes_ignore': None,
-                })
-                if gt_masks:
-                    mm_inputs['gt_masks'] = gt_masks
 
     return mm_inputs
 
@@ -631,6 +617,7 @@ class MM_Coder(object):
             >>> xpu = data_containers.ContainerXPU(0)
             >>> model = MM_MaskRCNN(classes, channels='rgb|d').to(xpu.main_device)
             >>> batch = model.demo_batch(bsize=1, h=256, w=256)
+            >>> mm_inputs = _batch_to_mm_inputs(batch)
             >>> outputs = model.forward(batch)
             >>> self = model.coder
             >>> batch_dets = model.coder.decode_batch(outputs)
@@ -655,7 +642,6 @@ class MM_Coder(object):
             elif isinstance(result, list):
                 # Hack for mmdet 2.4+ (not sure exactly what format change is
                 # so this may need to be reworked)
-                from distutils.version import LooseVersion
                 import mmdet
                 if LooseVersion(mmdet.__version__) >= LooseVersion('2.4.0'):
 
@@ -719,14 +705,17 @@ class MM_Detector(nh.layers.Module):
     """
     """
     _mmdet_is_version_1x = False  # needed to prevent autoconvert
+    __bioharn_model_vesion__ = 3  # needed to prevent autoconvert
     __BUILTIN_CRITERION__ = True
 
     def __init__(self, mm_model, train_cfg=None, test_cfg=None,
                  classes=None, input_stats=None, channels=None):
         super(MM_Detector, self).__init__()
         import mmcv
+        import mmdet
         from mmdet.models import build_detector
         import kwcoco
+        from distutils.version import LooseVersion
 
         if input_stats is None:
             input_stats = {}
@@ -741,7 +730,11 @@ class MM_Detector(nh.layers.Module):
         if len(input_stats):
             if chan_keys != list(input_stats.keys()):
                 # Backwards compat for older pre-fusion input stats method
-                assert 'mean' in input_stats or 'std' in input_stats
+                if 'mean' not in input_stats and 'std' not in input_stats:
+                    raise AssertionError(
+                        'input_stats = {!r}, self.channels={!r}'.format(
+                            input_stats, self.channels)
+                    )
                 input_stats = {
                     chan_keys[0]: input_stats,
                 }
@@ -759,8 +752,20 @@ class MM_Detector(nh.layers.Module):
         if test_cfg is not None:
             test_cfg = mmcv.utils.config.ConfigDict(test_cfg)
 
+        MMDET_GT_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
+
+        if MMDET_GT_2_12:
+            # mmdet v2.12.0 introduced new registry stuff that forces use of
+            # config dictionaries
+            mm_model = mmcv.ConfigDict(mm_model)
+            train_cfg = mmcv.ConfigDict(train_cfg)
+            test_cfg = mmcv.ConfigDict(test_cfg)
+
         self.detector = build_detector(
             mm_model, train_cfg=train_cfg, test_cfg=test_cfg)
+
+        if MMDET_GT_2_12:
+            self.detector.init_weights()
 
         self.coder = MM_Coder(self.classes)
 
@@ -859,7 +864,7 @@ class MM_Detector(nh.layers.Module):
             if with_mask:
                 if 'gt_masks' in mm_inputs:
                     # mmdet only allows numpy inputs
-                    trainkw['gt_masks'] = _hack_numpy_gt_masks(mm_inputs['gt_masks'])
+                    trainkw['gt_masks'] = mm_inputs['gt_masks']
 
             # Compute input normalization
             imgs_norm = self.input_norm(imgs)
@@ -1070,7 +1075,7 @@ class MM_MaskRCNN(MM_Detector):
         >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
         >>> xpu = nh.XPU(0)
         >>> self = MM_MaskRCNN(classes, channels='rgb|d').to(xpu.main_device)
-        >>> batch = self.demo_batch(bsize=1, h=256, w=256)
+        >>> batch = self.demo_batch(bsize=1, h=256, w=256, with_mask='bitmap')
         >>> self.detector.test_cfg['rcnn']['score_thr'] = 1e-9
         >>> self.detector.test_cfg['rcnn']['mask_thr_binary'] = 1e-9
         >>> outputs = self.forward(batch)
@@ -1081,6 +1086,18 @@ class MM_MaskRCNN(MM_Detector):
         >>> kwplot.autompl()
         >>> mask = sseg.data
         >>> mask.draw()
+
+    Example:
+        >>> # xdoctest: +REQUIRES(module:mmdet)
+        >>> from bioharn.models.mm_models import *  # NOQA
+        >>> import torch
+        >>> classes = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+        >>> xpu = nh.XPU(0)
+        >>> self = MM_MaskRCNN(classes, channels='rgb|d').to(xpu.main_device)
+        >>> batch = self.demo_batch(bsize=1, h=256, w=256, with_mask='polygon')
+        >>> self.detector.test_cfg['rcnn']['score_thr'] = 1e-9
+        >>> self.detector.test_cfg['rcnn']['mask_thr_binary'] = 1e-9
+        >>> outputs = self.forward(batch)
     """
     def __init__(self, classes, channels='rgb', input_stats=None):
         import kwcoco
@@ -1187,6 +1204,8 @@ class MM_MaskRCNN(MM_Detector):
                 pos_weight=-1,
                 debug=False),
             rpn_proposal=dict(
+                nms=dict(type='nms', iou_threshold=0.7),  # hack for mmdet=2.12.0
+                max_per_img=2000,  # hack for mmdet=2.12.0
                 nms_across_levels=False,
                 nms_pre=2000,
                 nms_post=2000,
@@ -1211,6 +1230,8 @@ class MM_MaskRCNN(MM_Detector):
                 debug=False))
         test_cfg = dict(
             rpn=dict(
+                nms=dict(type='nms', iou_threshold=0.7),  # hack for mmdet=2.12.0
+                max_per_img=1000,  # hack for mmdet=2.12.0
                 nms_across_levels=False,
                 nms_pre=1000,
                 nms_post=1000,
@@ -1454,6 +1475,8 @@ class MM_CascadeRCNN(MM_Detector):
                 pos_weight=-1,
                 debug=False),
             rpn_proposal=dict(
+                nms=dict(type='nms', iou_threshold=0.7),  # hack for mmdet=2.12.0
+                max_per_img=1000,  # hack for mmdet=2.12.0
                 nms_across_levels=False,
                 nms_pre=2000,
                 nms_post=2000,
@@ -1514,6 +1537,8 @@ class MM_CascadeRCNN(MM_Detector):
 
         test_cfg = dict(
             rpn=dict(
+                nms=dict(type='nms', iou_threshold=0.7),  # hack for mmdet=2.12.0
+                max_per_img=1000,  # hack for mmdet=2.12.0
                 nms_across_levels=False,
                 nms_pre=1000,
                 nms_post=1000,

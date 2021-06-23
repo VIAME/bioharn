@@ -17,6 +17,7 @@ class UpgradeMMDetConfig(scfg.Config):
     default = {
         'deployed': scfg.Path(None, help='path to torch_liberator zipfile to convert'),
         'use_cache': scfg.Path(False, help='do nothing if we already converted'),
+        'out_dpath': scfg.Path(None, help='place to write the new model to. (uses a cache directory if unspecified)'),
     }
 
 
@@ -113,7 +114,10 @@ def upgrade_deployed_mmdet_model(config):
 
     deploy_fpath = config['deployed']
 
-    extract_dpath = ub.ensure_app_cache_dir('torch_liberator/extracted')
+    if config['out_dpath'] is None:
+        extract_dpath = ub.ensure_app_cache_dir('torch_liberator/extracted')
+    else:
+        extract_dpath = config['out_dpath']
 
     new_name = ub.augpath(deploy_fpath, dpath='', suffix='_mm2x')
     new_fpath = join(extract_dpath, new_name)

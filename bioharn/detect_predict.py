@@ -21,12 +21,8 @@ Notes:
 
     girder-client --api-url https://data.kitware.com/api/v1 download 5dd3eb8eaf2e2eed3508d604
 
-
 """
-from os.path import exists
-from os.path import isfile
-from os.path import basename
-from os.path import join
+from os.path import join, dirname, basename, isfile, exists
 import ubelt as ub
 import torch.utils.data as torch_data
 import netharn as nh
@@ -36,6 +32,7 @@ import scriptconfig as scfg
 import kwimage
 import kwarray
 import warnings
+import kwcoco
 import torch_liberator
 from netharn.data.channel_spec import ChannelSpec
 from netharn.data.data_containers import ContainerXPU
@@ -76,6 +73,8 @@ class DetectPredictConfig(scfg.Config):
         'nms_thresh': 0.4,
         'conf_thresh': 0.1,
 
+        'skip_upgrade': scfg.Value(False, help='if true skips upgrade model checks'),
+
         'verbose': 1,
     }
 
@@ -101,6 +100,22 @@ def _ensure_upgraded_model(deployed_fpath):
 
     """
     from netharn.util import zopen
+    print('Ensure upgraded model: deployed_fpath = {!r}'.format(deployed_fpath))
+
+    if not exists(deployed_fpath):
+        # Case where old model was upgraded and may have been deleted
+        # This logic is a bit hacky, could be refactored to be more robust.
+        upgrade_candidates = [
+            ub.augpath(deployed_fpath, suffix='_bio3x')
+        ]
+        candidates = [c for c in upgrade_candidates if exists(c)]
+        if candidates:
+            deployed_fpath = candidates[0]
+
+    if isinstance(deployed_fpath, str) and exists(deployed_fpath) and deployed_fpath.endswith('.pt'):
+        # hack
+        return deployed_fpath
+
     deployed = torch_liberator.DeployedModel.coerce(deployed_fpath)
 
     # Hueristic to determine if the model needs update or not
@@ -110,12 +125,35 @@ def _ensure_upgraded_model(deployed_fpath):
             topology_text = file.read()
             if 'MM_Detector' in topology_text:
                 if '_mmdet_is_version_1x' not in topology_text:
-                    needs_update = True
+                    needs_update = 'to_2x'
+                else:
+                    # Super hack to "parse" out the bioharn model version
+                    import re
+                    match = re.search(r'^\W*__bioharn_model_vesion__\W*=\W*(\d+)',
+                                      topology_text, flags=re.MULTILINE)
+                    need_version = 3
+                    if match:
+                        found = match.groups()[0]
+                        found_version = int(found)
+                    else:
+                        found_version = 2
 
-    if needs_update:
+                    if found_version < need_version:
+                        needs_update = 'to_latest'
+
+    print('needs_update = {!r}'.format(needs_update))
+    if needs_update == 'to_2x':
         from bioharn.compat.upgrade_mmdet_model import upgrade_deployed_mmdet_model
         ensured_fpath = upgrade_deployed_mmdet_model({
-            'deployed': deployed_fpath, 'use_cache': True})
+            'deployed': deployed_fpath, 'use_cache': True,
+            'out_dpath': dirname(deployed_fpath),
+        })
+    elif needs_update == 'to_latest':
+        from bioharn.compat.update_bioharn_model import update_deployed_bioharn_model
+        ensured_fpath = update_deployed_bioharn_model({
+            'deployed': deployed_fpath, 'use_cache': True,
+            'out_dpath': dirname(deployed_fpath),
+        })
     else:
         ensured_fpath = deployed_fpath
     return ensured_fpath
@@ -257,7 +295,8 @@ class DetectPredictor(object):
             xpu = ContainerXPU.coerce(predictor.config['xpu'])
             deployed = predictor.config['deployed']
             if isinstance(predictor.config['deployed'], str):
-                deployed = _ensure_upgraded_model(deployed)
+                if not predictor.config['skip_upgrade']:
+                    deployed = _ensure_upgraded_model(deployed)
             deployed = torch_liberator.DeployedModel.coerce(deployed)
             model = deployed.load_model()
             model.train(False)
@@ -366,7 +405,7 @@ class DetectPredictor(object):
         Predict on all images in a dataset wrapped in a ndsampler.CocoSampler
 
         Args:
-            sampler (ndsampler.CocoDataset): dset wrapped in a sampler
+            sampler (ndsampler.CocoSampler): dset wrapped in a sampler
             gids (List[int], default=None): if specified, then only predict
                 on these image ids.
 
@@ -644,7 +683,21 @@ class DetectPredictor(object):
             det = det.compress(det.scores > predictor.config['conf_thresh'])
 
             # Ensure that masks are transformed into polygons for transformation efficiency
+            # import xdev
+            # xdev.embed()
             if det.data.get('segmentations', None) is not None:
+                if 0:
+                    import kwplot
+                    kwplot.imshow(batch['inputs']['rgb'].data[-1].cpu().numpy())
+
+                    for sseg in det.data['segmentations']:
+                        s = sseg.data.sum()
+                        if s:
+                            mp = sseg.to_multi_polygon()
+                            print(s)
+                            print(mp)
+                            break
+
                 det.data['segmentations'] = det.data['segmentations'].to_polygon_list()
 
             if True and len(det) and np.all(det.boxes.width <= 1) and len(batch['inputs']) == 1:
@@ -659,7 +712,7 @@ class DetectPredictor(object):
             det = det.translate(item_shift_xy, inplace=True)
             # Fix type issue
             if 'class_idxs' in det.data:
-                det.data['class_idxs'] = det.data['class_idxs'].astype(np.int)
+                det.data['class_idxs'] = det.data['class_idxs'].astype(int)
             yield det
 
 
@@ -838,7 +891,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         if key == 'habcam':
             dset_fpath = ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json')
             workdir = ub.expandpath('~/work/bioharn')
-            dset = ndsampler.CocoDataset(dset_fpath)
+            dset = kwcoco.CocoDataset(dset_fpath)
             sampler = ndsampler.CocoSampler(dset, workdir=workdir, backend=None)
         else:
             sampler = ndsampler.CocoSampler.demo(key)
@@ -914,7 +967,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         sample = self.sampler.load_sample(tr, with_annots=False)
 
         if 0:
-            # ndsampler should interact with the network's ChannelSpec to know
+            # kwcoco should interact with the network's ChannelSpec to know
             # if it needs to coerce grayscale images to 3 channel to pass them
             # to an RGB network.
             #
@@ -961,7 +1014,7 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         offset_xy = torch.FloatTensor([slices[1].start, slices[0].start])
 
         # TODO: UNIFY WITH SingleImageDataset.__getitem__
-        # TODO: ndsampler should contain the correct logic to sample fused
+        # TODO: kwcoco should contain the correct logic to sample fused
         # streams that includes the rgb sampling.
 
         # Assume 8-bit image inputs
@@ -1027,9 +1080,9 @@ class WindowedSamplerDataset(torch_data.Dataset, ub.NiceRepr):
 
 
 def _coerce_sampler(config):
-    import ndsampler
     from bioharn import util
     from os.path import isdir
+    import ndsampler
 
     # Running prediction is much faster if you can build a sampler.
     sampler_backend = config['sampler_backend']
@@ -1037,26 +1090,21 @@ def _coerce_sampler(config):
     if isinstance(config['dataset'], str):
         if config['dataset'].endswith('.json'):
             dataset_fpath = ub.expandpath(config['dataset'])
-            coco_dset = ndsampler.CocoDataset(dataset_fpath)
+            coco_dset = kwcoco.CocoDataset(dataset_fpath)
             print('coco hashid = {}'.format(coco_dset._build_hashid()))
         else:
             image_path = ub.expandpath(config['dataset'])
             path_exists = exists(image_path)
             if path_exists and isfile(image_path):
                 # Single image case
-                coco_dset = ndsampler.CocoDataset()
+                coco_dset = kwcoco.CocoDataset()
                 coco_dset.add_image(image_path)
             elif path_exists and isdir(image_path):
                 # Directory of images case
-                IMG_EXTS = [
-                    '.bmp', '.pgm', '.jpg', '.jpeg', '.png', '.tif', '.tiff',
-                    '.ntf', '.nitf', '.ptif', '.cog.tiff', '.cog.tif', '.r0',
-                    '.r1', '.r2', '.r3', '.r4', '.r5', '.nsf',
-                ]
-                img_globs = ['*' + ext for ext in IMG_EXTS]
+                img_globs = ['*' + ext for ext in kwimage.im_io.IMAGE_EXTENSIONS]
                 fpaths = list(util.find_files(image_path, img_globs))
                 if len(fpaths):
-                    coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
+                    coco_dset = kwcoco.CocoDataset.from_image_paths(fpaths)
                 else:
                     raise Exception('no images found')
             else:
@@ -1064,7 +1112,7 @@ def _coerce_sampler(config):
                 import glob
                 fpaths = list(glob.glob(image_path))
                 if len(fpaths):
-                    coco_dset = ndsampler.CocoDataset.from_image_paths(fpaths)
+                    coco_dset = kwcoco.CocoDataset.from_image_paths(fpaths)
                 else:
                     raise Exception('not an image path')
 
@@ -1072,7 +1120,7 @@ def _coerce_sampler(config):
         # Multiple image case
         gpaths = config['dataset']
         gpaths = [ub.expandpath(g) for g in gpaths]
-        coco_dset = ndsampler.CocoDataset.from_image_paths(gpaths)
+        coco_dset = kwcoco.CocoDataset.from_image_paths(gpaths)
     else:
         raise TypeError(config['dataset'])
 
@@ -1101,11 +1149,10 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         >>> predictor._ensure_model()
         >>> out_dpath = './cached_out'
         >>> gids = None
-        >>> coco_dset = ndsampler.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
+        >>> coco_dset = kwcoco.CocoDataset(ub.expandpath('~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'))
         >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
         >>>                                 backend=None)
     """
-    import ndsampler
     from bioharn import util
     import tempfile
     coco_dset = sampler.dset
@@ -1153,7 +1200,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
         # TODO: need to either add the expected img_root to the coco dataset or
         # reroot the file name to be a full path so the predicted dataset can
         # reference the source images if needed.
-        single_img_coco = ndsampler.CocoDataset()
+        single_img_coco = kwcoco.CocoDataset()
         gid = single_img_coco.add_image(**img)
 
         for cat in dets.classes.to_coco():
@@ -1161,7 +1208,6 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
         # for cat in coco_dset.cats.values():
         #     single_img_coco.add_category(**cat)
-
         for ann in dets.to_coco(style='new'):
             ann['image_id'] = gid
             if 'category_name' in ann:
@@ -1189,7 +1235,7 @@ def _cached_predict(predictor, sampler, out_dpath='./cached_out', gids=None,
 
             if draw_truth:
                 # draw truth if available
-                anns = list(ub.take(coco_dset.anns, coco_dset.gid_to_aids[gid]))
+                anns = list(ub.take(coco_dset.anns, coco_dset.index.gid_to_aids[gid]))
                 true_dets = kwimage.Detections.from_coco_annots(anns,
                                                                 dset=coco_dset)
                 true_dets.draw_on(image, alpha=None, color='green')
@@ -1229,7 +1275,6 @@ def _load_dets_worker(single_pred_fpath):
     """
     single_pred_fpath = ub.expandpath('$HOME/remote/namek/work/bioharn/fit/runs/bioharn-det-mc-cascade-rgbd-v36/brekugqz/eval/habcam_cfarm_v6_test.mscoc/bioharn-det-mc-cascade-rgbd-v36__epoch_00000018/c=0.2,i=window,n=0.5,window_d=512,512,window_o=0.0/pred/dets_gid_00004070_v2.mscoco.json')
     """
-    import kwcoco
     single_img_coco = kwcoco.CocoDataset(single_pred_fpath, autobuild=False)
     if len(single_img_coco.dataset['images']) != 1:
         raise Exception('Expected predictions for a single image only')
@@ -1271,14 +1316,6 @@ def detect_cli(config={}):
             --input_dims=512,512 \
             --xpu=0 --batch_size=1
 
-
-        python -m bioharn.detect_predict \
-            --dataset=/data/projects/GOOD/pyrosome-test/US_NW_2017_NWFSC_PYROSOME_TEST \
-            --deployed=$HOME/work/bioharn/fit/nice/test-pyrosome/deploy_MM_CascadeRCNN_lqufwadq_031_HNSZYA.zip \
-            --out_dpath=$HOME/work/bioharn/predict_pyrosome_test \
-            --draw=100 \
-            --xpu=auto --batch_size=2
-
     Ignore:
         >>> config = {}
         >>> config['dataset'] = '~/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_vali.mscoco.json'
@@ -1316,13 +1353,12 @@ def detect_cli(config={}):
         # Each image produces its own kwcoc files in the "pred" subfolder.
         # Union all of those to make a single coco file that contains all
         # predictions.
-        import ndsampler
         coco_dsets = []
         for gid, pred_fpath in gid_to_pred_fpath.items():
-            single_img_coco = ndsampler.CocoDataset(pred_fpath)
+            single_img_coco = kwcoco.CocoDataset(pred_fpath)
             coco_dsets.append(single_img_coco)
 
-        pred_dset = ndsampler.CocoDataset.union(*coco_dsets)
+        pred_dset = kwcoco.CocoDataset.union(*coco_dsets)
         pred_fpath = join(det_outdir, 'detections.mscoco.json')
         print('Dump detections to pred_fpath = {!r}'.format(pred_fpath))
         pred_dset.dump(pred_fpath, newlines=True)

@@ -185,7 +185,11 @@ class Yolo2(layers.AnalyticModule):
         if len(input_stats):
             if chan_keys != list(input_stats.keys()):
                 # Backwards compat for older pre-fusion input stats method
-                assert 'mean' in input_stats or 'std' in input_stats
+                if 'mean' not in input_stats and 'std' not in input_stats:
+                    raise AssertionError(
+                        'input_stats = {!r}, self.channels={!r}'.format(
+                            input_stats, self.channels)
+                    )
                 input_stats = {
                     chan_keys[0]: input_stats,
                 }

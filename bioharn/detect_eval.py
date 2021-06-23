@@ -12,6 +12,7 @@ from os.path import join
 from os.path import dirname
 import os
 import six
+import kwcoco
 import ndsampler
 import kwimage
 import netharn as nh
@@ -25,7 +26,8 @@ from netharn.data import data_containers  # NOQA
 
 class DetectEvaluateConfig(scfg.Config):
     default = {
-        'deployed': scfg.Value(None, help='deployed network filepath'),
+
+        'deployed': scfg.Value(None, nargs='+', help='deployed network filepath'),
 
         # Evaluation dataset
         'dataset': scfg.Value(None, help='path to an mscoco dataset'),
@@ -114,6 +116,8 @@ class DetectEvaluateConfig(scfg.Config):
 
         'iou_bias': scfg.Value(0, help=(
             'pycocotools setting is 1, but 0 may be better')),
+
+        'skip_upgrade': scfg.Value(False, help='if true skips upgrade model checks'),
     }
 
 
@@ -143,6 +147,9 @@ def evaluate_models(cmdline=True, **kw):
         evaluate_models(**kw)
     """
     import itertools as it
+    from kwcoco.util.util_json import ensure_json_serializable
+    import json
+    import pandas as pd
     if 'config' in kw:
         config_fpath = kw['config']
         defaults = ub.dict_diff(kw, {'config'})
@@ -201,8 +208,6 @@ def evaluate_models(cmdline=True, **kw):
 
             results = evaluator.evaluate()
 
-            from kwcoco.util.util_json import ensure_json_serializable
-            import json
             single_result = results['area_range=all,iou_thresh=0.5']
             small_results = {
                 'nocls_measures': single_result.nocls_measures.summary(),
@@ -222,7 +227,6 @@ def evaluate_models(cmdline=True, **kw):
 
     rows = []
     train_config_rows = []
-    import json
     # import ast
     for fpath in ub.ProgIter(metric_fpaths, desc='gather summary'):
         metrics = json.load(open(fpath, 'r'))
@@ -239,7 +243,6 @@ def evaluate_models(cmdline=True, **kw):
         train_config_rows.append(train_config)
         rows.append(row)
 
-    import pandas as pd
     pd.set_option('max_colwidth', 256)
     df = pd.DataFrame(rows)
     print(df.to_string(float_format=lambda x: '%0.3f' % x))
@@ -281,23 +284,9 @@ def evaluate_models(cmdline=True, **kw):
         subcfg = ub.dict_subset(config, set(varied_basis), default=np.nan)
         row.update(subcfg)
 
-    import pandas as pd
     pd.set_option('max_colwidth', 256)
     df = pd.DataFrame(rows)
     print(df.to_string(float_format=lambda x: '%0.3f' % x))
-
-
-def _coerce_dataset(dset):
-    if isinstance(dset, str):
-        dset_fpath = ub.expandpath(dset)
-        dset = ndsampler.CocoDataset(dset_fpath)
-    elif type(dset).__name__ == 'CocoDataset':
-        dset = dset
-    elif type(dset).__name__ == 'CocoSampler':
-        dset = dset.dset
-    else:
-        raise TypeError(type(dset))
-    return dset
 
 
 class DetectEvaluator(object):
@@ -354,12 +343,11 @@ class DetectEvaluator(object):
             >>> print('config = {}'.format(ub.repr2(config, nl=1)))
         """
         from bioharn import detect_fit
-        import ndsampler
         aux = False
 
-        train_dset = ndsampler.CocoDataset.demo('shapes8', aux=aux)
+        train_dset = kwcoco.CocoDataset.demo('shapes8', aux=aux)
         dpath = ub.ensure_app_cache_dir('bioharn/demodata')
-        test_dset = ndsampler.CocoDataset.demo('shapes4', aux=aux)
+        test_dset = kwcoco.CocoDataset.demo('shapes4', aux=aux)
         workdir = ub.ensuredir((dpath, 'work'))
 
         train_dset.fpath = join(dpath, 'shapes_train.mscoco')
@@ -402,7 +390,7 @@ class DetectEvaluator(object):
     def _ensure_sampler(evaluator):
         if evaluator.sampler is None:
             print('loading dataset')
-            coco_dset = _coerce_dataset(evaluator.config['dataset'])
+            coco_dset = kwcoco.CocoDataset.coerce(evaluator.config['dataset'])
 
             if evaluator.config['demo']:
                 pass
@@ -435,8 +423,15 @@ class DetectEvaluator(object):
             else:
                 model_tag = nice + '_' + ub.augpath(deployed.path, dpath='', ext='', multidot=True)
 
+        def removesuffix(self, suffix):
+            """ 3.9 backport https://www.python.org/dev/peps/pep-0616/ """
+            if suffix and self.endswith(suffix):
+                return self[:-len(suffix)]
+            else:
+                return self[:]
+
         evaluator.model_tag = model_tag
-        evaluator.dset_tag = evaluator.sampler.dset.tag.rstrip('.json')
+        evaluator.dset_tag = removesuffix(evaluator.sampler.dset.tag, '.json')
 
         # Load the trained model
         pred_keys = set(detect_predict.DetectPredictConfig.default.keys()) - {'verbose'}

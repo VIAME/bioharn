@@ -13,6 +13,7 @@ def explicit_output_shape_for(model, inputs):
         model = nh.models.ToyNet2d()
         inputs = torch.rand(1, 1, 256, 256)
 
+        >>> # xdoctest: +REQUIRES(module:mmdet)
         >>> from bioharn.models.new_models_v1 import *  # NOQA
         >>> channels = ChannelSpec.coerce('rgb')
         >>> input_stats = None

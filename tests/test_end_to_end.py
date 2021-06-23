@@ -9,15 +9,16 @@ def _test_train_and_eval_model(aux):
     """
     from bioharn import detect_fit
     from bioharn import detect_eval
-    import ndsampler
+    import kwcoco
 
-    dset = ndsampler.CocoDataset.demo('shapes8', aux=aux)
+    dset = kwcoco.CocoDataset.demo('shapes8', aux=aux)
     dpath = ub.ensure_app_cache_dir('bioharn/tests')
     ub.delete(dpath)  # start fresh
 
     workdir = ub.ensuredir((dpath, 'work'))
 
     dset.fpath = join(dpath, 'shapes_train.mscoco')
+    dset.remove_categories(['background'])
     dset.dump(dset.fpath)
 
     channels = 'rgb|disparity' if aux else 'rgb'
@@ -26,6 +27,7 @@ def _test_train_and_eval_model(aux):
         cmdline=False,
         # arch='cascade',
         arch='yolo2',
+        normalize_inputs=10,
         train_dataset=dset.fpath,
         channels=channels,
         workers=0,

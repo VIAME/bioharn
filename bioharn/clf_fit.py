@@ -32,10 +32,15 @@ class ClfConfig(scfg.Config):
         'workers': scfg.Value(2, help='number of parallel dataloading jobs'),
         'xpu': scfg.Value('auto', help='See netharn.XPU for details. can be auto/cpu/xpu/cuda0/0,1,2,3)'),
 
+        'pin_memory': scfg.Value(True, help='see torch DataLoader docs'),
+        'sharing_strategy': scfg.Value('auto', help='torch sharing strategy. Can be file_system or descriptor on linux systems'),
+
         'datasets': scfg.Value('special:shapes256', help='Either a special key or a coco file'),
         'train_dataset': scfg.Value(None),
         'vali_dataset': scfg.Value(None),
         'test_dataset': scfg.Value(None),
+
+        'sql_cache_view': scfg.Value(False, help='if True json-based COCO datasets are cached as SQL views'),
 
         'sampler_backend': scfg.Value(None, help='ndsampler backend'),
 
@@ -75,7 +80,13 @@ class ClfConfig(scfg.Config):
                 'Special coercible netharn code. Eg: onecycle50, step50, gamma, ReduceLROnPlateau-p10-c10')),
 
         'init': scfg.Value('noop', help='How to initialized weights: e.g. noop, kaiming_normal, path-to-a-pretrained-model)'),
-        'pretrained': scfg.Path(help=('alternative way to specify a path to a pretrained model')),
+        'pretrained': scfg.Path(help=('alternative way to specify a path to a pretrained model. DEPRECATED USE INIT INSTEAD')),
+
+        'backbone_init': scfg.Value('url', help=ub.paragraph(
+            '''
+            Path to backbone weights pre-initialization. If 'url', then the
+            appropriate model-zoo weights are used.
+            ''')),
 
         # preference
         'num_draw': scfg.Value(4, help='Number of initial batchs to draw per epoch'),
@@ -86,7 +97,7 @@ class ClfConfig(scfg.Config):
         'timeout': scfg.Value(
             float('inf'), help='maximum number of seconds to wait for training'),
 
-        'allow_unicode': scfg.Value(not ub.WIN32, help=(
+        'allow_unicode': scfg.Value(False, help=(
             'allow for unicode characters in messages, otherwise '
             ' we approximate them with ascii')),
 
@@ -149,6 +160,7 @@ class ClfModel(nh.layers.Module):
         if arch == 'resnet50':
             from torchvision import models
             model = models.resnet50()
+            self.backbone_url = models.resnet.model_urls['resnet50']
             new_conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7,
                                         stride=3, padding=3, bias=False)
             new_fc = torch.nn.Linear(2048, num_classes, bias=True)
@@ -159,11 +171,8 @@ class ClfModel(nh.layers.Module):
             model.conv1 = new_conv1
         elif arch == 'resnext101':
             from torchvision.models import resnet
-            arch = 'resnext101_32x8d'
             model = resnet.resnext101_32x8d()
-            state_dict = resnet.load_state_dict_from_url(
-                    resnet.model_urls[arch])
-            model.load_state_dict(state_dict)
+            self.backbone_url = resnet.model_urls['resnext101_32x8d']
             new_conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7,
                                         stride=3, padding=3, bias=False)
             new_fc = torch.nn.Linear(2048, num_classes, bias=True)
@@ -181,6 +190,25 @@ class ClfModel(nh.layers.Module):
         self.model = model
 
         self.coder = ClfCoder(self.classes)
+
+    def _init_backbone(self, key='url'):
+        """
+        Example:
+            >>> self = ClfModel(arch='resnext101', classes=3)
+            >>> key = 'url'
+            >>> self._init_backbone(key)
+
+            >>> self = ClfModel(arch='resnet50', classes=3)
+            >>> self._init_backbone(key)
+        """
+        from torchvision.models.utils import load_state_dict_from_url
+        from netharn.initializers.functional import load_partial_state
+        if key == 'url':
+            state_dict = load_state_dict_from_url(self.backbone_url)
+        else:
+            state_dict = nh.XPU('cpu').load(key)
+        info = load_partial_state(self, state_dict, association='isomorphism')
+        del info
 
     def forward(self, inputs):
         """
@@ -400,7 +428,7 @@ class ClfHarn(nh.FitHarn):
             >>> harn.on_epoch()
         """
         from kwcoco.metrics import clf_report
-        import pandas as pd
+        # import pandas as pd
         dset = harn.datasets[harn.current_tag]
 
         probs = np.vstack(harn._accum_confusion_vectors['probs'])
@@ -500,7 +528,8 @@ def setup_harn(cmdline=True, **kw):
 
     Example:
         >>> # xdoctest: +SKIP
-        >>> kw = {'datasets': 'special:shapes256'}
+        >>> from bioharn.clf_fit import *  # NOQA
+        >>> kw = {'datasets': 'special:vidshapes256'}
         >>> cmdline = False
         >>> harn = setup_harn(cmdline, **kw)
         >>> harn.initialize()
@@ -511,15 +540,28 @@ def setup_harn(cmdline=True, **kw):
     print('config = {}'.format(ub.repr2(config.asdict())))
 
     nh.configure_hacks(config)
+
     coco_datasets = nh.api.Datasets.coerce(config)
+
+    if 0:
+        dset = coco_datasets['train']
 
     print('coco_datasets = {}'.format(ub.repr2(coco_datasets, nl=1)))
     for tag, dset in coco_datasets.items():
         dset._build_hashid(hash_pixels=False)
 
+    if config['sql_cache_view']:
+        from kwcoco.coco_sql_dataset import ensure_sql_coco_view
+        for tag, dset in list(coco_datasets.items()):
+            sql_dset = ensure_sql_coco_view(dset)
+            sql_dset.hashid = dset.hashid + '-hack-sql'
+            print('sql_dset.uri = {!r}'.format(sql_dset.uri))
+            coco_datasets[tag] = sql_dset
+
     workdir = ub.ensuredir(ub.expandpath(config['workdir']))
     samplers = {
-        tag: ndsampler.CocoSampler(dset, workdir=workdir, backend=config['sampler_backend'])
+        tag: ndsampler.CocoSampler(
+            dset, workdir=workdir, backend=config['sampler_backend'])
         for tag, dset in coco_datasets.items()
     }
 
@@ -619,7 +661,7 @@ def setup_harn(cmdline=True, **kw):
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
             balance=(config['balance'] if tag == 'train' else None),
-            pin_memory=True)
+            pin_memory=config['pin_memory'])
         for tag, dset in torch_datasets.items()
     }
 
@@ -634,8 +676,11 @@ def setup_harn(cmdline=True, **kw):
     model = ClfModel(**modelkw)
     model._initkw = modelkw
 
+    if config['backbone_init'] is not None:
+        model._init_backbone(config['backbone_init'])
+
     # initializer_ = nh.Initializer.coerce(config, association='prefix-hack')
-    initializer_ = nh.Initializer.coerce(config, association='embedding')
+    initializer_ = nh.Initializer.coerce(config, association='isomorphism')
 
     hyper = nh.HyperParams(
         name=config['name'],
@@ -767,5 +812,33 @@ if __name__ == '__main__':
             --xpu=auto \
             --batch_size=32 \
             --num_batches=auto --num_vali_batches=auto
+
+        kwcoco toydata shapes256
+        kwcoco toydata shapes32
+
+        TRAIN_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_256_dqikwsaiwlzjup/data.kwcoco.json"
+        VALI_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_32_kahspdeebbfocp/data.kwcoco.json"
+
+        python -m bioharn.clf_fit \
+            --name=simple_demo_sql \
+            --train_dataset=$TRAIN_DSET \
+            --vali_dataset=$VALI_DSET \
+            --workdir=$HOME/work/test \
+            --arch=resnet50 \
+            --sql_cache_view=True \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=256,256 \
+            --normalize_inputs=False \
+            --workers=0 \
+            --xpu=auto \
+            --batch_size=32 \
+            --num_batches=auto --num_vali_batches=auto
+
     """
-    main()
+    try:
+        main()
+    except IndexError:
+        print( "ERROR: Category is missing from validation set.\n" )
+        print( "This usually happens when you don't have enough labels for one category\n" )

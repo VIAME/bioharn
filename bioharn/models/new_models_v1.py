@@ -36,10 +36,19 @@ Ignore:
 import ubelt as ub
 import warnings  # NOQA
 from netharn.data.channel_spec import ChannelSpec
-# from mmdet.models.detectors.base import BaseDetector
-from mmdet.models.builder import build_backbone
-# from mmdet.models.builder import build_head
-# from mmdet.models.builder import build_neck
+
+try:
+    import mmdet
+    import mmcv
+except Exception:
+    mmdet = None
+    mmcv = None
+else:
+    # from mmdet.models.detectors.base import BaseDetector
+    from mmdet.models.builder import build_backbone
+    # from mmdet.models.builder import build_head
+    # from mmdet.models.builder import build_neck
+
 import torch.nn as nn
 import torch
 
@@ -50,7 +59,6 @@ from bioharn.models.new_head import StandardRoIHead_V2
 from bioharn.models.new_head import FCNMaskHead_V2
 from bioharn.models.new_detector import MaskRCNN_V2
 
-import mmcv
 import kwcoco
 import netharn as nh
 from collections import OrderedDict
@@ -167,7 +175,7 @@ def monkeypatch_build_norm_layer():
     # new_backbone.build_norm_layer = build_norm_layer_hack
 
 MMCV_MONKEY_PATCH = 1
-if MMCV_MONKEY_PATCH:
+if MMCV_MONKEY_PATCH and mmcv is not None and mmdet is not None:
     monkeypatch_build_norm_layer()
 
 
@@ -237,7 +245,7 @@ class MM_Detector_V3(nh.layers.Module):
             Dict: containing results and losses depending on if return_loss and
                 return_result were specified.
         """
-        print(type(batch['inputs']['rgb']))
+        # print(type(batch['inputs']['rgb']))
         if 'img_metas' in batch and ('inputs' in batch or 'imgs' in batch):
             # already in mm_inputs format
             orig_mm_inputs = batch
@@ -354,9 +362,17 @@ class LateFusionPyramidBackbone(nn.Module):
 
     Ignore:
         >>> from bioharn.models.new_models_v1 import *  # NOQA
+        >>> monkeypatch_build_norm_layer()
+
+
+        >>> from bioharn.models.new_models_v1 import *  # NOQA
         >>> from bioharn.models.mm_models import _demo_batch  # NOQA
         >>> channels = ChannelSpec.coerce('rgb,mx|my,disparity')
-        >>> self = LateFusionPyramidBackbone(channels=channels)
+        >>> out_channels = [18, 36, 72, 144]
+        >>> self = LateFusionPyramidBackbone(
+        >>>     channels=channels, out_channels=out_channels)
+        >>> # self2 = LateFusionPyramidBackbone(
+        >>> #    channels=channels, out_channels=None)
         >>> batch = _demo_batch(3, channels, 256, 256, packed=True)
         >>> inputs = batch['inputs']
         >>> fused_outputs = self(inputs)
@@ -366,7 +382,8 @@ class LateFusionPyramidBackbone(nn.Module):
 
         >>> nh.util.number_of_parameters(self)
     """
-    def __init__(self, channels='rgb', input_stats=None):
+    def __init__(self, channels='rgb', input_stats=None, fuse_method='cat',
+                 out_channels=None, hack_shrink=False):
         super().__init__()
         channels = ChannelSpec.coerce(channels)
         chann_norm = channels.normalize()
@@ -374,6 +391,11 @@ class LateFusionPyramidBackbone(nn.Module):
             assert set(input_stats.keys()) == set(chann_norm.keys())
 
         # norm_cfg = {'type': 'BN'}
+
+        hack_shrink_channels = {
+            # Hack to shrink model size for this type of data
+            'disparity',
+        }
 
         chan_backbones = {}
         for chan_key, chan_labels in chann_norm.items():
@@ -384,45 +406,121 @@ class LateFusionPyramidBackbone(nn.Module):
 
             # TODO: generalize so different channels can use different
             # backbones
-            hrnet_backbone_config = {
-                'extra': {
-                    'stage1': {
-                        'block': 'BOTTLENECK',
-                        'num_blocks': (4,),
-                        'num_branches': 1,
-                        'num_channels': (64,),
-                        'num_modules': 1,
+            if chan_key in hack_shrink_channels and hack_shrink:
+                hrnet_backbone_config = {
+                    'extra': {
+                        'stage1': {
+                            'block': 'BOTTLENECK',
+                            'num_blocks': (4,),
+                            'num_branches': 1,
+                            'num_channels': (64,),
+                            'num_modules': 1,
+                        },
+                        'stage2': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4),
+                            'num_branches': 2,
+                            'num_channels': (6, 12),
+                            'num_modules': 1,
+                        },
+                        'stage3': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4, 4),
+                            'num_branches': 3,
+                            'num_channels':  (6, 12, 24),
+                            'num_modules': 4,
+                        },
+                        'stage4': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4, 4, 4),
+                            'num_branches': 4,
+                            'num_channels': (6, 12, 24, 48),  # hack, we need this to be the same for now
+                            'num_modules': 3,
+                        }
                     },
-                    'stage2': {
-                        'block': 'BASIC',
-                        'num_blocks': (4, 4),
-                        'num_branches': 2,
-                        'num_channels': (18, 36),
-                        'num_modules': 1,
+                    'in_channels': len(chan_labels),
+                    'input_stats': chan_input_stats,
+                    'norm_cfg': {'type': 'GN', 'num_groups': 'auto'},
+                    'type': HRNet_V2
+                }
+            else:
+                hrnet_backbone_config = {
+                    'extra': {
+                        'stage1': {
+                            'block': 'BOTTLENECK',
+                            'num_blocks': (4,),
+                            'num_branches': 1,
+                            'num_channels': (64,),
+                            'num_modules': 1,
+                        },
+                        'stage2': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4),
+                            'num_branches': 2,
+                            'num_channels': (18, 36),
+                            'num_modules': 1,
+                        },
+                        'stage3': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4, 4),
+                            'num_branches': 3,
+                            'num_channels': (18, 36, 72),
+                            'num_modules': 4,
+                        },
+                        'stage4': {
+                            'block': 'BASIC',
+                            'num_blocks': (4, 4, 4, 4),
+                            'num_branches': 4,
+                            'num_channels': (18, 36, 72, 144),
+                            'num_modules': 3,
+                        }
                     },
-                    'stage3': {
-                        'block': 'BASIC',
-                        'num_blocks': (4, 4, 4),
-                        'num_branches': 3,
-                        'num_channels': (18, 36, 72),
-                        'num_modules': 4,
-                    },
-                    'stage4': {
-                        'block': 'BASIC',
-                        'num_blocks': (4, 4, 4, 4),
-                        'num_branches': 4,
-                        'num_channels': (18, 36, 72, 144),
-                        'num_modules': 3,
-                    }
-                },
-                'in_channels': len(chan_labels),
-                'input_stats': chan_input_stats,
-                'norm_cfg': {'type': 'GN', 'num_groups': 'auto'},
-                'type': HRNet_V2
-            }
+                    'in_channels': len(chan_labels),
+                    'input_stats': chan_input_stats,
+                    'norm_cfg': {'type': 'GN', 'num_groups': 'auto'},
+                    'type': HRNet_V2
+                }
             chan_backbone = build_backbone(hrnet_backbone_config)
             chan_backbones[chan_key] = chan_backbone
+
+        self.channels = channels
         self.chan_backbones = torch.nn.ModuleDict(chan_backbones)
+
+        # self.chan_backbones['disparity'].out_channels
+        self.fuse_method = fuse_method
+
+        # Once channels are combined we will smooth them at each level using
+        # the same 1x1 convolution
+        prefused_level_shapes = ub.ddict(dict)
+        for chan_key, bb in self.chan_backbones.items():
+            for level, num in enumerate(bb.stage4_cfg['num_channels']):
+                prefused_level_shapes[level][chan_key] = num
+
+        level_smoothers_ = {}
+        # Use given out channels, or compute them
+        out_channels_ = []
+        for level, chan_to_num in prefused_level_shapes.items():
+            if self.fuse_method == 'cat':
+                # hack, we need this to be a specific value for now
+                # TODO FIXME
+                t_in = sum(n for n in chan_to_num.values())
+                if out_channels is None:
+                    t_out = t_in
+                else:
+                    t_out = out_channels[level]
+            elif self.fuse_method == 'sum':
+                t_in = max(n for n in chan_to_num.values())
+                if out_channels is None:
+                    t_out = t_in
+                else:
+                    t_out = out_channels[level]
+            else:
+                raise KeyError(self.fuse_method)
+            out_channels_.append(t_out)
+            level_smoothers_[str(level)] = torch.nn.Conv2d(t_in, t_out, 1, 1, 0, bias=True)
+
+        self.out_channels = out_channels_
+        self.level_smoothers = torch.nn.ModuleDict(level_smoothers_)
 
     def forward(self, inputs):
         prefused_outputs = ub.ddict(dict)
@@ -434,14 +532,26 @@ class LateFusionPyramidBackbone(nn.Module):
             for level, lvl_out in enumerate(chan_outputs):
                 prefused_outputs[level][chan_key] = lvl_out
 
+        # prefused_shapes = ub.map_vals(lambda x: ub.map_vals( lambda y: y.shape,  x), prefused_outputs)
+        # print('prefused_shapes = {}'.format(ub.repr2(prefused_shapes, nl=1)))
+
         fused_outputs = []
         for level, prefused in prefused_outputs.items():
             # Fuse by summing.
             # TODO: if the input streams are not aligned we should do that
             # here.
             # TODO: allow alternate late fusion schemes other than sum?
-            fused = sum(prefused.values())
-            fused_outputs.append(fused)
+            smoother = self.level_smoothers[str(level)]
+            if self.fuse_method == 'sum':
+                fused = sum(prefused.values())
+            if self.fuse_method == 'cat':
+                # list(map(lambda x: x.shape, prefused.values()))
+                fused = torch.cat(list(prefused.values()), dim=1)
+            else:
+                raise KeyError(self.fuse_method)
+
+            smoothed = smoother(fused)
+            fused_outputs.append(smoothed)
 
         return fused_outputs
 
@@ -510,7 +620,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
     pretrained_url = 'open-mmlab://msra/hrnetv2_w18'
 
     def __init__(self, classes=None, input_stats=None, channels='rgb',
-                 with_mask=True):
+                 with_mask=True, fuse_method='sum', hack_shrink=False):
         classes = kwcoco.CategoryTree.coerce(classes)
         channels = ChannelSpec.coerce(channels)
 
@@ -629,56 +739,9 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
             }
         else:
             mask_head = None
+        from mmdet.models.builder import build_backbone
 
-        mm_cfg = mmcv.Config({
-            'model': {
-                'backbone': {
-                    'channels': channels,
-                    'input_stats': input_stats,
-                    'type': LateFusionPyramidBackbone
-                },
-                'neck': {
-                    'in_channels': [18, 36, 72, 144],
-                    'out_channels': 256,
-                    'type': HRFPN_V2,
-                    'norm_cfg': {'type': 'GN', 'num_groups': 32},
-                },
-                'rpn_head': rpn_head,
-                'roi_head': {
-                    'bbox_roi_extractor': {
-                        'featmap_strides': [4, 8, 16, 32],
-                        'out_channels': 256,
-                        'roi_layer': {'output_size': 7, 'sampling_ratio': 0, 'type': 'RoIAlign'},
-                        'type': 'SingleRoIExtractor'
-                    },
-                    'mask_roi_extractor': {
-                        'featmap_strides': [4, 8, 16, 32],
-                        'out_channels': 256,
-                        'roi_layer': {'output_size': 14, 'sampling_ratio': 0, 'type': 'RoIAlign'},
-                        'type': 'SingleRoIExtractor'
-                    },
-                    'bbox_head': {
-                        'bbox_coder': {
-                            'target_means': [0.0, 0.0, 0.0, 0.0],
-                            'target_stds': [0.1, 0.1, 0.2, 0.2],
-                            'type': 'DeltaXYWHBBoxCoder'
-                        },
-                        'fc_out_channels': 1024,
-                        'in_channels': 256,
-                        'loss_bbox': {'loss_weight': 1.0, 'type': 'L1Loss'},
-                        'loss_cls': {'loss_weight': 1.0, 'type': 'CrossEntropyLoss', 'use_sigmoid': False},
-                        'classes': classes,
-                        'reg_class_agnostic': False,
-                        'roi_feat_size': 7,
-                        'norm_cfg': {'type': 'GN', 'num_groups': 32},
-                        'type': Shared2FCBBoxHead_V2,
-                    },
-                    'mask_head': mask_head,
-                    'type': StandardRoIHead_V2,
-                },
-                'pretrained': None,
-                'type': MaskRCNN_V2,
-            },
+        default_args = mmcv.Config({
             'test_cfg': {
                 'rcnn': {
                     'mask_thr_binary': 0.5,
@@ -722,9 +785,81 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
             }
         })
 
+        backbone_cfg = {
+            'channels': channels,
+            'input_stats': input_stats,
+            'fuse_method': fuse_method,
+            'out_channels': [18, 36, 72, 144],
+            'hack_shrink': hack_shrink,
+            'type': LateFusionPyramidBackbone
+        }
+        backbone = build_backbone(backbone_cfg)
+
+        mm_cfg = mmcv.Config({
+            'model': {
+                'backbone': {
+                    'instance': backbone,
+                },
+                'neck': {
+                    'in_channels': backbone_cfg['out_channels'],
+                    'out_channels': 256,
+                    'type': HRFPN_V2,
+                    'norm_cfg': {'type': 'GN', 'num_groups': 32},
+                },
+                'rpn_head': rpn_head,
+                'roi_head': {
+                    'bbox_roi_extractor': {
+                        'featmap_strides': [4, 8, 16, 32],
+                        'out_channels': 256,
+                        'roi_layer': {'output_size': 7, 'sampling_ratio': 0, 'type': 'RoIAlign'},
+                        'type': 'SingleRoIExtractor'
+                    },
+                    'mask_roi_extractor': {
+                        'featmap_strides': [4, 8, 16, 32],
+                        'out_channels': 256,
+                        'roi_layer': {'output_size': 14, 'sampling_ratio': 0, 'type': 'RoIAlign'},
+                        'type': 'SingleRoIExtractor'
+                    },
+                    'bbox_head': {
+                        'bbox_coder': {
+                            'target_means': [0.0, 0.0, 0.0, 0.0],
+                            'target_stds': [0.1, 0.1, 0.2, 0.2],
+                            'type': 'DeltaXYWHBBoxCoder'
+                        },
+                        'fc_out_channels': 1024,
+                        'in_channels': 256,
+                        'loss_bbox': {'loss_weight': 1.0, 'type': 'L1Loss'},
+                        'loss_cls': {'loss_weight': 1.0, 'type': 'CrossEntropyLoss', 'use_sigmoid': False},
+                        'classes': classes,
+                        'reg_class_agnostic': False,
+                        'roi_feat_size': 7,
+                        'norm_cfg': {'type': 'GN', 'num_groups': 32},
+                        'type': Shared2FCBBoxHead_V2,
+                    },
+                    'mask_head': mask_head,
+                    'type': StandardRoIHead_V2,
+                },
+                'pretrained': None,
+                'type': MaskRCNN_V2,
+            },
+        })
+
+        from distutils.version import LooseVersion
+        import mmdet
+
+        MMDET_GT_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
+
+        if MMDET_GT_2_12:
+            # mmdet v2.12.0 introduced new registry stuff that forces use of
+            # config dictionaries
+            mm_cfg = mmcv.ConfigDict(mm_cfg)
+
         from mmdet.models import build_detector
         detector = build_detector(
-            mm_cfg['model'], train_cfg=mm_cfg['train_cfg'],
-            test_cfg=mm_cfg['test_cfg'])
+            mm_cfg['model'], train_cfg=default_args['train_cfg'],
+            test_cfg=default_args['test_cfg'])
+
+        if MMDET_GT_2_12:
+            detector.init_weights()
 
         super().__init__(detector, classes=classes, channels=channels)
