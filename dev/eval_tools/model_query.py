@@ -162,7 +162,7 @@ for fpath in ub.ProgIter(deployed_fpaths, verbose=3):
             'name': Path(fpath).stem,
             'epoch': epoch,
             'total_epoch': None,
-            'mtime': mtime,
+            'mtime': mtime.isoformat(),
             'model_path': fpath,
             'has_eval': has_eval,
             # 'has_metrics': has_metrics,
@@ -186,7 +186,7 @@ def none_to_num(x):
     else:
         return x
 
-
+# Trace through histories to see how long a model was really trained for
 for row in rows:
     if row['init'] != 'scratch':
         total_epochs = none_to_num(row['epoch'])
@@ -206,6 +206,7 @@ for row in rows:
 
 
 rows = sorted(rows, key=lambda x: none_to_num(x.get('total_epoch', -1)))
+rows = sorted(rows, key=lambda x: none_to_num(x.get('mtime', -1)))
 print('rows = {}'.format(ub.repr2(rows, nl=2, sort=0)))
 
 cats_to_group = ub.group_items(rows, lambda x: tuple(sorted(x['cats'])))
