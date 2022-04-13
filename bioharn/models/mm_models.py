@@ -313,8 +313,8 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
 
 def _dummy_img_metas(B, H, W, C):
     import mmdet
-    MMDET_GT_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
-    if MMDET_GT_2_12:
+    MMDET_GE_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
+    if MMDET_GE_2_12:
         scale_factor = np.array([1., 1.0])
     else:
         scale_factor = 1.0
@@ -705,7 +705,7 @@ class MM_Detector(nh.layers.Module):
     """
     """
     _mmdet_is_version_1x = False  # needed to prevent autoconvert
-    __bioharn_model_vesion__ = 3  # needed to prevent autoconvert
+    __bioharn_model_vesion__ = 4  # needed to prevent autoconvert
     __BUILTIN_CRITERION__ = True
 
     def __init__(self, mm_model, train_cfg=None, test_cfg=None,
@@ -746,25 +746,43 @@ class MM_Detector(nh.layers.Module):
             main_input_stats = {}
         self.input_norm = nh.layers.InputNorm(**main_input_stats)
 
+        MMDET_GE_2_20 = LooseVersion(mmdet.__version__) >= LooseVersion('2.20.0')
+        if MMDET_GE_2_20:
+            # Not sure what the exact version break is here
+            mm_model['backbone']['pretrained'] = mm_model.pop('pretrained')
+            if test_cfg is not None:
+                mm_model['test_cfg'] = test_cfg
+            if train_cfg is not None:
+                mm_model['train_cfg'] = train_cfg
+            test_cfg = None
+            train_cfg = None
+
         if train_cfg is not None:
             train_cfg = mmcv.utils.config.ConfigDict(train_cfg)
 
         if test_cfg is not None:
             test_cfg = mmcv.utils.config.ConfigDict(test_cfg)
 
-        MMDET_GT_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
+        MMDET_GE_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
 
-        if MMDET_GT_2_12:
+        if MMDET_GE_2_12:
             # mmdet v2.12.0 introduced new registry stuff that forces use of
             # config dictionaries
             mm_model = mmcv.ConfigDict(mm_model)
-            train_cfg = mmcv.ConfigDict(train_cfg)
-            test_cfg = mmcv.ConfigDict(test_cfg)
+
+            if MMDET_GE_2_20:
+                if train_cfg is not None:
+                    train_cfg = mmcv.ConfigDict(train_cfg)
+                if test_cfg is not None:
+                    test_cfg = mmcv.ConfigDict(test_cfg)
+            else:
+                train_cfg = mmcv.ConfigDict(train_cfg)
+                test_cfg = mmcv.ConfigDict(test_cfg)
 
         self.detector = build_detector(
             mm_model, train_cfg=train_cfg, test_cfg=test_cfg)
 
-        if MMDET_GT_2_12:
+        if MMDET_GE_2_12:
             self.detector.init_weights()
 
         self.coder = MM_Coder(self.classes)
@@ -1440,6 +1458,7 @@ class MM_CascadeRCNN(MM_Detector):
             pretrained=None,
             backbone=dict(
                 type='ResNeXt',
+                # pretrained=None,
                 depth=101,
                 groups=32,
                 base_width=4,
