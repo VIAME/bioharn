@@ -469,7 +469,7 @@ catname_map = {
 
 
 def convert_cfarm(df, img_root):
-    import ndsampler
+    import kwcoco
     import kwimage
     records = df.to_dict(orient='records')
     for row in ub.ProgIter(records, desc='fix formatting'):
@@ -490,7 +490,7 @@ def convert_cfarm(df, img_root):
         if old_cat not in catname_map:
             print('NEED TO REGISTER: old_cat = {!r}'.format(old_cat))
 
-    coco_dset = ndsampler.CocoDataset(img_root=img_root)
+    coco_dset = kwcoco.CocoDataset(img_root=img_root)
 
     left_img_root = join('images', 'left')
     right_img_root = join('images', 'right')

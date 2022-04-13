@@ -24,10 +24,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
     Example:
         >>> # xdoc: +REQUIRES(module:gdal)
-        >>> import sys, ubelt
-        >>> sys.path.append(ubelt.expandpath('~/code/bioharn'))
         >>> from bioharn.detect_dataset import *  # NOQA
-        >>> self = DetectFitDataset.demo(key='shapes', channels='rgb|disparity', augment='heavy', window_dims=(390, 390))
+        >>> self = DetectFitDataset.demo(key='shapes', channels='rgb|disparity', augment='heavy', window_dims=(390, 390), segmentation_bootstrap='kpts+ellipse')
         >>> index = 15
         >>> item = self[index]
         >>> # xdoc: +REQUIRES(--show)
@@ -47,13 +45,37 @@ class DetectFitDataset(torch.utils.data.Dataset):
         >>>     disp_canvs = disp_canvs / disp_canvs.max()
         >>>     disp_canvs = boxes.draw_on(disp_canvs)
         >>>     kwplot.imshow(disp_canvs, pnum=(1, 2, 2), fnum=1)
+
+        # mask = item['label']['class_masks'].data[0]
+        # mask.float()
+
+        masks = kwimage.structs.SegmentationList([
+            kwimage.Heatmap(
+                class_probs=mask.float(),
+                img_dims=rgb01.shape[0:2],
+                tf_data_to_img=np.eye(3),
+            )
+            for mask in item['label']['class_masks'].data
+        ])
+
+        >>> # Draw masks
+        >>> masks = kwimage.structs.MaskList([
+        >>>     kwimage.Mask(mask, 'c_mask')
+        >>>     for mask in item['label']['class_masks'].data
+        >>> ])
+        >>> masks.draw()
         >>> kwplot.show_if_requested()
+
+    Ignore:
+
+        masks
     """
     def __init__(self, sampler, augment='simple', window_dims=[512, 512],
                  input_dims='window', window_overlap=0.5, scales=[-3, 6],
                  factor=32, with_mask=True, gravity=0.0,
                  classes_of_interest=None, channels='rgb',
-                 blackout_ignore=True):
+                 blackout_ignore=True, segmentation_bootstrap=None,
+                 cat_mapping=None):
         super(DetectFitDataset, self).__init__()
 
         self.sampler = sampler
@@ -81,6 +103,14 @@ class DetectFitDataset(torch.utils.data.Dataset):
         self.window_dims = window_dims
         self.window_overlap = window_overlap
 
+        if segmentation_bootstrap is None:
+            segmentation_bootstrap = ['given']
+
+        if isinstance(segmentation_bootstrap, str):
+            segmentation_bootstrap = segmentation_bootstrap.split('+')
+
+        self.segmentation_bootstrap = segmentation_bootstrap
+
         if classes_of_interest is None:
             classes_of_interest = []
         self.classes_of_interest = {c.lower() for c in classes_of_interest}
@@ -93,6 +123,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
         self.window_jitter = window_jitter
 
         self.blackout_ignore = blackout_ignore
+
+        self.cat_mapping = cat_mapping
 
         # assert np.all(self.input_dims % self.factor == 0)
         # FIXME: multiscale training is currently not enabled
@@ -136,19 +168,42 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
     def _prebuild_pool(self):
         print('Prebuild pool')
-        positives, negatives = preselect_regions(
-            self.sampler, self.window_overlap, self.window_dims,
-            self.classes_of_interest)
-
-        positives = kwarray.shuffle(positives, rng=971493943902)
-        negatives = kwarray.shuffle(negatives, rng=119714940901)
-
+        sampler = self.sampler
+        window_overlap = self.window_overlap
+        window_dims = self.window_dims
+        classes_of_interest = self.classes_of_interest
         ratio = 0.1
+        verbose = 1
 
-        num_neg = int(len(positives) * ratio)
-        chosen_neg = negatives[0:num_neg]
+        hashid = self.sampler.dset.hashid
 
-        chosen_regions = positives + chosen_neg
+        dpath = ub.ensuredir((self.sampler.regions.workdir, '_cache'))
+        depends = ub.odict({
+            'window_overlap': window_overlap,
+            'window_dims': window_dims,
+            'coi': sorted(self.classes_of_interest),
+            'hashid': hashid,
+            'ratio': ratio,
+        })
+        cacher = ub.Cacher(
+            'preselect_regions_v1', dpath=dpath, depends=depends,
+            enabled=hashid is not None,  # need to ensure we have a good hashid to do this
+            verbose=100)
+        chosen_regions = cacher.tryload()
+        if chosen_regions is None:
+            positives, negatives = preselect_regions(
+                sampler, window_overlap, window_dims, classes_of_interest,
+                verbose=verbose)
+
+            positives = kwarray.shuffle(positives, rng=971493943902)
+            negatives = kwarray.shuffle(negatives, rng=119714940901)
+
+            num_neg = int(len(positives) * ratio)
+            chosen_neg = negatives[0:num_neg]
+
+            chosen_regions = positives + chosen_neg
+            cacher.save(chosen_regions)
+
         self.chosen_regions = chosen_regions
 
     @classmethod
@@ -201,6 +256,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
         import ndsampler
         from os.path import exists
 
+        import inspect
+        sig = inspect.signature(cls.__init__)
+        cls_kw = ub.dict_isect(kw, list(sig.parameters.keys()))
+        sampler_kw = ub.dict_diff(kw, cls_kw)
+
         channels = ChannelSpec.coerce(channels)
         if exists(key):
             import kwcoco
@@ -210,9 +270,10 @@ class DetectFitDataset(torch.utils.data.Dataset):
             sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])
         else:
             aux = list(channels.difference(ChannelSpec.coerce('rgb')).keys())
-            sampler = ndsampler.CocoSampler.demo(key, aux=aux, **kw)
+            sampler = ndsampler.CocoSampler.demo(key, aux=aux, **sampler_kw)
 
-        self = cls(sampler, augment=augment, window_dims=window_dims, channels=channels)
+        self = cls(sampler, augment=augment, window_dims=window_dims,
+                   channels=channels, **cls_kw)
         return self
 
     def __len__(self):
@@ -228,11 +289,13 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>> from bioharn.detect_dataset import *  # NOQA
             >>> torch_dset = self = DetectFitDataset.demo(
             >>>     key='vidshapes32', channels="rgb|disparity,flowx|flowy",
-            >>>     augment='complex', window_dims=(512, 512), gsize=(1920, 1080))
-            >>> index = 1
+            >>>     augment='complex', window_dims=(512, 512), gsize=(1920, 1080),
+            >>>     segmentation_bootstrap='kpts+given+ellipse')
+            >>> index = 10
             >>> spec = {'index': index, 'input_dims': (120, 120)}
             >>> item = self[spec]
-            >>> hwc01 = item['inputs']['rgb'].data.numpy().transpose(1, 2, 0)
+            >>> chw01 = self.channels.decode(item['inputs'], axis=0)['rgb'].data.numpy()
+            >>> hwc01 = chw01.transpose(1, 2, 0)
             >>> print(hwc01.shape)
             >>> boxes = kwimage.Boxes(item['label']['cxywh'].data.numpy(), 'cxywh')
             >>> # xdoc: +REQUIRES(--show)
@@ -329,8 +392,12 @@ class DetectFitDataset(torch.utils.data.Dataset):
 
         _debug('self.with_mask = {!r}'.format(self.with_mask))
         with_annots = ['boxes']
+
         if self.with_mask:
+            sseg_method = self.rng.choice(self.segmentation_bootstrap)
             with_annots += ['segmentation']
+            if sseg_method == 'kpts':
+                with_annots += ['keypoints']
 
         # NOTE: using the gdal backend samples HABCAM images in 16ms, and no
         # backend samples clocks in at 72ms. The disparity speedup is about 2x
@@ -340,10 +407,11 @@ class DetectFitDataset(torch.utils.data.Dataset):
         _debug('sample = {!r}'.format(sample))
         imdata = kwimage.atleast_3channels(sample['im'])[..., 0:3]
 
-        boxes = sample['annots']['rel_boxes'].view(-1, 4)
-        cids = sample['annots']['cids']
-        aids = sample['annots']['aids']
-        ssegs = sample['annots']['rel_ssegs']
+        sample_annots = sample['annots']
+
+        boxes = sample_annots['rel_boxes'].view(-1, 4)
+        cids = sample_annots['cids']
+        aids = sample_annots['aids']
         anns = list(ub.take(self.sampler.dset.anns, aids))
         weights = [ann.get('weight', 1.0) for ann in anns]
 
@@ -357,14 +425,29 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 if catname.lower() not in self.classes_of_interest:
                     weights[idx] = 0
 
-        classes = self.sampler.classes
-        dets = kwimage.Detections(
-            boxes=boxes,
-            segmentations=ssegs,
-            class_idxs=np.array([classes.id_to_idx[cid] for cid in cids]),
-            weights=np.array(weights, dtype=np.float32),
-            classes=classes,
-        )
+        if self.cat_mapping is None:
+            classes = self.sampler.classes
+            class_idxs = np.array([classes.id_to_idx[cid] for cid in cids])
+        else:
+            # Ensure we are using the class ids / idxs of the "training" or
+            # target categories that were passed to the network
+            classes = self.cat_mapping['target']
+            class_idxs = np.array([
+                classes.id_to_idx[self.cat_mapping['id'][cid]] for cid in cids])
+
+        detskw = {
+            'boxes': boxes,
+            'class_idxs': class_idxs,
+            'weights': np.array(weights, dtype=np.float32),
+            'classes': classes,
+        }
+
+        if 'rel_kpts' in sample_annots:
+            detskw['keypoints'] = sample_annots['rel_kpts']
+        if 'rel_ssegs' in sample_annots:
+            detskw['segmentations'] = sample_annots['rel_ssegs']
+
+        dets = kwimage.Detections(**detskw)
         _debug('dets = {!r}'.format(dets))
         orig_size = np.array(imdata.shape[0:2][::-1])
 
@@ -454,31 +537,86 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     sly = slice(int(tl_y), int(br_y))
                     chw01[:, sly, slx] = 0
 
-        if 'segmentations' in dets.data and self.with_mask:
-            # Convert segmentations to masks
+        if self.with_mask:
             has_mask_list = []
             class_mask_list = []
-            h, w = chw01.shape[1:]
-            for sseg in dets.data['segmentations']:
-                if sseg is not None:
-                    mask = sseg.to_mask(dims=chw01.shape[1:])
-                    c_mask = mask.to_c_mask().data
-                    mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
-                    class_mask_list.append(mask_tensor[None, :])
-                    has_mask_list.append(1)
-                else:
-                    bad_mask = torch.empty((1, h, w), dtype=torch.uint8)
-                    bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
-                    class_mask_list.append(bad_mask)
-                    has_mask_list.append(-1)
+            if sseg_method == 'given' and 'segmentations' in dets.data:
+                # Convert segmentations to masks
+                h, w = chw01.shape[1:]
+                for sseg in dets.data['segmentations']:
+                    if sseg is not None:
+                        mask = sseg.to_mask(dims=chw01.shape[1:])
+                        c_mask = mask.to_c_mask().data
+                        mask_tensor = torch.tensor(c_mask, dtype=torch.uint8)
+                        class_mask_list.append(mask_tensor[None, :])
+                        has_mask_list.append(1)
+                    else:
+                        bad_mask = torch.empty((1, h, w), dtype=torch.uint8)
+                        bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
+                        class_mask_list.append(bad_mask)
+                        has_mask_list.append(-1)
 
-            has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
-            if len(class_mask_list) == 0:
-                class_masks = torch.empty((0, h, w), dtype=torch.uint8)
-            else:
-                class_masks = torch.cat(class_mask_list, dim=0)
-            label['class_masks'] = ItemContainer(class_masks, stack=False)
-            label['has_mask'] = ItemContainer(has_mask, stack=False)
+                has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+                if len(class_mask_list) == 0:
+                    class_masks = torch.empty((0, h, w), dtype=torch.uint8)
+                else:
+                    class_masks = torch.cat(class_mask_list, dim=0)
+                label['class_masks'] = ItemContainer(class_masks, stack=False, cpu_only=True)
+                label['has_mask'] = ItemContainer(has_mask, stack=False)
+
+            if sseg_method == 'ellipse':
+                for box in dets.data['boxes']:
+                    if box is not None:
+                        import cv2
+                        mask = np.zeros(chw01.shape[1:], dtype=np.float32)
+
+                        center = tuple(map(int, box.center))
+                        axes = (int(box.width) // 3, int(box.height) // 3)
+                        color_ = 1
+                        cv2.ellipse(mask, center, axes, angle=0.0, startAngle=0.0,
+                                    endAngle=360.0, color=color_, thickness=-1)
+
+                        mask_tensor = torch.tensor(mask, dtype=torch.float32)
+                        class_mask_list.append(mask_tensor[None, :])
+                        has_mask_list.append(1)
+                    else:
+                        bad_mask = torch.empty((1, h, w), dtype=torch.float32)
+                        bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
+                        class_mask_list.append(bad_mask)
+                        has_mask_list.append(-1)
+
+                has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+                if len(class_mask_list) == 0:
+                    class_masks = torch.empty((0, h, w), dtype=torch.uint8)
+                else:
+                    class_masks = torch.cat(class_mask_list, dim=0)
+                label['class_masks'] = ItemContainer(class_masks, stack=False, cpu_only=True)
+                label['has_mask'] = ItemContainer(has_mask, stack=False)
+
+            if sseg_method == 'kpts' and 'keypoints' in dets.data:
+                # Make a pseudo segmentation based on keypoints
+                pts_list = dets.data['keypoints']
+                for pts in pts_list:
+                    if pts is not None:
+                        mask = np.zeros(chw01.shape[1:], dtype=np.float32)
+                        # mask = pts.data['xy'].fill(mask, value=1.0)
+                        pts.data['xy'].soft_fill(mask, coord_axes=[1, 0], radius=5)
+                        mask_tensor = torch.tensor(mask, dtype=torch.float32)
+                        class_mask_list.append(mask_tensor[None, :])
+                        has_mask_list.append(1)
+                    else:
+                        bad_mask = torch.empty((1, h, w), dtype=torch.float32)
+                        bad_mask = torch.full((1, h, w), fill_value=2, dtype=torch.uint8)
+                        class_mask_list.append(bad_mask)
+                        has_mask_list.append(-1)
+
+                has_mask = torch.tensor(has_mask_list, dtype=torch.int8)
+                if len(class_mask_list) == 0:
+                    class_masks = torch.empty((0, h, w), dtype=torch.uint8)
+                else:
+                    class_masks = torch.cat(class_mask_list, dim=0)
+                label['class_masks'] = ItemContainer(class_masks, stack=False, cpu_only=True)
+                label['has_mask'] = ItemContainer(has_mask, stack=False)
 
         components = {
             'rgb': chw01,
@@ -549,12 +687,49 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 from netharn.data.batch_samplers import PatchedRandomSampler
                 item_sampler = PatchedRandomSampler(self, num_samples=num_samples)
             else:
-                if num_samples is None:
-                    item_sampler = torch.utils.data.sampler.SequentialSampler(self)
+                from netharn.data.batch_samplers import SubsetSampler
+                import itertools as it
+                REBALANCE_DETERMINISTIC_SHUFFLE = True
+                if REBALANCE_DETERMINISTIC_SHUFFLE:
+                    # Make is such that the first few validation batches
+                    # have instances of all true categories
+                    dset = self.sampler.dset
+                    cid_to_idxs = ub.ddict(list)
+
+                    for idx, region in enumerate(self.chosen_regions):
+                        (gid, slices, aids) = region
+                        region_cids = dset.annots(aids).lookup('category_id')
+                        if len(region_cids) == 0:
+                            # Handle case where there are no annots in a region
+                            cid_to_idxs[None].append(idx)
+                        else:
+                            # Mark that this region index contains this category
+                            for cid in set(region_cids):
+                                cid_to_idxs[cid].append(idx)
+
+                    # Deterministic shuffle
+                    rng = kwarray.ensure_rng(58286)
+                    idx_groups = []
+                    for idxs in cid_to_idxs.values():
+                        idxs = sorted(idxs)
+                        rng.shuffle(idxs)
+                        idx_groups.append(idxs)
+
+                    it.zip_longest
+                    flat_idxs = ub.flatten(list(it.zip_longest(*idx_groups)))
+                    flat_idxs = [idx for idx in flat_idxs if idx is not None]
+
+                    if num_samples is None:
+                        final_idxs = flat_idxs
+                    else:
+                        final_idxs = flat_idxs[:num_samples]
+                    item_sampler = SubsetSampler(final_idxs)
                 else:
-                    from netharn.data.batch_samplers import SubsetSampler
-                    stats_idxs = (np.arange(num_samples) % len(self))
-                    item_sampler = SubsetSampler(stats_idxs)
+                    if num_samples is None:
+                        item_sampler = torch.utils.data.sampler.SequentialSampler(self)
+                    else:
+                        stats_idxs = (np.arange(num_samples) % len(self))
+                        item_sampler = SubsetSampler(stats_idxs)
 
             if num_samples is not None:
                 # If num_batches is too big, what should the behavior be?
@@ -611,17 +786,6 @@ class DetectFitDataset(torch.utils.data.Dataset):
                 item_sampler, batch_size=batch_size, drop_last=drop_last,
                 num_batches=num_batches)
 
-        if ub.WIN32:
-            # Hack for win32 because of pickle loading issues with local vars
-            worker_init_fn = None
-        else:
-            def worker_init_fn(worker_id):
-                # Make loaders more random
-                kwarray.seed_global(np.random.get_state()[1][0] + worker_id)
-                if self.augmenter:
-                    rng = kwarray.ensure_rng(None)
-                    reseed_(self.augmenter, rng)
-
         # torch.utils.data.sampler.WeightedRandomSampler
 
         if xpu is None:
@@ -637,6 +801,21 @@ class DetectFitDataset(torch.utils.data.Dataset):
             collate_fn=collate_fn, num_workers=num_workers,
             pin_memory=pin_memory, worker_init_fn=worker_init_fn)
         return loader
+
+
+def worker_init_fn(worker_id):
+    worker_info = torch.utils.data.get_worker_info()  # TODO
+    self = worker_info.dataset
+
+    if hasattr(self.sampler.dset, 'connect'):
+        # Reconnect to the backend if we are using SQL
+        self.sampler.dset.connect(readonly=True)
+
+    # Make loaders more random
+    kwarray.seed_global(np.random.get_state()[1][0] + worker_id)
+    if self.augmenter:
+        rng = kwarray.ensure_rng(None)
+        reseed_(self.augmenter, rng)
 
 
 def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
@@ -659,6 +838,7 @@ def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
 
     Example:
         >>> # xdoctest: +REQUIRES(module:gdal)
+        >>> from bioharn.detect_dataset import *  # NOQA
         >>> import ndsampler
         >>> from netharn.data.channel_spec import ChannelSpec
         >>> want_aux = ChannelSpec.coerce('disparity,flowx|flowy').unique()
@@ -692,8 +872,12 @@ def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
 
         aux_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
         data_dims = aux_frame.shape[0:2]
-        data_slice, extra_padding, st_dims = sampler._rectify_tr(
-            tr, data_dims, window_dims=None, pad=pad)
+
+        tr = sampler._infer_target_attributes(tr)
+        data_slice, extra_padding = kwarray.embed_slice(
+            tr['space_slice'], data_dims=data_dims, pad=pad)
+        # data_slice, extra_padding, st_dims = sampler._rectify_tr(
+        #     tr, data_dims, window_dims=None, pad=pad)
 
         if part != key:
             # disk input is prefused, need to separate it out
@@ -926,7 +1110,7 @@ class MultiScaleBatchSampler2(torch.utils.data.sampler.BatchSampler):
 def preselect_regions(sampler, window_overlap, window_dims,
                       classes_of_interest=None,
                       ignore_coverage_thresh=0.6,
-                      negative_classes={'ignore', 'background'}):
+                      negative_classes={'ignore', 'background'}, verbose=1):
     """
     TODO: this might be generalized and added to ndsampler
 
@@ -963,29 +1147,51 @@ def preselect_regions(sampler, window_overlap, window_dims,
 
     # Create a sliding window object for each specific image (because they may
     # have different sizes, technically we could memoize this)
-    gid_to_slider = {}
     dset = sampler.dset
-    for img in dset.imgs.values():
-        if img.get('source', '') == 'habcam_2015_stereo':
-            # Hack: todo, cannoncial way to get this effect
-            full_dims = [img['height'], img['width'] // 2]
-            # raise AssertionError('We should not do this hack anymore')
-        else:
-            full_dims = [img['height'], img['width']]
 
+    gid_height_width_list = [
+        (img['id'], img['height'], img['width'] // 2)
+        if img.get('source', '') == 'habcam_2015_stereo' else
+        (img['id'], img['height'], img['width'])
+        for img in ub.ProgIter(dset.imgs.values(), total=len(dset.imgs),
+                               desc='load image sizes', verbose=verbose)]
+
+    if any(h is None or w is None for gid, h, w in gid_height_width_list):
+        raise ValueError('All images must contain width and height attrs.')
+
+    @ub.memoize
+    def _memo_slider(full_dims, window_dims):
         window_dims_ = full_dims if window_dims == 'full' else window_dims
-        slider = nh.util.SlidingWindow(full_dims, window_dims_,
-                                       overlap=window_overlap, keepbound=keepbound,
-                                       allow_overshoot=True)
-        gid_to_slider[img['id']] = slider
+        slider = nh.util.SlidingWindow(
+            full_dims, window_dims_, overlap=window_overlap,
+            keepbound=keepbound, allow_overshoot=True)
+        slider.regions = list(slider)
+        return slider
+
+    gid_to_slider = {
+        gid: _memo_slider(full_dims=(height, width), window_dims=window_dims)
+        for gid, height, width in ub.ProgIter(
+            gid_height_width_list, desc='build sliders', verbose=verbose)
+    }
 
     from ndsampler import isect_indexer
-    _isect_index = isect_indexer.FrameIntersectionIndex.from_coco(dset)
+    _isect_index = isect_indexer.FrameIntersectionIndex.from_coco(
+        dset, verbose=verbose)
+
+    if hasattr(dset, '_all_rows_column_lookup'):
+        # SQL optimization
+        aids_cids = dset._all_rows_column_lookup(
+            'annotations', ['id', 'category_id'])
+        aid_to_cid = dict(aids_cids)
+    else:
+        aid_to_cid = None
 
     positives = []
     negatives = []
-    for gid, slider in gid_to_slider.items():
-
+    for gid, slider in ub.ProgIter(gid_to_slider.items(),
+                                   total=len(gid_to_slider),
+                                   desc='finding regions with annots',
+                                   verbose=verbose):
         # For each image, create a box for each spatial region in the slider
         boxes = []
         regions = list(slider)
@@ -999,10 +1205,14 @@ def preselect_regions(sampler, window_overlap, window_dims,
             aids = _isect_index.overlapping_aids(gid, box)
 
             # Look at the categories within this region
-            catnames = [
-                dset.cats[dset.anns[aid]['category_id']]['name'].lower()
-                for aid in aids
-            ]
+            # anns = [dset.anns[aid] for aid in aids]
+            # cids = [ann['category_id'] for ann in anns]
+            if aid_to_cid is None:
+                cids = dset.annots(aids).get('category_id')
+            else:
+                cids = list(ub.take(aid_to_cid, aids))
+            cats = [dset.cats[cid] for cid in cids]
+            catnames = [cat['name'].lower() for cat in cats]
 
             if ignore_coverage_thresh:
                 ignore_flags = [catname == 'ignore' for catname in catnames]

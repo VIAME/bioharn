@@ -9,19 +9,25 @@ Ignore:
     closer._lazy_close()
     print(closer.current_sourcecode())
 """
-from mmdet.models.backbones.resnet import BasicBlock
-from mmdet.models.backbones.resnet import Bottleneck
-from torch.nn.modules.batchnorm import _BatchNorm
-from mmcv import cnn as mm_cnn
-# from mmcv.cnn import build_conv_layer
-# from mmcv.cnn import build_norm_layer
-# from mmcv.cnn import constant_init
-# from mmcv.cnn import kaiming_init
-from mmdet.utils import get_root_logger
-from mmcv.runner import load_checkpoint
-import torch.nn as nn
 
+from torch.nn.modules.batchnorm import _BatchNorm
+import torch.nn as nn
 import netharn as nh
+
+try:
+    from mmdet.models.backbones.resnet import BasicBlock
+    from mmdet.models.backbones.resnet import Bottleneck
+    from mmcv import cnn as mm_cnn
+    # from mmcv.cnn import build_conv_layer
+    # from mmcv.cnn import build_norm_layer
+    # from mmcv.cnn import constant_init
+    # from mmcv.cnn import kaiming_init
+    from mmdet.utils import get_root_logger
+    from mmcv.runner import load_checkpoint
+except Exception as ex:
+    print('ex = {!r}'.format(ex))
+    BasicBlock = object
+    Bottleneck = object
 
 
 class HRModule(nn.Module):
@@ -56,6 +62,8 @@ class HRModule(nn.Module):
                                             num_channels)
         self.fuse_layers = self._make_fuse_layers()
         self.relu = nn.ReLU(inplace=False)
+
+        self.out_channels = num_channels[-1]
 
     def _check_branches(self, num_branches, num_blocks, in_channels,
                         num_channels):
@@ -230,7 +238,8 @@ class HRNet_V2(nn.Module):
             in resblocks to let them behave as identity.
 
     Example:
-        >>> from mmdet.models import HRNet
+        >>> # xdoctest: +REQUIRES(module:mmdet)
+        >>> from bioharn.models.new_backbone import *  # NOQA
         >>> import torch
         >>> extra = dict(
         >>>     stage1=dict(
@@ -257,7 +266,7 @@ class HRNet_V2(nn.Module):
         >>>         block='BASIC',
         >>>         num_blocks=(4, 4, 4, 4),
         >>>         num_channels=(32, 64, 128, 256)))
-        >>> self = HRNet(extra, in_channels=1)
+        >>> self = HRNet_V2(extra, in_channels=1)
         >>> self.eval()
         >>> inputs = torch.rand(1, 1, 32, 32)
         >>> level_outputs = self.forward(inputs)
@@ -297,6 +306,8 @@ class HRNet_V2(nn.Module):
         # stem net
         self.norm1_name, norm1 = mm_cnn.build_norm_layer(self.norm_cfg, 64, postfix=1)
         self.norm2_name, norm2 = mm_cnn.build_norm_layer(self.norm_cfg, 64, postfix=2)
+
+        self.in_channels = in_channels
 
         self.conv1 = mm_cnn.build_conv_layer(
             self.conv_cfg,
@@ -365,6 +376,9 @@ class HRNet_V2(nn.Module):
                                                        num_channels)
         self.stage4, pre_stage_channels = self._make_stage(
             self.stage4_cfg, num_channels)
+
+        self.out_channels = self.stage4_cfg['num_channels']
+        # self.out_channels = num_channels[-1]
 
     @property
     def norm1(self):

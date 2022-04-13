@@ -129,8 +129,8 @@ def main():
         'live sea scallop': 'live sea scallop',
     }
 
-    import ndsampler
-    coco_dset = ndsampler.CocoDataset()
+    import kwcoco
+    coco_dset = kwcoco.CocoDataset()
 
     def _decode_geom(code, value, weight):
         if code == 'line':

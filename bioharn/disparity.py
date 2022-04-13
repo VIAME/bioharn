@@ -14,8 +14,9 @@ def compute_disparity(img_left, img_right, disp_range=(0, 240), block_size=11,
 
     Ignore:
         import ndsampler
+        import kwcoco
         fpath = ub.expandpath('$HOME/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json')
-        dset = ndsampler.CocoDataset(fpath)
+        dset = kwcoco.CocoDataset(fpath)
         from bioharn.detect_fit import DetectFitConfig
         config = DetectFitConfig()
         sampler = ndsampler.CocoSampler(dset, workdir=config['workdir'])

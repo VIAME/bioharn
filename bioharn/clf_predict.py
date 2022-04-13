@@ -610,6 +610,7 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
         >>> from bioharn.clf_predict import *  # NOQA
         >>> from bioharn.clf_predict import _cached_clf_predict
         >>> import ndsampler
+        >>> import kwcoco
         >>> config = {}
         >>> config['batch_size'] = 16
         >>> config['workers'] = 4
@@ -617,7 +618,7 @@ def _cached_clf_predict(predictor, sampler, out_dpath='./cached_clf_out',
         >>> predictor = ClfPredictor(config)
         >>> out_dpath = './cached_clf_out_rgb_fine_coi-v40'
         >>> coco_fpath = ub.expandpath("$HOME/remote/viame/work/bioharn/fit/nice/bioharn-det-mc-cascade-rgb-fine-coi-v40/eval/habcam_cfarm_v8_test.mscoc/bioharn-det-mc-cascade-rgb-fine-coi-v40__epoch_00000007/c=0.1,i=window,n=0.8,window_d=512,512,window_o=0.5/all_pred.mscoco.json")
-        >>> coco_dset = ndsampler.CocoDataset(coco_fpath)
+        >>> coco_dset = kwcoco.CocoDataset(coco_fpath)
         >>> sampler = ndsampler.CocoSampler(coco_dset, workdir=None,
         >>>                                 backend=None)
         >>> _cached_clf_predict(predictor, sampler, out_dpath)

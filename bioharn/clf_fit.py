@@ -32,10 +32,15 @@ class ClfConfig(scfg.Config):
         'workers': scfg.Value(2, help='number of parallel dataloading jobs'),
         'xpu': scfg.Value('auto', help='See netharn.XPU for details. can be auto/cpu/xpu/cuda0/0,1,2,3)'),
 
+        'pin_memory': scfg.Value(True, help='see torch DataLoader docs'),
+        'sharing_strategy': scfg.Value('auto', help='torch sharing strategy. Can be file_system or descriptor on linux systems'),
+
         'datasets': scfg.Value('special:shapes256', help='Either a special key or a coco file'),
         'train_dataset': scfg.Value(None),
         'vali_dataset': scfg.Value(None),
         'test_dataset': scfg.Value(None),
+
+        'sql_cache_view': scfg.Value(False, help='if True json-based COCO datasets are cached as SQL views'),
 
         'sampler_backend': scfg.Value(None, help='ndsampler backend'),
 
@@ -523,7 +528,8 @@ def setup_harn(cmdline=True, **kw):
 
     Example:
         >>> # xdoctest: +SKIP
-        >>> kw = {'datasets': 'special:shapes256'}
+        >>> from bioharn.clf_fit import *  # NOQA
+        >>> kw = {'datasets': 'special:vidshapes256'}
         >>> cmdline = False
         >>> harn = setup_harn(cmdline, **kw)
         >>> harn.initialize()
@@ -534,15 +540,28 @@ def setup_harn(cmdline=True, **kw):
     print('config = {}'.format(ub.repr2(config.asdict())))
 
     nh.configure_hacks(config)
+
     coco_datasets = nh.api.Datasets.coerce(config)
+
+    if 0:
+        dset = coco_datasets['train']
 
     print('coco_datasets = {}'.format(ub.repr2(coco_datasets, nl=1)))
     for tag, dset in coco_datasets.items():
         dset._build_hashid(hash_pixels=False)
 
+    if config['sql_cache_view']:
+        from kwcoco.coco_sql_dataset import ensure_sql_coco_view
+        for tag, dset in list(coco_datasets.items()):
+            sql_dset = ensure_sql_coco_view(dset)
+            sql_dset.hashid = dset.hashid + '-hack-sql'
+            print('sql_dset.uri = {!r}'.format(sql_dset.uri))
+            coco_datasets[tag] = sql_dset
+
     workdir = ub.ensuredir(ub.expandpath(config['workdir']))
     samplers = {
-        tag: ndsampler.CocoSampler(dset, workdir=workdir, backend=config['sampler_backend'])
+        tag: ndsampler.CocoSampler(
+            dset, workdir=workdir, backend=config['sampler_backend'])
         for tag, dset in coco_datasets.items()
     }
 
@@ -642,7 +661,7 @@ def setup_harn(cmdline=True, **kw):
             num_workers=config['workers'],
             shuffle=(tag == 'train'),
             balance=(config['balance'] if tag == 'train' else None),
-            pin_memory=True)
+            pin_memory=config['pin_memory'])
         for tag, dset in torch_datasets.items()
     }
 
@@ -793,6 +812,30 @@ if __name__ == '__main__':
             --xpu=auto \
             --batch_size=32 \
             --num_batches=auto --num_vali_batches=auto
+
+        kwcoco toydata shapes256
+        kwcoco toydata shapes32
+
+        TRAIN_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_256_dqikwsaiwlzjup/data.kwcoco.json"
+        VALI_DSET="$HOME/.cache/kwcoco/demodata_bundles/shapes_32_kahspdeebbfocp/data.kwcoco.json"
+
+        python -m bioharn.clf_fit \
+            --name=simple_demo_sql \
+            --train_dataset=$TRAIN_DSET \
+            --vali_dataset=$VALI_DSET \
+            --workdir=$HOME/work/test \
+            --arch=resnet50 \
+            --sql_cache_view=True \
+            --channels="rgb" \
+            --optim=sgd \
+            --lr=1e-3 \
+            --input_dims=256,256 \
+            --normalize_inputs=False \
+            --workers=0 \
+            --xpu=auto \
+            --batch_size=32 \
+            --num_batches=auto --num_vali_batches=auto
+
     """
     try:
         main()

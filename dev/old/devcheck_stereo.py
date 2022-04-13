@@ -8,9 +8,9 @@ def _devcheck_stereo():
     """
     pip install opencv-contrib-python
     """
-    import ndsampler
+    import kwcoco
     fpath = ub.expandpath('~/remote/namek/raid/data/noaa/Habcam_2015_g027250_a00102917_c0001_v2_train.mscoco.json')
-    dset = ndsampler.CocoDataset(fpath)
+    dset = kwcoco.CocoDataset(fpath)
 
     import cv2
     img3 = dset.load_image(1)

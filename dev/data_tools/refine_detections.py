@@ -11,7 +11,7 @@ import ubelt as ub
 import numpy as np
 import kwimage
 import kwarray
-import ndsampler
+import kwcoco
 from sklearn import metrics
 
 
@@ -479,7 +479,7 @@ def load_hardcoded_candidate_detections():
 
     truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
     print('load true')
-    true_dset = ndsampler.CocoDataset(truth_fpath)
+    true_dset = kwcoco.CocoDataset(truth_fpath)
     print('load true')
     print('true_dset = {!r}'.format(true_dset))
 
@@ -494,7 +494,7 @@ def load_hardcoded_candidate_detections():
     pred_dsets = {}
     for key, fpath in fpaths.items():
         print('load key = {!r}'.format(key))
-        pred_dsets[key] = ndsampler.CocoDataset(fpath)
+        pred_dsets[key] = kwcoco.CocoDataset(fpath)
 
     # Use everything read so far
     # if 'cascade' not in pred_dsets:
@@ -502,9 +502,9 @@ def load_hardcoded_candidate_detections():
     #     patial_fpaths = list(glob.glob(ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/detections/cascade_v2/pred/single_image/*.json')))
     #     partial_dsets = []
     #     for fpath in ub.ProgIter(patial_fpaths):
-    #         dset = ndsampler.CocoDataset(fpath)
+    #         dset = kwcoco.CocoDataset(fpath)
     #         partial_dsets.append(dset)
-    #     combo_dset = ndsampler.CocoDataset.union(*partial_dsets)
+    #     combo_dset = kwcoco.CocoDataset.union(*partial_dsets)
     #     pred_dsets['cascade'] = combo_dset
 
     return true_dset, pred_dsets
@@ -514,7 +514,7 @@ def _true_devcheck():
     # UNUSED, devcode
     truth_fpath = ub.expandpath('~/remote/viame/data/US_ALASKA_MML_SEALION/sealions_all_refined_v7.mscoco.json')
     print('load true')
-    true_dset = ndsampler.CocoDataset(truth_fpath)
+    true_dset = kwcoco.CocoDataset(truth_fpath)
 
     allkeys = set()
     for ann in true_dset.anns.values():
