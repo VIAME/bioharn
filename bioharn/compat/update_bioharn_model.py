@@ -15,6 +15,29 @@ class UpdateBioharnConfig(scfg.Config):
     }
 
 
+def _debug():
+    from bioharn.util.util_girder import grabdata_girder
+    import ubelt as ub
+    models = grabdata_girder('https://viame.kitware.com/api/v1', '60b44157463dff1a6cb124f9', 'VIAME-Default-Models-v1.0.zip')
+    zfile = ub.zopen(models)
+
+    for name in zfile.namelist():
+        if 'fish_no_motion_detector.zip' in name:
+            extracted = zfile.zfile.extract(name)
+            break
+
+    extracted = '/home/joncrall/configs/pipelines/models/fish_no_motion_detector.zip'
+
+    # from torch_liberator import DeployedModel
+    # deployed = DeployedModel.coerce(extracted)
+    # mod = ub.import_module_from_path('/home/joncrall/configs/pipelines/models/deploy_MM_CascadeRCNN_ckbbymjh_013_MGATEY/MM_CascadeRCNN_1ff002.py')
+    config = {
+        'deployed': extracted,
+        'use_cache': False,
+        'out_dpath': '/home/joncrall/configs/pipelines/models',
+    }
+
+
 def update_deployed_bioharn_model(config):
     """
     Simply put old weights in a new model.
@@ -64,7 +87,7 @@ def update_deployed_bioharn_model(config):
     else:
         extract_dpath = config['out_dpath']
 
-    new_name = ub.augpath(deploy_fpath, dpath='', suffix='_bio3x')
+    new_name = ub.augpath(deploy_fpath, dpath='', suffix='_bio4x')
     new_fpath = join(extract_dpath, new_name)
 
     print('Upgrade deployed model config: config = {!r}'.format(config))
@@ -92,7 +115,8 @@ def update_deployed_bioharn_model(config):
     # print(model_state_2['bbox_head.0.fc_cls.weight'].shape)
     # print(new_model_state['state_dict']['roi_head.bbox_head.0.fc_cls.weight'].shape)
 
-    from netharn.initializers.functional import load_partial_state
+    # from netharn.initializers.functional import load_partial_state
+    from torch_liberator.initializer import load_partial_state
     load_info = load_partial_state(new_model, new_model_state['model_state_dict'], verbose=3)
     del load_info
     # new_model_state['model_state_dict']['input_norm.mean']
