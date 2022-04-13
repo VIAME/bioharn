@@ -746,6 +746,17 @@ class MM_Detector(nh.layers.Module):
             main_input_stats = {}
         self.input_norm = nh.layers.InputNorm(**main_input_stats)
 
+        MMDET_GE_2_20 = LooseVersion(mmdet.__version__) >= LooseVersion('2.20.0')
+        if MMDET_GE_2_20:
+            # Not sure what the exact version break is here
+            mm_model['backbone']['pretrained'] = mm_model.pop('pretrained')
+            if test_cfg is not None:
+                mm_model['test_cfg'] = test_cfg
+            if train_cfg is not None:
+                mm_model['train_cfg'] = train_cfg
+            test_cfg = None
+            train_cfg = None
+
         if train_cfg is not None:
             train_cfg = mmcv.utils.config.ConfigDict(train_cfg)
 
@@ -753,7 +764,6 @@ class MM_Detector(nh.layers.Module):
             test_cfg = mmcv.utils.config.ConfigDict(test_cfg)
 
         MMDET_GE_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
-        MMDET_GE_2_20 = LooseVersion(mmdet.__version__) >= LooseVersion('2.20.0')
 
         if MMDET_GE_2_12:
             # mmdet v2.12.0 introduced new registry stuff that forces use of
@@ -1560,16 +1570,6 @@ class MM_CascadeRCNN(MM_Detector):
                 max_per_img=100,
                 mask_thr_binary=0.5),
             keep_all_stages=False)
-
-        import mmdet
-        MMDET_GE_2_20 = LooseVersion(mmdet.__version__) >= LooseVersion('2.20.0')
-        if MMDET_GE_2_20:
-            # Not sure what the exact version break is here
-            mm_config['backbone']['pretrained'] = mm_config.pop('pretrained')
-            mm_config['test_cfg'] = test_cfg
-            mm_config['train_cfg'] = train_cfg
-            test_cfg = None
-            train_cfg = None
 
         backbone_cfg = mm_config['backbone']
         _hack_mm_backbone_in_channels(backbone_cfg)
