@@ -16,6 +16,7 @@ import kwarray
 import kwimage
 import warnings
 import scriptconfig as scfg
+import kwcoco.metrics as metrics
 
 
 class DetectFitConfig(scfg.Config):
@@ -216,7 +217,7 @@ class DetectHarn(nh.FitHarn):
 
         # Prepare structures we will use to measure and quantify quality
         for tag, voc_dset in harn.datasets.items():
-            dmet = nh.metrics.DetectionMetrics()
+            dmet = metrics.DetectionMetrics()
             dmet._pred_aidbase = getattr(dmet, '_pred_aidbase', 1)
             dmet._true_aidbase = getattr(dmet, '_true_aidbase', 1)
             harn.dmets[tag] = dmet
@@ -568,7 +569,7 @@ class DetectHarn(nh.FitHarn):
             # This will never produce duplicates (difference between
             # consecutive numbers will always be > 1 there fore they will
             # always round to a different number)
-            idxs = np.linspace(bsize - 1, 0, num_want).round().astype(np.int).tolist()
+            idxs = np.linspace(bsize - 1, 0, num_want).round().astype(np.int64).tolist()
             idxs = sorted(idxs)
             # assert len(set(idxs)) == len(idxs)
             # idxs = idxs[0:4]
