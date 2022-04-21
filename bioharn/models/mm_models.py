@@ -982,9 +982,9 @@ class MM_RetinaNet(MM_Detector):
 
     def __init__(self, classes, channels='rgb', input_stats=None):
 
-        # from mmcv.runner.checkpoint import load_url_dist
+        # from mmcv.runner.checkpoint import load_from_http
         # url =
-        # checkpoint = load_url_dist(url)
+        # checkpoint = load_from_http(url)
         # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth'
         # pretrained = '/home/joncrall/Downloads/retinanet_r50_fpn_1x_20181125-7b0c2548.pth'
         # pretrained = 'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmdetection/models/retinanet_r50_fpn_2x_20190616-75574209.pth'
@@ -1271,7 +1271,7 @@ class MM_MaskRCNN(MM_Detector):
 
 def _load_mmcv_weights(filename, map_location=None):
     import os
-    from mmcv.runner.checkpoint import (get_torchvision_models, load_url_dist)
+    from mmcv.runner.checkpoint import (get_torchvision_models, load_from_http)
 
     # load checkpoint from modelzoo or file or url
     if filename.startswith('modelzoo://'):
@@ -1279,22 +1279,22 @@ def _load_mmcv_weights(filename, map_location=None):
                       'use "torchvision://" instead')
         model_urls = get_torchvision_models()
         model_name = filename[11:]
-        checkpoint = load_url_dist(model_urls[model_name])
+        checkpoint = load_from_http(model_urls[model_name])
     elif filename.startswith('torchvision://'):
         model_urls = get_torchvision_models()
         model_name = filename[14:]
-        checkpoint = load_url_dist(model_urls[model_name])
+        checkpoint = load_from_http(model_urls[model_name])
     elif filename.startswith('open-mmlab://'):
         model_name = filename[13:]
         try:
             from mmcv.runner.checkpoint import open_mmlab_model_urls
-            checkpoint = load_url_dist(open_mmlab_model_urls[model_name])
+            checkpoint = load_from_http(open_mmlab_model_urls[model_name])
         except ImportError:
             from mmcv.runner.checkpoint import get_external_models
             mmlab_urls = get_external_models()
-            checkpoint = load_url_dist(mmlab_urls[model_name])
+            checkpoint = load_from_http(mmlab_urls[model_name])
     elif filename.startswith(('http://', 'https://')):
-        checkpoint = load_url_dist(filename)
+        checkpoint = load_from_http(filename)
     else:
         if not os.path.isfile(filename):
             raise IOError('{} is not a checkpoint file'.format(filename))
