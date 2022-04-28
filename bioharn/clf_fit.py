@@ -201,7 +201,7 @@ class ClfModel(nh.layers.Module):
             >>> self = ClfModel(arch='resnet50', classes=3)
             >>> self._init_backbone(key)
         """
-        from torchvision.models.utils import load_state_dict_from_url
+        from torch.hub import load_state_dict_from_url
         from netharn.initializers.functional import load_partial_state
         if key == 'url':
             state_dict = load_state_dict_from_url(self.backbone_url)
