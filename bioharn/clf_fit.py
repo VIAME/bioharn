@@ -462,13 +462,13 @@ class ClfHarn(nh.FitHarn):
             remove_unsupported=remove_unsupported,
             verbose=1, log=harn.info
         )
-
-        clf_report.classification_report(
-            y_true, y_pred, target_names=target_names,
-            sample_weight=sample_weight,
-            remove_unsupported=remove_unsupported,
-            verbose=1, log=harn.info
-        )
+        if not sys.platform.startswith('win'):
+            clf_report.classification_report(
+                y_true, y_pred, target_names=target_names,
+                sample_weight=sample_weight,
+                remove_unsupported=remove_unsupported,
+                verbose=1, log=harn.info
+            )
 
         # ovr_metrics = ovr_report['ovr']
         # weighted_ave = ovr_report['ave']
