@@ -183,16 +183,8 @@ class ClfModel(nh.layers.Module):
             model.conv1 = new_conv1
         elif arch == 'efficientnetv2s':
             from torchvision.models import efficientnet
-            model = efficientnet.efficientnet_v2_s()
-            self.backbone_url = resnet.model_urls['efficientnet_v2_s']
-            new_conv1 = torch.nn.Conv2d(in_channels, 24, kernel_size=3,
-                                        stride=2, padding=3, bias=False)
-            new_fc = torch.nn.Linear(1280, num_classes, bias=True)
-            new_conv1.weight.data[:, 0:in_channels, :, :] = model.conv1.weight.data[0:, 0:in_channels, :, :]
-            new_fc.weight.data[0:num_classes, :] = model.fc.weight.data[0:num_classes, :]
-            new_fc.bias.data[0:num_classes] = model.fc.bias.data[0:num_classes]
-            model.fc = new_fc
-            model.conv1 = new_conv1
+            model = efficientnet.efficientnet_v2_s(num_classes=num_classes)
+            self.backbone_url = "https://download.pytorch.org/models/efficientnet_v2_s-dd5fe13b.pth"
         else:
             raise KeyError(arch)
 
