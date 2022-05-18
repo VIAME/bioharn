@@ -160,7 +160,7 @@ class ClfModel(nh.layers.Module):
         if arch == 'resnet50':
             from torchvision import models
             model = models.resnet50()
-            self.backbone_url = models.resnet.model_urls['resnet50']
+            self.backbone_url = "https://download.pytorch.org/models/resnet50-0676ba61.pth"
             new_conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7,
                                         stride=3, padding=3, bias=False)
             new_fc = torch.nn.Linear(2048, num_classes, bias=True)
@@ -172,7 +172,7 @@ class ClfModel(nh.layers.Module):
         elif arch == 'resnext101':
             from torchvision.models import resnet
             model = resnet.resnext101_32x8d()
-            self.backbone_url = resnet.model_urls['resnext101_32x8d']
+            self.backbone_url = "https://download.pytorch.org/models/resnext101_32x8d-110c445d.pth"
             new_conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7,
                                         stride=3, padding=3, bias=False)
             new_fc = torch.nn.Linear(2048, num_classes, bias=True)
