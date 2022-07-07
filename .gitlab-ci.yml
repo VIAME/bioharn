@@ -284,7 +284,7 @@ stages:
         - pip install -r requirements/runtime.txt
         - pip install -r requirements/tests.txt
         - pip install imgaug --no-deps
-        - pip install opencv-headless 
+        - pip install opencv-python-headless 
         - pip install six scipy Pillow matplotlib scikit-image shapely numba 
         - pip install .  
 
