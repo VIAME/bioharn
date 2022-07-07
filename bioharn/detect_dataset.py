@@ -23,7 +23,8 @@ class DetectFitDataset(torch.utils.data.Dataset):
     object detection.
 
     Example:
-        >>> # xdoc: +REQUIRES(module:gdal)
+        >>> # xdoc: +REQUIRES(module:osgeo)
+        >>> # xdoctest: +REQUIRES(module:imgaug)
         >>> from bioharn.detect_dataset import *  # NOQA
         >>> self = DetectFitDataset.demo(key='shapes', channels='rgb|disparity', augment='heavy', window_dims=(390, 390), segmentation_bootstrap='kpts+ellipse')
         >>> index = 15
@@ -651,6 +652,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             xdoctest -m /home/joncrall/code/bioharn/bioharn/detect_dataset.py DetectFitDataset.make_loader
 
         Example:
+            >>> # xdoctest: +REQUIRES(module:imgaug)
             >>> from bioharn.detect_dataset import *  # NOQA
             >>> self = DetectFitDataset.demo('shapes32')
             >>> self.augmenter = None
@@ -667,6 +669,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             >>>         break
 
         Example:
+            >>> # xdoctest: +REQUIRES(module:imgaug)
             >>> from bioharn.detect_dataset import *  # NOQA
             >>> import pytest
             >>> self = DetectFitDataset.demo('shapes8')
@@ -1148,6 +1151,7 @@ def preselect_regions(sampler, window_overlap, window_dims,
     # Create a sliding window object for each specific image (because they may
     # have different sizes, technically we could memoize this)
     dset = sampler.dset
+    dset._ensure_imgsize()
 
     gid_height_width_list = [
         (img['id'], img['height'], img['width'] // 2)
@@ -1281,6 +1285,7 @@ class DetectionAugmentor(object):
 
     Example:
         >>> # xdoctest: +REQUIRES(--show)
+        >>> # xdoctest: +REQUIRES(module:imgaug)
         >>> from bioharn.detect_dataset import *  # NOQA
         >>> import scriptconfig as scfg
         >>> import kwimage

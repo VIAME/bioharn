@@ -72,6 +72,7 @@ class ClfConfig(scfg.Config):
 
         'max_epoch': scfg.Value(140, help='Maximum number of epochs'),
         'patience': scfg.Value(140, help='Maximum "bad" validation epochs before early stopping'),
+        'ignore_first_epochs': scfg.Value(1, help='Ignore the first N epochs in the stopping criterion'),
 
         'lr': scfg.Value(1e-4, help='Base learning rate'),
         'decay':  scfg.Value(1e-5, help='Base weight decay'),
@@ -205,7 +206,13 @@ class ClfModel(nh.layers.Module):
             >>> self = ClfModel(arch='resnet50', classes=3)
             >>> self._init_backbone(key)
         """
-        from torch.hub import load_state_dict_from_url
+        try:
+            from torchvision.models.utils import load_state_dict_from_url
+        except Exception:
+            try:
+                from torch.hub import load_state_dict_from_url  # noqa: 401
+            except ImportError:
+                from torch.utils.model_zoo import load_url as load_state_dict_from_url  # noqa: 401
         from netharn.initializers.functional import load_partial_state
         if key == 'url':
             state_dict = load_state_dict_from_url(self.backbone_url)
@@ -707,6 +714,7 @@ def setup_harn(cmdline=True, **kw):
         monitor=(nh.Monitor, {
             'minimize': ['loss'],
             'patience': config['patience'],
+            'ignore_first_epochs': config['ignore_first_epochs'],
             'max_epoch': config['max_epoch'],
             'smoothing': 0.0,
         }),

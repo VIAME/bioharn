@@ -37,7 +37,6 @@ def prototype_eval_clf():
 
     import numpy as np
 
-
     probs = np.array([result.data['prob'] for result in results])
     preds = np.array([result.data['cidx'] for result in results])
     confs = np.array([result.data['conf'] for result in results])
@@ -64,14 +63,14 @@ def prototype_eval_clf():
     roc_result.draw()
     coi = ['live sea scallop', 'dead sea scallop', 'clapper',
            'swimming sea scallop', 'roundfish', 'roundfish', 'flatfish']
-    import netharn as nh
-    roc_coi = nh.metrics.confusion_vectors.PerClass_ROC_Result(ub.dict_isect(roc_result.to_dict(), coi))
-    pr_coi = nh.metrics.confusion_vectors.PerClass_PR_Result(ub.dict_isect(pr_result.to_dict(), coi))
+    from kwcoco import metrics
+    roc_coi = metrics.confusion_vectors.PerClass_ROC_Result(ub.dict_isect(roc_result.to_dict(), coi))
+    pr_coi = metrics.confusion_vectors.PerClass_PR_Result(ub.dict_isect(pr_result.to_dict(), coi))
 
-    fig = kwplot.figure(fnum=3, doclf=True)
-    confusion = cfsn_vecs.confusion_matrix()
     import kwplot
-    ax = kwplot.plot_matrix(confusion, fnum=3, showvals=0, logscale=True)
+    kwplot.figure(fnum=3, doclf=True)
+    confusion = cfsn_vecs.confusion_matrix()
+    kwplot.plot_matrix(confusion, fnum=3, showvals=0, logscale=True)
 
     roc_coi.draw(fnum=1)
     pr_coi.draw(fnum=2)
