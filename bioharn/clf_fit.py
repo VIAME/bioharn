@@ -72,6 +72,7 @@ class ClfConfig(scfg.Config):
 
         'max_epoch': scfg.Value(140, help='Maximum number of epochs'),
         'patience': scfg.Value(140, help='Maximum "bad" validation epochs before early stopping'),
+        'ignore_first_epochs': scfg.Value(1, help='Ignore the first N epochs in the stopping criterion'),
 
         'lr': scfg.Value(1e-4, help='Base learning rate'),
         'decay':  scfg.Value(1e-5, help='Base weight decay'),
@@ -703,6 +704,7 @@ def setup_harn(cmdline=True, **kw):
         monitor=(nh.Monitor, {
             'minimize': ['loss'],
             'patience': config['patience'],
+            'ignore_first_epochs': config['ignore_first_epochs'],
             'max_epoch': config['max_epoch'],
             'smoothing': 0.0,
         }),
