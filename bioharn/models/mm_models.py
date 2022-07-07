@@ -313,8 +313,8 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
 
 def _dummy_img_metas(B, H, W, C):
     import mmdet
-    MMDET_GT_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
-    if MMDET_GT_2_12:
+    MMDET_GE_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
+    if MMDET_GE_2_12:
         scale_factor = np.array([1., 1.0])
     else:
         scale_factor = 1.0
@@ -705,7 +705,7 @@ class MM_Detector(nh.layers.Module):
     """
     """
     _mmdet_is_version_1x = False  # needed to prevent autoconvert
-    __bioharn_model_vesion__ = 3  # needed to prevent autoconvert
+    __bioharn_model_vesion__ = 4  # needed to prevent autoconvert
     __BUILTIN_CRITERION__ = True
 
     def __init__(self, mm_model, train_cfg=None, test_cfg=None,
@@ -746,25 +746,43 @@ class MM_Detector(nh.layers.Module):
             main_input_stats = {}
         self.input_norm = nh.layers.InputNorm(**main_input_stats)
 
+        MMDET_GE_2_20 = LooseVersion(mmdet.__version__) >= LooseVersion('2.20.0')
+        if MMDET_GE_2_20:
+            # Not sure what the exact version break is here
+            mm_model['backbone']['pretrained'] = mm_model.pop('pretrained')
+            if test_cfg is not None:
+                mm_model['test_cfg'] = test_cfg
+            if train_cfg is not None:
+                mm_model['train_cfg'] = train_cfg
+            test_cfg = None
+            train_cfg = None
+
         if train_cfg is not None:
             train_cfg = mmcv.utils.config.ConfigDict(train_cfg)
 
         if test_cfg is not None:
             test_cfg = mmcv.utils.config.ConfigDict(test_cfg)
 
-        MMDET_GT_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
+        MMDET_GE_2_12 = LooseVersion(mmdet.__version__) >= LooseVersion('2.12.0')
 
-        if MMDET_GT_2_12:
+        if MMDET_GE_2_12:
             # mmdet v2.12.0 introduced new registry stuff that forces use of
             # config dictionaries
             mm_model = mmcv.ConfigDict(mm_model)
-            train_cfg = mmcv.ConfigDict(train_cfg)
-            test_cfg = mmcv.ConfigDict(test_cfg)
+
+            if MMDET_GE_2_20:
+                if train_cfg is not None:
+                    train_cfg = mmcv.ConfigDict(train_cfg)
+                if test_cfg is not None:
+                    test_cfg = mmcv.ConfigDict(test_cfg)
+            else:
+                train_cfg = mmcv.ConfigDict(train_cfg)
+                test_cfg = mmcv.ConfigDict(test_cfg)
 
         self.detector = build_detector(
             mm_model, train_cfg=train_cfg, test_cfg=test_cfg)
 
-        if MMDET_GT_2_12:
+        if MMDET_GE_2_12:
             self.detector.init_weights()
 
         self.coder = MM_Coder(self.classes)
@@ -964,9 +982,9 @@ class MM_RetinaNet(MM_Detector):
 
     def __init__(self, classes, channels='rgb', input_stats=None):
 
-        # from mmcv.runner.checkpoint import load_url_dist
+        # from mmcv.runner.checkpoint import load_from_http
         # url =
-        # checkpoint = load_url_dist(url)
+        # checkpoint = load_from_http(url)
         # pretrained = 'https://s3.ap-northeast-2.amazonaws.com/open-mmlab/mmdetection/models/retinanet_r50_fpn_1x_20181125-7b0c2548.pth'
         # pretrained = '/home/joncrall/Downloads/retinanet_r50_fpn_1x_20181125-7b0c2548.pth'
         # pretrained = 'https://open-mmlab.s3.ap-northeast-2.amazonaws.com/mmdetection/models/retinanet_r50_fpn_2x_20190616-75574209.pth'
@@ -1253,7 +1271,7 @@ class MM_MaskRCNN(MM_Detector):
 
 def _load_mmcv_weights(filename, map_location=None):
     import os
-    from mmcv.runner.checkpoint import (get_torchvision_models, load_url_dist)
+    from mmcv.runner.checkpoint import (get_torchvision_models, load_from_http)
 
     # load checkpoint from modelzoo or file or url
     if filename.startswith('modelzoo://'):
@@ -1261,22 +1279,22 @@ def _load_mmcv_weights(filename, map_location=None):
                       'use "torchvision://" instead')
         model_urls = get_torchvision_models()
         model_name = filename[11:]
-        checkpoint = load_url_dist(model_urls[model_name])
+        checkpoint = load_from_http(model_urls[model_name])
     elif filename.startswith('torchvision://'):
         model_urls = get_torchvision_models()
         model_name = filename[14:]
-        checkpoint = load_url_dist(model_urls[model_name])
+        checkpoint = load_from_http(model_urls[model_name])
     elif filename.startswith('open-mmlab://'):
         model_name = filename[13:]
         try:
             from mmcv.runner.checkpoint import open_mmlab_model_urls
-            checkpoint = load_url_dist(open_mmlab_model_urls[model_name])
+            checkpoint = load_from_http(open_mmlab_model_urls[model_name])
         except ImportError:
             from mmcv.runner.checkpoint import get_external_models
             mmlab_urls = get_external_models()
-            checkpoint = load_url_dist(mmlab_urls[model_name])
+            checkpoint = load_from_http(mmlab_urls[model_name])
     elif filename.startswith(('http://', 'https://')):
-        checkpoint = load_url_dist(filename)
+        checkpoint = load_from_http(filename)
     else:
         if not os.path.isfile(filename):
             raise IOError('{} is not a checkpoint file'.format(filename))
@@ -1440,6 +1458,7 @@ class MM_CascadeRCNN(MM_Detector):
             pretrained=None,
             backbone=dict(
                 type='ResNeXt',
+                # pretrained=None,
                 depth=101,
                 groups=32,
                 base_width=4,

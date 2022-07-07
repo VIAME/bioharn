@@ -307,7 +307,8 @@ def demo_calibrate():
 
 
 
-from netharn.metrics.confusion_vectors import DictProxy  # NOQA
+# from netharn.metrics.confusion_vectors import DictProxy  # NOQA
+from kwcoco.metrics.util import DictProxy  # NOQA
 
 
 class StereoCamera(ub.NiceRepr, DictProxy):

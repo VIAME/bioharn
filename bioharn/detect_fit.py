@@ -4,18 +4,20 @@ inputs.
 """
 from os.path import join
 
+# This really shouldn't be here
 import matplotlib
 matplotlib.use('Agg')
 
-import netharn as nh
-import numpy as np
-import os
-import torch
-import ubelt as ub
-import kwarray
-import kwimage
-import warnings
-import scriptconfig as scfg
+import netharn as nh  # NOQA
+import numpy as np  # NOQA
+import os  # NOQA
+import torch  # NOQA
+import ubelt as ub  # NOQA
+import kwarray  # NOQA
+import kwimage  # NOQA
+import warnings  # NOQA
+import scriptconfig as scfg  # NOQA
+import kwcoco.metrics as metrics  # NOQA
 
 
 class DetectFitConfig(scfg.Config):
@@ -105,6 +107,7 @@ class DetectFitConfig(scfg.Config):
         'schedule': scfg.Value('Exponential-g0.98-s1', help='learning rate / momentum scheduler'),
         'max_epoch': scfg.Value(100, help='Maximum number of epochs'),
         'patience': scfg.Value(40, help='Maximum number of bad epochs on validation before stopping'),
+        'ignore_first_epochs': scfg.Value(1, help='Ignore the first N epochs in the stopping criterion'),
         'min_lr': scfg.Value(1e-9, help='minimum learning rate before termination'),
 
         # Initialization
@@ -206,7 +209,7 @@ class DetectHarn(nh.FitHarn):
     def __init__(harn, **kw):
         super(DetectHarn, harn).__init__(**kw)
         # Dictionary of detection metrics
-        harn.dmets = {}  # Dict[str, nh.metrics.DetectionMetrics]
+        harn.dmets = {}  # Dict[str, kwcoco.metrics.DetectionMetrics]
         harn.chosen_indices = {}
 
     def after_initialize(harn):
@@ -216,7 +219,7 @@ class DetectHarn(nh.FitHarn):
 
         # Prepare structures we will use to measure and quantify quality
         for tag, voc_dset in harn.datasets.items():
-            dmet = nh.metrics.DetectionMetrics()
+            dmet = metrics.DetectionMetrics()
             dmet._pred_aidbase = getattr(dmet, '_pred_aidbase', 1)
             dmet._true_aidbase = getattr(dmet, '_true_aidbase', 1)
             harn.dmets[tag] = dmet
@@ -568,7 +571,7 @@ class DetectHarn(nh.FitHarn):
             # This will never produce duplicates (difference between
             # consecutive numbers will always be > 1 there fore they will
             # always round to a different number)
-            idxs = np.linspace(bsize - 1, 0, num_want).round().astype(np.int).tolist()
+            idxs = np.linspace(bsize - 1, 0, num_want).round().astype(np.int64).tolist()
             idxs = sorted(idxs)
             # assert len(set(idxs)) == len(idxs)
             # idxs = idxs[0:4]
@@ -1153,6 +1156,7 @@ def setup_harn(cmdline=True, **kw):
             'minimize': ['loss'],
             # 'maximize': ['mAP'],
             'patience': config['patience'],
+            'ignore_first_epochs': config['ignore_first_epochs'],
             'max_epoch': config['max_epoch'],
             'min_lr': config['min_lr'],
             'smoothing': 0,

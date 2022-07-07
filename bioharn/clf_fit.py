@@ -72,6 +72,7 @@ class ClfConfig(scfg.Config):
 
         'max_epoch': scfg.Value(140, help='Maximum number of epochs'),
         'patience': scfg.Value(140, help='Maximum "bad" validation epochs before early stopping'),
+        'ignore_first_epochs': scfg.Value(1, help='Ignore the first N epochs in the stopping criterion'),
 
         'lr': scfg.Value(1e-4, help='Base learning rate'),
         'decay':  scfg.Value(1e-5, help='Base weight decay'),
@@ -160,7 +161,7 @@ class ClfModel(nh.layers.Module):
         if arch == 'resnet50':
             from torchvision import models
             model = models.resnet50()
-            self.backbone_url = models.resnet.model_urls['resnet50']
+            self.backbone_url = "https://download.pytorch.org/models/resnet50-0676ba61.pth"
             new_conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7,
                                         stride=3, padding=3, bias=False)
             new_fc = torch.nn.Linear(2048, num_classes, bias=True)
@@ -172,7 +173,7 @@ class ClfModel(nh.layers.Module):
         elif arch == 'resnext101':
             from torchvision.models import resnet
             model = resnet.resnext101_32x8d()
-            self.backbone_url = resnet.model_urls['resnext101_32x8d']
+            self.backbone_url = "https://download.pytorch.org/models/resnext101_32x8d-110c445d.pth"
             new_conv1 = torch.nn.Conv2d(in_channels, 64, kernel_size=7,
                                         stride=3, padding=3, bias=False)
             new_fc = torch.nn.Linear(2048, num_classes, bias=True)
@@ -181,6 +182,10 @@ class ClfModel(nh.layers.Module):
             new_fc.bias.data[0:num_classes] = model.fc.bias.data[0:num_classes]
             model.fc = new_fc
             model.conv1 = new_conv1
+        elif arch == 'efficientnetv2s':
+            from torchvision.models import efficientnet
+            model = efficientnet.efficientnet_v2_s(num_classes=num_classes)
+            self.backbone_url = "https://download.pytorch.org/models/efficientnet_v2_s-dd5fe13b.pth"
         else:
             raise KeyError(arch)
 
@@ -201,7 +206,13 @@ class ClfModel(nh.layers.Module):
             >>> self = ClfModel(arch='resnet50', classes=3)
             >>> self._init_backbone(key)
         """
-        from torchvision.models.utils import load_state_dict_from_url
+        try:
+            from torchvision.models.utils import load_state_dict_from_url
+        except Exception:
+            try:
+                from torch.hub import load_state_dict_from_url  # noqa: 401
+            except ImportError:
+                from torch.utils.model_zoo import load_url as load_state_dict_from_url  # noqa: 401
         from netharn.initializers.functional import load_partial_state
         if key == 'url':
             state_dict = load_state_dict_from_url(self.backbone_url)
@@ -462,13 +473,13 @@ class ClfHarn(nh.FitHarn):
             remove_unsupported=remove_unsupported,
             verbose=1, log=harn.info
         )
-
-        clf_report.classification_report(
-            y_true, y_pred, target_names=target_names,
-            sample_weight=sample_weight,
-            remove_unsupported=remove_unsupported,
-            verbose=1, log=harn.info
-        )
+        if not sys.platform.startswith('win'):
+            clf_report.classification_report(
+                y_true, y_pred, target_names=target_names,
+                sample_weight=sample_weight,
+                remove_unsupported=remove_unsupported,
+                verbose=1, log=harn.info
+            )
 
         # ovr_metrics = ovr_report['ovr']
         # weighted_ave = ovr_report['ave']
@@ -703,6 +714,7 @@ def setup_harn(cmdline=True, **kw):
         monitor=(nh.Monitor, {
             'minimize': ['loss'],
             'patience': config['patience'],
+            'ignore_first_epochs': config['ignore_first_epochs'],
             'max_epoch': config['max_epoch'],
             'smoothing': 0.0,
         }),

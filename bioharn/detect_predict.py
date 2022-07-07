@@ -99,7 +99,6 @@ def _ensure_upgraded_model(deployed_fpath):
         >>> ensured_fpath2 = _ensure_upgraded_model(deployed_fpath2)
 
     """
-    from netharn.util import zopen
     print('Ensure upgraded model: deployed_fpath = {!r}'.format(deployed_fpath))
 
     if not exists(deployed_fpath):
@@ -121,7 +120,7 @@ def _ensure_upgraded_model(deployed_fpath):
     # Hueristic to determine if the model needs update or not
     needs_update = False
     if 'model_fpath' in deployed.info:
-        with zopen(deployed.info['model_fpath'], 'r') as file:
+        with ub.zopen(deployed.info['model_fpath'], 'r') as file:
             topology_text = file.read()
             if 'MM_Detector' in topology_text:
                 if '_mmdet_is_version_1x' not in topology_text:
@@ -697,6 +696,14 @@ class DetectPredictor(object):
                             print(s)
                             print(mp)
                             break
+
+                # Patch to fix issue with kwimage / opencv
+                import kwimage
+                if isinstance(det.data['segmentations'].data, list):
+                    for seg in det.data['segmentations'].data:
+                        if isinstance(seg, kwimage.Mask):
+                            if seg.data.dtype.kind == 'b':
+                                seg.data = seg.data.astype(np.uint8)
 
                 det.data['segmentations'] = det.data['segmentations'].to_polygon_list()
 

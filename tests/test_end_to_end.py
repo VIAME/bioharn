@@ -7,6 +7,12 @@ def _test_train_and_eval_model(aux):
     """
     aux = True
     """
+    try:
+        import imgaug  # NOQA
+    except ImportError:
+        import pytest
+        pytest.skip()
+
     from bioharn import detect_fit
     from bioharn import detect_eval
     import kwcoco
