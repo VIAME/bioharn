@@ -45,7 +45,8 @@ def grabdata_girder(api_url, file_id, fname=None, dpath=None, hash_prefix=None,
     if fname is None:
         fname = file_info['name']
 
-    hash_value = file_info['sha512']
+    print('file_info = {!r}'.format(file_info))
+    hash_value = file_info.get('sha512', None)
     if hasher == 'sha512':
         if hash_prefix:
             if not hash_value.startswith(hash_prefix):

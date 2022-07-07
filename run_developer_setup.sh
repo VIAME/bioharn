@@ -126,8 +126,6 @@ __gdal_from_source(){
 python -c "import torch; print(torch.version.cuda)"
 
 
-#MMCV_VERSION=1.3.0
-MMCV_VERSION=1.3.5
 MMCV_URL=$(python -c "
 from distutils.version import LooseVersion
 import torch
@@ -141,6 +139,10 @@ else:
 
 if torch.version.cuda is None:
     cuda_part = 'cpu'
+elif LooseVersion(torch.version.cuda) >= LooseVersion('11.5'):
+    cuda_part = 'cu115'
+elif LooseVersion(torch.version.cuda) >= LooseVersion('11.3'):
+    cuda_part = 'cu113'
 elif LooseVersion(torch.version.cuda) >= LooseVersion('11.1'):
     cuda_part = 'cu111'
 elif LooseVersion(torch.version.cuda) >= LooseVersion('10.2'):
@@ -164,27 +166,80 @@ print(mmcv_url)
 echo "MMCV_URL = $MMCV_URL"
 
 
+#MMCV_VERSION=1.3.0
+MMCV_VERSION=1.4.8
+MMDET_VERSION=2.23.0
+
 _devcheck(){
-    pip install torch==1.8.0+cu111 torchvision==0.9.0+cu111 torchaudio==0.8.0 -f https://download.pytorch.org/whl/torch_stable.html
-    pip install mmcv-full==1.3.5 -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.8.0/index.html
-    pip install mmdet==2.11.0
+    #pip install torch==1.8.0+cu111 torchvision==0.9.0+cu111 torchaudio==0.8.0 -f https://download.pytorch.org/whl/torch_stable.html
+    #pip install mmcv-full==1.3.5 -f https://download.openmmlab.com/mmcv/dist/cu111/torch1.8.0/index.html
+    #pip install mmdet==2.11.0
+
+    pip3 install torch torchvision --extra-index-url https://download.pytorch.org/whl/cu113
+    pip install mmcv-full==1.4.8 -f https://download.openmmlab.com/mmcv/dist/cu113/torch1.11.0/index.html
+    pip install mmdet==2.23.0
+
+    python -c "from mmcv import ops"
 
     #pip install torch==1.8.0 torchvision==0.9.0
 
     python -c "import torch; print(torch.version.cuda)"
     python -c "import torch; print(torch.__version__)"
-    
+    #pip install mmcv-full==1.0.5+torch1.6.0+cu101 -f https://openmmlab.oss-accelerate.aliyuncs.com/mmcv/dist/index.html
+    # pip install git+https://github.com/open-mmlab/mmdetection.git@595bf86e69ad7452498f32166ece985d9cc012be
 }
 
 
 # See: https://github.com/open-mmlab/mmdetection/blob/master/docs/get_started.md
 
+#pip install mmcv-full==$MMCV_VERSION -f https://download.openmmlab.com/mmcv/dist/cu113/torch1.11.0/index.html
 # mmcv is weird about resolving this
 #pip install pycocotools  
-pip install mmcv-full==$MMCV_VERSION -f $MMCV_URL
-#pip install mmcv-full==1.0.5+torch1.6.0+cu101 -f https://openmmlab.oss-accelerate.aliyuncs.com/mmcv/dist/index.html
-# pip install git+https://github.com/open-mmlab/mmdetection.git@595bf86e69ad7452498f32166ece985d9cc012be
-pip install mmdet==2.7.0
+pip install mmcv-full==$MMCV_VERSION -f "$MMCV_URL"
+pip install mmdet==$MMDET_VERSION
+
+fix_opencv_conflicts(){
+    __doc__="
+    Check to see if the wrong opencv is installed, and perform steps to clean
+    up the incorrect libraries and install the desired (headless) ones.
+    "
+    # Fix opencv issues
+    pip freeze | grep "opencv-python=="
+    HAS_OPENCV_RETCODE="$?"
+    pip freeze | grep "opencv-python-headless=="
+    HAS_OPENCV_HEADLESS_RETCODE="$?"
+
+    # VAR == 0 means we have it
+    if [[ "$HAS_OPENCV_HEADLESS_RETCODE" == "0" ]]; then
+        if [[ "$HAS_OPENCV_RETCODE" == "0" ]]; then
+            pip uninstall opencv-python opencv-python-headless -y
+            pip install opencv-python-headless
+        fi
+    else
+        if [[ "$HAS_OPENCV_RETCODE" == "0" ]]; then
+            pip uninstall opencv-python -y
+        fi
+        pip install opencv-python-headless
+    fi
+}
+
+try_with_mim(){
+    pip install openmim
+    
+    mim list
+    mim install mmcv-full
+    mim install mmcv-full
+
+    python -c "from mmcv import ops"
+
+    python -c "import mmcv"
+
+    python -c "from mmcv.cnn import resnet"
+    python -c "from mmdet import models"
+}
+
+
+fix_opencv_conflicts
 
 
 #pip install mmdet

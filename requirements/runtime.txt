@@ -1,5 +1,5 @@
 # TODO: remove imgaug eventually
-imgaug
+# imgaug
 
 torch>=1.11.0    ;                            python_version >= '3.10'    # Python 3.10+
 torch>=1.7.1     ; python_version < '3.10' and python_version >= '3.9'    # Python 3.9
