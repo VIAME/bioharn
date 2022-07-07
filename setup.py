@@ -155,6 +155,7 @@ if __name__ == '__main__':
         },
         license='Apache 2',
         packages=find_packages('.'),
+        python_requires='>=3.6',
         classifiers=[
             # List of classifiers available at:
             # https://pypi.python.org/pypi?%3Aaction=list_classifiers
