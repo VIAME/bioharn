@@ -29,4 +29,4 @@ torch_liberator>=0.0.4
 
 seaborn>=0.10.0    ;                            python_version >= '3.6'    # Python 3.6+
 ubelt>=1.1.2
-uritools>=4.0.0
+uritools>=3.0.2
