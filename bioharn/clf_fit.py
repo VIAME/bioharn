@@ -453,7 +453,7 @@ class ClfHarn(nh.FitHarn):
         sample_weight = None
         remove_unsupported = True
         metrics = [
-            'ap', 'auc', 'f1', 'mcc', 'brier',
+            'ap', 'auc', 'mcc', 'brier',
         ]
 
         ovr_report = clf_report.ovr_classification_report(

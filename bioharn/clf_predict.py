@@ -589,6 +589,8 @@ class ImageListDataset(torch_data.Dataset):
         # Resize to input dimensinos
         if self.input_dims is not None:
             dsize = tuple(self.input_dims[::-1])
+            if len(dsize) > 3:
+                dsize = 256, 256
             image = kwimage.imresize(image, dsize=dsize, letterbox=True)
 
         im_chw = image.transpose(2, 0, 1) / 255.0
