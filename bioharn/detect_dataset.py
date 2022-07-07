@@ -1148,6 +1148,7 @@ def preselect_regions(sampler, window_overlap, window_dims,
     # Create a sliding window object for each specific image (because they may
     # have different sizes, technically we could memoize this)
     dset = sampler.dset
+    dset._ensure_imgsize()
 
     gid_height_width_list = [
         (img['id'], img['height'], img['width'] // 2)
