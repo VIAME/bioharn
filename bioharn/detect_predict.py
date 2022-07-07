@@ -698,6 +698,14 @@ class DetectPredictor(object):
                             print(mp)
                             break
 
+                # Patch to fix issue with kwimage / opencv
+                import kwimage
+                if isinstance(det.data['segmentations'].data, list):
+                    for seg in det.data['segmentations'].data:
+                        if isinstance(seg, kwimage.Mask):
+                            if seg.data.dtype.kind == 'b':
+                                seg.data = seg.data.astype(np.uint8)
+
                 det.data['segmentations'] = det.data['segmentations'].to_polygon_list()
 
             if True and len(det) and np.all(det.boxes.width <= 1) and len(batch['inputs']) == 1:
