@@ -17,6 +17,7 @@ class ClfDataset(torch_data.Dataset):
     DataLoader. There is little netharn-specific about this class.
 
     Example:
+        >>> # xdoctest: +REQUIRES(module:imgaug)
         >>> from bioharn.clf_dataset import *  # NOQA
         >>> import ndsampler
         >>> sampler = ndsampler.CocoSampler.demo()
