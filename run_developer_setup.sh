@@ -1,6 +1,10 @@
 #!/bin/bash 
 
 # Install dependency packages
+pip install --no-deps imgaug
+# Handle imgaug deps
+pip install six scipy Pillow matplotlib scikit-image shapely numba
+
 pip install -r requirements/runtime.txt
 pip install -r requirements/tests.txt
 
@@ -10,7 +14,7 @@ pip install -r requirements/tests.txt
 
 __for_developer__(){
     # What is my local cuda version
-    cat $HOME/.local/cuda/version.txt
+    cat "$HOME/.local/cuda/version.txt"
 
     # We need to ensure our torch version agrees with our cuda version
     python -c "import torch; print(torch.cuda.is_available())"
@@ -22,7 +26,7 @@ __for_developer__(){
 
     python -c "import torch; print(torch.cuda.is_available())"
 
-    cd $HOME/code/netharn
+    cd "$HOME/code/netharn"
     pip install -r requirements/super_setup.txt
 
     ./super_setup.py ensure
@@ -30,7 +34,7 @@ __for_developer__(){
 
     _PYCODE="import subprocess, re; print(re.match('.*release ([0-9]*.[0-9]*),.*', str(subprocess.check_output(['nvcc', '--version']))).groups()[0].replace('.', ''))"
     CUDA_VERSION=$(python -c "$_PYCODE")
-    echo $CUDA_VERSION
+    echo "$CUDA_VERSION"
 }
 
 __gdal_from_source(){
@@ -41,7 +45,7 @@ __gdal_from_source(){
     #cd gdal-3.0.2/
     #./configure
 
-    cd $HOME/tmp
+    cd "$HOME/tmp"
     cd ~/code
     if [ ! -d "$HOME/code/fletch-for-gdal" ]; then
         git clone https://github.com/Erotemic/fletch.git ~/code/fletch-for-gdal
@@ -55,18 +59,18 @@ __gdal_from_source(){
 
     FLETCH_BUILD=$HOME/code/fletch-for-gdal/build-gdal-minimal-test
 
-    mkdir -p $FLETCH_BUILD
-    cd $FLETCH_BUILD
+    mkdir -p "$FLETCH_BUILD"
+    cd "$FLETCH_BUILD"
 
     cmake -G "Unix Makefiles" \
-        -D CMAKE_INSTALL_PREFIX=$CMAKE_INSTALL_PREFIX \
+        -D CMAKE_INSTALL_PREFIX="$CMAKE_INSTALL_PREFIX" \
         -D GDAL_SELECT_VERSION=2.2.2 \
         -D fletch_ENABLE_GDAL=True \
         -D fletch_ENABLE_PROJ4=True \
         ..
 
     BUILD_PREFIX=$FLETCH_BUILD/install
-    $BUILD_PREFIX/bin/gdal-config --version
+    "$BUILD_PREFIX/bin/gdal-config" --version
     TARGET_GDAL_VERSION=$($BUILD_PREFIX/bin/gdal-config --version)
     echo "TARGET_GDAL_VERSION = $TARGET_GDAL_VERSION"
 
@@ -81,13 +85,13 @@ __gdal_from_source(){
     make install
 
     # Weird, hack it
-    chmod +x $CMAKE_INSTALL_PREFIX/bin/gdal*
+    chmod +x "$CMAKE_INSTALL_PREFIX"/bin/gdal*
     
-    pip install --global-option=build_ext --prefix=$CMAKE_INSTALL_PREFIX $GDAL_SRC_FPATH  --verbose
+    pip install --global-option=build_ext --prefix="$CMAKE_INSTALL_PREFIX" "$GDAL_SRC_FPATH"  --verbose
 
-        --global-option="-I$CMAKE_INSTALL_PREFIX/gdal" \
-        --prefix=$BUILD_PREFIX \
-        $GDAL_SRC_FPATH  --verbose
+        #--global-option="-I$CMAKE_INSTALL_PREFIX/gdal" \
+        #--prefix=$BUILD_PREFIX \
+        #$GDAL_SRC_FPATH  --verbose
 
     #PATH=$BUILD_PREFIX/bin:$PATH pip install --global-option=build_ext \
     #    --global-option="-I$BUILD_PREFIX/gdal" \
