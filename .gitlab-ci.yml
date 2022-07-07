@@ -283,6 +283,9 @@ stages:
         - pip install lru-dict
         - pip install -r requirements/runtime.txt
         - pip install -r requirements/tests.txt
+        - pip install imgaug --no-deps
+        - pip install opencv-headless 
+        - pip install six scipy Pillow matplotlib scikit-image shapely numba 
         - pip install .  
 
     script: 
