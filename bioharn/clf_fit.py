@@ -42,6 +42,8 @@ class ClfConfig(scfg.Config):
 
         'sql_cache_view': scfg.Value(False, help='if True json-based COCO datasets are cached as SQL views'),
 
+        'multiclass': scfg.Value(False, help='if True enable the multiclass hack'),
+
         'sampler_backend': scfg.Value(None, help='ndsampler backend'),
 
         'channels': scfg.Value('rgb', help='special channel code. See ChannelSpec'),
@@ -142,13 +144,15 @@ class ClfModel(nh.layers.Module):
     """
 
     def __init__(self, arch='resnet50', classes=1000, channels='rgb',
-                 input_stats=None):
+                 input_stats=None, multiclass=False):
         super(ClfModel, self).__init__()
 
         import ndsampler
         if input_stats is None:
             input_stats = {}
         input_norm = nh.layers.InputNorm(**input_stats)
+
+        self.multiclass = multiclass
 
         self.classes = ndsampler.CategoryTree.coerce(classes)
 
@@ -194,7 +198,7 @@ class ClfModel(nh.layers.Module):
         self.input_norm = input_norm
         self.model = model
 
-        self.coder = ClfCoder(self.classes)
+        self.coder = ClfCoder(self.classes, self.multiclass)
 
     def _init_backbone(self, key='url'):
         """
@@ -255,20 +259,31 @@ class ClfCoder(object):
     standard format. Currently there is no standard "classification" format
     that I use other than a dictionary with special keys.
     """
-    def __init__(self, classes):
+    def __init__(self, classes, multiclass):
         self.classes = classes
+        self.multiclass = multiclass
 
     def decode_batch(self, outputs):
         class_energy = outputs['class_energy']
-        class_probs = self.classes.hierarchical_softmax(class_energy, dim=1)
-        pred_cxs, pred_conf = self.classes.decision(
-            class_probs, dim=1, thresh=0.1,
-            criterion='entropy',
-        )
+        if self.multiclass:
+            class_probs = class_energy.sigmoid()
+            # Returns multiple predictions for each batch
+            thresh = 0.3
+            flags = class_probs > thresh
+            batch_index, pred_cxs = torch.where(flags)
+            pred_conf = class_probs[batch_index, pred_cxs]
+        else:
+            class_probs = self.classes.hierarchical_softmax(class_energy, dim=1)
+            batch_index = torch.arange(len(class_probs), device=class_probs.device)
+            pred_cxs, pred_conf = self.classes.decision(
+                class_probs, dim=1, thresh=0.1,
+                criterion='entropy',
+            )
         decoded = {
             'class_probs': class_probs,
             'pred_cxs': pred_cxs,
             'pred_conf': pred_conf,
+            'batch_index': batch_index,
         }
         return decoded
 
@@ -301,7 +316,8 @@ class ClfHarn(nh.FitHarn):
         """
         Example:
             >>> # xdoctest: +SKIP
-            >>> harn = setup_harn(datasets='special:shapes256', batch_size=4).initialize()
+            >>> from bioharn.clf_fit import *  # NOQA
+            >>> harn = setup_harn(datasets='special:shapes256', batch_size=4, multiclass=True).initialize()
             >>> batch = harn._demo_batch(0, tag='train')
             >>> outputs, loss = harn.run_batch(batch)
             >>> harn.on_batch(batch, outputs, loss)
@@ -313,12 +329,27 @@ class ClfHarn(nh.FitHarn):
         outputs = harn.model(inputs)
 
         class_energy = outputs['class_energy']
-        class_logprobs = classes.hierarchical_log_softmax(
-            class_energy, dim=1)
 
-        class_idxs = labels['class_idxs']
-        loss = nh.criterions.focal.nll_focal_loss(
-            class_logprobs, class_idxs, focus=2.0, reduction='mean')
+        if harn.script_config['multiclass']:
+            class_ohe = labels['class_ohe']
+            # import torch.nn.functional as F
+            # not sure if this needs to be done beforehand. I think its fine.
+            # class_logprogs = F.logsigmoid(class_energy)
+
+            # Requires monai dep
+            from monai.losses import focal_loss
+            criterion = focal_loss.FocalLoss(to_onehot_y=False, gamma=2,
+                                             reduction='mean')
+            loss = criterion(class_energy, class_ohe)
+            # simple alternative
+            # import torch.nn.functional as F
+            # loss = F.binary_cross_entropy_with_logits(class_energy, class_ohe.float())
+        else:
+            class_logprobs = classes.hierarchical_log_softmax(
+                class_energy, dim=1)
+            class_idxs = labels['class_idxs']
+            loss = nh.criterions.focal.nll_focal_loss(
+                class_logprobs, class_idxs, focus=2.0, reduction='mean')
 
         loss_parts = {}
         loss_parts['clf'] = loss
@@ -326,8 +357,12 @@ class ClfHarn(nh.FitHarn):
         decoded = harn.raw_model.coder.decode_batch(outputs)
 
         outputs['class_probs'] = decoded['class_probs']
-        outputs['pred_cxs'] = decoded['pred_cxs']
-        outputs['true_cxs'] = class_idxs
+
+        if not harn.script_config['multiclass']:
+            # fixme: more multiclass support
+            outputs['pred_cxs'] = decoded['pred_cxs']
+            outputs['true_cxs'] = class_idxs
+
         return outputs, loss_parts
 
     def on_batch(harn, batch, outputs, loss):
@@ -345,17 +380,20 @@ class ClfHarn(nh.FitHarn):
                                (harn.script_config['draw_interval'] > 0))
         if harn._hack_do_draw:
             stacked = harn._draw_batch(batch, outputs)
-            dpath = ub.ensuredir((harn.train_dpath, 'monitor', harn.current_tag))
-            fpath = join(dpath, 'batch_{}_epoch_{}.jpg'.format(bx, harn.epoch))
-            import kwimage
-            kwimage.imwrite(fpath, stacked)
+            if stacked is not None:
+                dpath = ub.ensuredir((harn.train_dpath, 'monitor', harn.current_tag))
+                fpath = join(dpath, 'batch_{}_epoch_{}.jpg'.format(bx, harn.epoch))
+                import kwimage
+                kwimage.imwrite(fpath, stacked)
 
-        y_pred = kwarray.ArrayAPI.numpy(outputs['pred_cxs'])
-        y_true = outputs['true_cxs'].data.cpu().numpy()
-        probs = outputs['class_probs'].data.cpu().numpy()
-        harn._accum_confusion_vectors['y_true'].append(y_true)
-        harn._accum_confusion_vectors['y_pred'].append(y_pred)
-        harn._accum_confusion_vectors['probs'].append(probs)
+        if not harn.script_config['multiclass']:
+            # TODO: more multiclass support
+            y_pred = kwarray.ArrayAPI.numpy(outputs['pred_cxs'])
+            y_true = outputs['true_cxs'].data.cpu().numpy()
+            probs = outputs['class_probs'].data.cpu().numpy()
+            harn._accum_confusion_vectors['y_true'].append(y_true)
+            harn._accum_confusion_vectors['y_pred'].append(y_pred)
+            harn._accum_confusion_vectors['probs'].append(probs)
 
     def _draw_batch(harn, batch, outputs, idxs=None):
         """
@@ -371,6 +409,10 @@ class ClfHarn(nh.FitHarn):
             >>> kwplot.imshow(stacked, colorspace='rgb', doclf=True)
             >>> kwplot.show_if_requested()
         """
+        if harn.script_config['multiclass']:
+            # TODO: more multiclass support
+            return None
+
         import kwimage
         inputs = batch['inputs']['rgb'].data.cpu().numpy()
         true_cxs = batch['labels']['class_idxs'].data.cpu().numpy()
@@ -438,6 +480,9 @@ class ClfHarn(nh.FitHarn):
             >>> harn._demo_epoch('vali', max_iter=10)
             >>> harn.on_epoch()
         """
+        if harn.script_config['multiclass']:
+            # TODO: more multiclass support
+            return None
         from kwcoco.metrics import clf_report
         # import pandas as pd
         dset = harn.datasets[harn.current_tag]
@@ -586,11 +631,13 @@ def setup_harn(cmdline=True, **kw):
             min_dim=config['min_dim'],
             augment=config['augmenter'],
             gravity=config['gravity'],
+            multiclass=config['multiclass'],
         ),
         'vali': clf_dataset.ClfDataset(
             samplers['vali'],
             input_dims=config['input_dims'],
             min_dim=config['min_dim'],
+            multiclass=config['multiclass'],
             augment=False),
     }
 

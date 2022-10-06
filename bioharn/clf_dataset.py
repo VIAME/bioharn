@@ -21,7 +21,7 @@ class ClfDataset(torch_data.Dataset):
         >>> from bioharn.clf_dataset import *  # NOQA
         >>> import ndsampler
         >>> sampler = ndsampler.CocoSampler.demo()
-        >>> self = ClfDataset(sampler)
+        >>> self = ClfDataset(sampler, multiclass=True)
         >>> index = 0
         >>> self[index]['inputs']['rgb'].shape
         >>> loader = self.make_loader(batch_size=8, shuffle=True, num_workers=0, num_batches=10)
@@ -33,13 +33,15 @@ class ClfDataset(torch_data.Dataset):
         >>> kwplot.autompl()
         >>> kwplot.imshow(batch['inputs']['rgb'][0])
     """
-    def __init__(self, sampler, input_dims=(256, 256), min_dim=64, augment=None, gravity=0):
+    def __init__(self, sampler, input_dims=(256, 256), min_dim=64,
+                 augment=None, gravity=0, multiclass=False):
         self.sampler = sampler
         self.augment = augment
         self.conditional_augmentors = None
         self.input_dims = input_dims
         self.min_dim = min_dim
         self.classes = self.sampler.catgraph
+        self.multiclass = multiclass
 
         self.disable_augmenter = not bool(augment)
         self.augmenter = ClfAugmentor(mode=augment, gravity=gravity)
@@ -83,11 +85,30 @@ class ClfDataset(torch_data.Dataset):
                 # sometimes add a random pad
                 dim += int((rng.rand() * 0.2) * dim)
 
+        class_id_to_idx = self.sampler.classes.id_to_idx
+
+        with_annots = self.multiclass
+
         tr['width'] = tr['height'] = dim
-        sample = self.sampler.load_sample(tr, with_annots=False)
+        sample = self.sampler.load_sample(tr, with_annots=with_annots)
+
+        if self.multiclass:
+            # In multiclass model load all annotations that overlap the window.
+            # use the class of all annotations to make a target
+            frame_dets = sample['annots']['frame_dets']
+            cidx_list = []
+            for dets in frame_dets:
+                cids = dets.data['cids']
+                cidx_list.extend([class_id_to_idx[cid] for cid in cids])
+            unique_cidxs = np.array(sorted(set(cidx_list)))
+            max_cidx = max(class_id_to_idx.values()) + 1
+            cidx_ohe = kwarray.one_hot_embedding(unique_cidxs, max_cidx)[0].astype(np.uint8)
+        else:
+            target = sample['tr']
+            cid = target['category_id']
+            cidx = class_id_to_idx[cid]
 
         image = kwimage.atleast_3channels(sample['im'])[:, :, 0:3]
-        target = sample['tr']
 
         image = kwimage.ensure_uint255(image)
         if self.augmenter is not None and not self.disable_augmenter:
@@ -101,17 +122,15 @@ class ClfDataset(torch_data.Dataset):
         # if 'disparity' in self.channels:
         #     raise NotImplemented
 
-        class_id_to_idx = self.sampler.classes.id_to_idx
-        cid = target['category_id']
-        cidx = class_id_to_idx[cid]
-
         im_chw = image.transpose(2, 0, 1) / 255.0
         inputs = {
             'rgb': torch.FloatTensor(im_chw),
         }
-        labels = {
-            'class_idxs': cidx,
-        }
+        labels = {}
+        if self.multiclass:
+            labels['class_ohe'] = cidx_ohe
+        else:
+            labels['class_idxs'] = cidx
         item = {
             'inputs': inputs,
             'labels': labels,
@@ -250,6 +269,7 @@ class ClfAugmentor(object):
 
     Example:
         >>> # xdoctest: +REQUIRES(--show)
+        >>> from bioharn.clf_dataset import *  # NOQA
         >>> import scriptconfig as scfg
         >>> import kwimage
         >>> config = scfg.quick_cli({
