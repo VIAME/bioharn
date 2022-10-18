@@ -44,8 +44,9 @@ class ClfPredictor(object):
 
     Ignore:
         >>> from bioharn import clf_fit
+        >>> from bioharn.clf_predict import *  # NOQA
         >>> harn = clf_fit.setup_harn(cmdline=False, dataset='special:shapes128',
-        >>>                           max_epoch=1, timeout=60)
+        >>>                           max_epoch=1, timeout=60, multiclass=True)
         >>> deployed = harn.run()
         >>> config = {
         >>>     'deployed': deployed,
@@ -258,6 +259,9 @@ class ClfPredictor(object):
                 # Translate to row-based data structure
                 # (Do we want a column based data structure option?)
                 for (rx, row), prob in zip(batch_result.iterrows(), class_probs):
+
+                    # Might need more multiclass support here
+
                     datakeys = set(Classification.__datakeys__) | set(row.keys())
                     clf_kwargs = row.copy()
                     clf_kwargs.update({
@@ -283,12 +287,15 @@ class ClfPredictor(object):
         # classes = predictor.raw_model.classes
 
         if predictor.coder is not None:
+
+            # Might need more multiclass support here
             decoded = predictor.coder.decode_batch(outputs)
 
             import kwarray
             class_probs = kwarray.ArrayAPI.numpy(decoded['class_probs'])
             pred_cxs = kwarray.ArrayAPI.numpy(decoded['pred_cxs'])
             pred_conf = kwarray.ArrayAPI.numpy(decoded['pred_conf'])
+            batch_index = kwarray.ArrayAPI.numpy(decoded['batch_index'])
 
             data = {
                 'cidx': pred_cxs,
@@ -557,6 +564,7 @@ class ClfSamplerDataset(torch_data.Dataset, ub.NiceRepr):
         inputs = {
             'rgb': torch.FloatTensor(im_chw),
         }
+        # Might need more multiclass support here
         labels = {
             'class_idxs': class_id_to_idx[tr['category_id']],
             'aid': tr['aid'],
