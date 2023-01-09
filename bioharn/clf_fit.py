@@ -189,7 +189,7 @@ class ClfModel(nh.layers.Module):
         elif arch == 'efficientnetv2m':
             from torchvision.models import efficientnet
             model = efficientnet.efficientnet_v2_m(num_classes=num_classes)
-            self.backbone_url = "hhttps://download.pytorch.org/models/efficientnet_v2_m-dc08266a.pth"
+            self.backbone_url = "https://download.pytorch.org/models/efficientnet_v2_m-dc08266a.pth"
         else:
             raise KeyError(arch)
 
