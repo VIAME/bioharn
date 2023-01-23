@@ -122,7 +122,7 @@ def _ensure_upgraded_model(deployed_fpath):
     if 'model_fpath' in deployed.info:
         with ub.zopen(deployed.info['model_fpath'], 'r') as file:
             topology_text = file.read()
-            if 'MM_Detector' in topology_text:
+            if 'MM_Detector' in topology_text and not '_force_no_upgrade_' in topology_text:
                 if '_mmdet_is_version_1x' not in topology_text:
                     needs_update = 'to_2x'
                 else:
