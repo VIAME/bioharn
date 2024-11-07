@@ -3,7 +3,7 @@ __doc__="
 First training experiment
 
 SeeAlso:
-    ~/code/bioharn/dev/experiments/geowatch/prepare_data.sh
+    ~/code/bioharn/dev/experiments/prepare_data.sh
 "
 #export CUDA_VISIBLE_DEVICES=0
 DVC_DATA_DPATH=$HOME/data/dvc-repos/viame_dvc/private/Benthic/HABCAM-FISH
