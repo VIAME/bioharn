@@ -10,6 +10,8 @@ Usage
         --in_fpath habcam-2020-2021.csv \
         --out_fpath data.kwcoco.zip
 
+    kwcoco conform data.kwcoco.zip --inplace
+
     kwcoco-explorer --data data.kwcoco.zip
 
 """
@@ -54,7 +56,7 @@ __cli__ = ConvertCffToKwcocoCLI
 def main(in_fpath, out_fpath):
     """
     """
-    data = pd.read_csv('habcam-2020-2021.csv')
+    data = pd.read_csv(in_fpath)
 
     image_cols = [
         'Date', 'Time',
@@ -93,9 +95,10 @@ def main(in_fpath, out_fpath):
 
     dset = kwcoco.CocoDataset()
     prog = ub.ProgIter(imgname_to_subrows.items(),
-                       total=len(imgname_to_subrows), desc='Convert images')
+                       total=len(imgname_to_subrows), desc='Process image rows')
     for imagename, subrows in prog:
         img = {
+            # hack: hard coded to match filenames that actually exist.
             'file_name': f'jpgs/L{imagename}',
         }
 
