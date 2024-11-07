@@ -7,7 +7,13 @@ See Also:
 DVC_DATA_DPATH=$HOME/data/dvc-repos/viame_dvc/private/Benthic/HABCAM-FISH
 KWCOCO_BUNDLE_DPATH=$DVC_DATA_DPATH
 FULL_DSET=$KWCOCO_BUNDLE_DPATH/data.kwcoco.zip
-kwcoco conform "$FULL_DSET" --inplace=True --workers=16
+
+python ~/code/bioharn/dev/data_tools/convert_cff_to_kwcoco.py \
+    --in_fpath "$DVC_DATA_DPATH"/habcam-2020-2021.csv \
+    --out_fpath "$DVC_DATA_DPATH"/data.kwcoco.zip
+
+
+kwcoco conform "$FULL_DSET" --inplace=True --legacy=True --mmlab=True --workers=16
 
 # TODO: add CLI that can infer / assume channel specs
 python -c "if 1:

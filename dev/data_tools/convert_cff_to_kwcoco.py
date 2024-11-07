@@ -31,6 +31,7 @@ class ConvertCffToKwcocoCLI(scfg.DataConfig):
     """
     in_fpath = scfg.Value('habcam-2020-2021.csv', help='input csv file', position=1)
     out_fpath = scfg.Value('data.kwcoco.zip', help='output kwcoco file', position=2)
+    validate = scfg.Value(False, help='if True validate the output before writing')
 
     @classmethod
     def main(cls, argv=1, **kwargs):
@@ -53,10 +54,10 @@ class ConvertCffToKwcocoCLI(scfg.DataConfig):
 __cli__ = ConvertCffToKwcocoCLI
 
 
-def main(in_fpath, out_fpath):
+def main(in_fpath, out_fpath, validate=False):
     """
     """
-    data = pd.read_csv(in_fpath)
+    data = pd.read_csv(in_fpath, low_memory=False)
 
     image_cols = [
         'Date', 'Time',
@@ -81,7 +82,9 @@ def main(in_fpath, out_fpath):
             print(idx, f'row = {ub.urepr(row, nl=1)}')
 
     # hack: remove bad data
-    data = data[data['x1'] != 'Astropecten spp']
+    DATA_SPECIFIC_HACK = True
+    if DATA_SPECIFIC_HACK:
+        data = data[data['x1'] != 'Astropecten spp']
 
     # Ensure coordinate data type is float
     coord_cols = ['x1', 'x2', 'x3', 'x4', 'y1', 'y2', 'y3', 'y4']
@@ -100,6 +103,9 @@ def main(in_fpath, out_fpath):
         img = {
             # hack: hard coded to match filenames that actually exist.
             'file_name': f'jpgs/L{imagename}',
+            # hack: hardcode sensor and channels
+            'sensor': 'cam',
+            'channels': 'red|green|blue',
         }
 
         # Determine if data is image-level or annotation-level
@@ -136,7 +142,8 @@ def main(in_fpath, out_fpath):
             dset.add_annotation(**ann)
 
     dset.fpath = out_fpath
-    dset.validate()
+    if validate:
+        dset.validate()
     dset.dump()
 
 
