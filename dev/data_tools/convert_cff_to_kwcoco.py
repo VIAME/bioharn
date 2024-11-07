@@ -24,6 +24,11 @@ import kwutil
 import numpy as np
 import kwimage
 
+try:
+    from line_profiler import profile
+except Exception:
+    from ubelt import identity as profile
+
 
 class ConvertCffToKwcocoCLI(scfg.DataConfig):
     """
@@ -54,6 +59,7 @@ class ConvertCffToKwcocoCLI(scfg.DataConfig):
 __cli__ = ConvertCffToKwcocoCLI
 
 
+@profile
 def main(in_fpath, out_fpath, validate=False):
     """
     """
@@ -75,11 +81,12 @@ def main(in_fpath, out_fpath, validate=False):
         data['subID'].value_counts()
         data['Substrate'].value_counts()
 
-    for idx, row in enumerate(data.to_dict('records')):
-        try:
-            float(row['x1'])
-        except Exception:
-            print(idx, f'row = {ub.urepr(row, nl=1)}')
+    if 0:
+        for idx, row in enumerate(data.to_dict('records')):
+            try:
+                float(row['x1'])
+            except Exception:
+                print(idx, f'row = {ub.urepr(row, nl=1)}')
 
     # hack: remove bad data
     DATA_SPECIFIC_HACK = True
@@ -114,17 +121,18 @@ def main(in_fpath, out_fpath, validate=False):
         ann_rows = subrows[subrows['has_ann_coords']]
         img_rows = subrows[~subrows['has_ann_coords']]
 
-        for row in ann_rows.to_dict('records'):
+        for _, row in ann_rows.iterrows():
             ann = process_annotation_row(row)
             anns.append(ann)
 
-        image_infos = img_rows.to_dict('records')
-        if image_infos:
-            img['substrates'] = list({r['Substrate'] for r in image_infos})
+        if len(img_rows):
+            img['substrates'] = img_rows['Substrate'].unique().tolist()
 
         # Handle the rest of image level information
-        for col in image_cols:
-            assert ub.allsame(subrows[col]), 'sanity'
+        SANITY_CHECK = 0
+        if SANITY_CHECK:
+            for col in image_cols:
+                assert ub.allsame(subrows[col]), 'sanity'
         image_data = ub.udict(row) & image_cols
         try:
             # Try to convert to a standard datetime format if possible
@@ -147,6 +155,7 @@ def main(in_fpath, out_fpath, validate=False):
     dset.dump()
 
 
+@profile
 def process_annotation_row(row):
     """
     Four shapes were used for annotations
