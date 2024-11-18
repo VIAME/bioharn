@@ -1,6 +1,6 @@
 #!/bin/bash
 __doc__="
-Trained on namek, using no validation and only the learn set.
+Trained on namek
 "
 export CUDA_VISIBLE_DEVICES="0,"
 #export CUDA_VISIBLE_DEVICES=0
@@ -9,7 +9,7 @@ DVC_EXPT_DPATH=$HOME/data/dvc-repos/viame_dvc/experiments
 WORKDIR=$DVC_EXPT_DPATH/training/$HOSTNAME/$USER
 
 DATASET_CODE=HABCAM-FISH
-EXPERIMENT_NAME="viame2024-train_baseline_maskrcnn_v001"
+EXPERIMENT_NAME="viame2024-train_detectron2_fastercnn_3class_v004"
 KWCOCO_BUNDLE_DPATH=$DVC_DATA_DPATH
 DEFAULT_ROOT_DIR=$WORKDIR/$DATASET_CODE/runs/$EXPERIMENT_NAME
 
@@ -20,7 +20,7 @@ echo "TRAIN_FPATH = $TRAIN_FPATH"
 echo "VALI_FPATH = $VALI_FPATH"
 echo "DEFAULT_ROOT_DIR = $DEFAULT_ROOT_DIR"
 
-kwcoco stats "$TRAIN_FPATH" "$VALI_FPATH" "$TEST_FPATH"
+#kwcoco stats "$TRAIN_FPATH" "$VALI_FPATH" "$TEST_FPATH"
 mkdir -p "$DEFAULT_ROOT_DIR"
 
 echo "
@@ -32,16 +32,12 @@ base: COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml
 init: COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml
 cfg:
     DATALOADER:
-        NUM_WORKERS: 2
+        NUM_WORKERS: 4
     SOLVER:
         IMS_PER_BATCH: 16   # This is the real 'batch size' commonly known to deep learning people
-        BASE_LR: 0.00025     # pick a good LR
-        MAX_ITER: 120_000  # 300 iterations seems good enough for this toy dataset; you will need to train longer for a practical dataset
+        BASE_LR: 0.02     # pick a good LR
+        MAX_ITER: 90000
         STEPS: []            # do not decay learning rate
-    # FIXME
-    MODEL:
-        ROI_HEADS:
-            NUM_CLASSES: 3  # this config means the number of classes, but a few popular unofficial tutorials incorrect uses num_classes+1 here. (see https://detectron2.readthedocs.io/tutorials/datasets.html#update-the-config-for-new-datasets)
 " > "$DEFAULT_ROOT_DIR"/train_config.yaml
 cat "$DEFAULT_ROOT_DIR"/train_config.yaml
 python -m geowatch.tasks.detectron2.fit --config "$DEFAULT_ROOT_DIR"/train_config.yaml

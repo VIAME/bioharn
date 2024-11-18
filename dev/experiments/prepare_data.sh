@@ -15,7 +15,7 @@ python ~/code/bioharn/dev/data_tools/convert_cff_to_kwcoco.py \
 # TODO: add CLI that can infer / assume channel specs
 kwcoco conform "$FULL_DSET" --inplace=True --legacy=True --mmlab=True --workers=16
 
-kwcoco fixup "$FULL_DSET" --inplace=True --corrupted_assets=only_shape --workers=16
+kwcoco fixup "$FULL_DSET" --inplace=True --corrupted_assets=only_shape --workers=0
 
 FULL_DSET=$KWCOCO_BUNDLE_DPATH/data.kwcoco.zip
 TRAIN_FPATH=$KWCOCO_BUNDLE_DPATH/train-v02.kwcoco.zip
