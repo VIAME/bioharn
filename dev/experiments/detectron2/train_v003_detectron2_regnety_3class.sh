@@ -166,8 +166,6 @@ python -m geowatch.mlops.schedule_evaluation \
     --run=1
 
 
-DVC_EXPT_DPATH=$HOME/data/dvc-repos/viame_dvc/experiments
-EVAL_PATH=$DVC_EXPT_DPATH/_habcam_detectron_evals
 python -m geowatch.mlops.aggregate \
     --pipeline='geowatch.tasks.detectron2.pipelines.detectron_evaluation_pipeline()' \
     --target "
@@ -178,7 +176,6 @@ python -m geowatch.mlops.aggregate \
     --io_workers=0 \
     --eval_nodes="
         - detection_evaluation
-        - heatmap_eval
     " \
     --stdout_report="
         top_k: 10
@@ -190,3 +187,11 @@ python -m geowatch.mlops.aggregate \
         concise: 0
         show_csv: 0
     "
+
+
+python -m geowatch.tasks.detectron2.predict \
+    --checkpoint_fpath "$HOME"/data/dvc-repos/viame_dvc/experiments/training/toothbrush/joncrall/HABCAM-FISH/runs/viame2024-train_baseline_regnety_3class_v003/v_cda8fec7/model_0179999.pth \
+    --base "auto" \
+    --src_fpath "$TEST_FPATH" \
+    --dst_fpath "$DEFAULT_ROOT_DIR"/oneoff_evaluate_3class/pred.kwcoco.json \
+    --workers=4
