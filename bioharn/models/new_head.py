@@ -39,6 +39,7 @@ import torch
 import numpy as np
 import kwcoco
 
+
 def _mock_callable_decor(*args, **kw):
     def _mock_decor(func):
         return func
@@ -401,7 +402,7 @@ class BBoxHead(nn.Module):
             >>> labels = torch.randint(0, 2, (n_roi,)).long()
             >>> bbox_preds = random_boxes(n_roi, scale=scale, rng=rng)
             >>> # For each image, pretend random positive boxes are gts
-            >>> is_label_pos = (labels.numpy() > 0).astype(np.int)
+            >>> is_label_pos = (labels.numpy() > 0).astype(int)
             >>> lbl_per_img = kwarray.group_items(is_label_pos,
             ...                                   img_ids.numpy())
             >>> pos_per_img = [sum(lbl_per_img.get(gid, []))

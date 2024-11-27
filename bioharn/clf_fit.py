@@ -391,7 +391,7 @@ class ClfHarn(nh.FitHarn):
             # This will never produce duplicates (difference between
             # consecutive numbers will always be > 1 there fore they will
             # always round to a different number)
-            idxs = np.linspace(bsize - 1, 0, num_want).round().astype(np.int).tolist()
+            idxs = np.linspace(bsize - 1, 0, num_want).round().astype(int).tolist()
             idxs = sorted(idxs)
         else:
             idxs = [idxs] if not ub.iterable(idxs) else idxs
