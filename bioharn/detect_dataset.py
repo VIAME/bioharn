@@ -100,7 +100,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
         self.channels = ChannelSpec.coerce(channels)
 
         self.factor = factor  # downsample factor of yolo grid
-        self.input_dims = np.array(input_dims, dtype=np.int)
+        self.input_dims = np.array(input_dims, dtype=int)
         self.window_dims = window_dims
         self.window_overlap = window_overlap
 

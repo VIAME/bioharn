@@ -693,7 +693,7 @@ class MM_Coder(object):
             det = kwimage.Detections(
                 boxes=kwimage.Boxes(pred_tlbr, 'tlbr'),
                 scores=pred_score,
-                class_idxs=np.array(pred_cidxs, dtype=np.int),
+                class_idxs=np.array(pred_cidxs, dtype=int),
                 segmentations=pred_ssegs,
                 classes=self.classes
             )
