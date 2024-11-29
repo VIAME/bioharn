@@ -767,7 +767,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
                     label_to_weight[cname] = 1
 
             index_to_labels = [
-                np.array([cats[anns[aid]['category_id']]['name'] for aid in aids], dtype=np.str)
+                np.array([cats[anns[aid]['category_id']]['name'] for aid in aids], dtype=str)
                 for gid, slices, aids in self.chosen_regions
             ]
 
@@ -855,6 +855,7 @@ def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
     img = sampler.dset.imgs[gid]
 
     from ndsampler.utils import util_gdal
+    import os
     if 'auxillary' in img:
         img['auxiliary'] = img['auxillary']  # Hack
 
@@ -873,7 +874,7 @@ def load_sample_auxiliary(sampler, tr, want_aux, pad=0):
         # First check if the dataset defines a proper disparity channel
         disp_fpath = sampler.dset.get_auxiliary_fpath(gid, key)
 
-        aux_frame = util_gdal.LazyGDalFrameFile(disp_fpath)
+        aux_frame = util_gdal.LazyGDalFrameFile(os.fspath(disp_fpath))
         data_dims = aux_frame.shape[0:2]
 
         tr = sampler._infer_target_attributes(tr)

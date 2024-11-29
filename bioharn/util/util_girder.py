@@ -56,7 +56,10 @@ def grabdata_girder(api_url, file_id, fname=None, dpath=None, hash_prefix=None,
         raise KeyError('Unsupported hasher: {}'.format(hasher))
 
     fpath = join(dpath, fname)
-    stamp = ub.CacheStamp(fname + '.hash', dpath=dpath, cfgstr=hash_value)
+    try:
+        stamp = ub.CacheStamp(fname + '.hash', dpath=dpath, cfgstr=hash_value)
+    except Exception:
+        stamp = ub.CacheStamp(fname + '.hash', dpath=dpath, depends=hash_value)
     if stamp.expired() or not exists(fpath):
         client.downloadFile(file_id, fpath)
         stamp.renew()
