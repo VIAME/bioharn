@@ -953,8 +953,11 @@ def setup_harn(cmdline=True, **kw):
             ('input_id', _dset.input_id),
             ('num', num),
         ])
-        cfgstr = ub.hash_data(depends)
-        cacher = ub.Cacher('dset_mean', cfgstr=cfgstr + 'v8')
+        try:
+            cfgstr = ub.hash_data(depends)
+            cacher = ub.Cacher('dset_mean', cfgstr=cfgstr + 'v8')
+        except RuntimeError:
+            cacher = ub.Cacher('dset_mean', depends=depends + 'v8')
         input_stats = cacher.tryload()
         if input_stats is None:
             # Use parallel workers to load data faster
@@ -1076,7 +1079,10 @@ def setup_harn(cmdline=True, **kw):
 
         if config['anchors'] == 'auto':
             _dset = torch_datasets['train']
-            cacher = ub.Cacher('dset_anchors', cfgstr=_dset.input_id + 'v4')
+            try:
+                cacher = ub.Cacher('dset_anchors', cfgstr=_dset.input_id + 'v4')
+            except RuntimeError:
+                cacher = ub.Cacher('dset_anchors', depends=_dset.input_id + 'v4')
             anchors = cacher.tryload()
             if anchors is None:
                 anchors = _dset.sampler.dset.boxsize_stats(anchors=5, perclass=False)['all']['anchors']

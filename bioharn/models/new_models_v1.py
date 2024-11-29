@@ -1,5 +1,6 @@
 """
 Ignore:
+    >>> # xdoctest: +SKIP
     >>> from bioharn.detect_fit import *  # NOQA
     >>> harn = setup_harn(bsize=2, datasets='special:shapes256',
     >>>     arch='MM_HRNetV2_w18_MaskRCNN', xpu='auto',
@@ -10,7 +11,6 @@ Ignore:
     >>> #del batch['label']['class_masks']
     >>> from bioharn.models.mm_models import _batch_to_mm_inputs
     >>> mm_batch = _batch_to_mm_inputs(batch)
-
     >>> outputs, loss = harn.run_batch(batch)
 
 Ignore:
@@ -43,6 +43,7 @@ try:
 except Exception:
     mmdet = None
     mmcv = None
+    build_backbone = None
 else:
     # from mmdet.models.detectors.base import BaseDetector
     from mmdet.models.builder import build_backbone
@@ -361,10 +362,9 @@ class LateFusionPyramidBackbone(nn.Module):
     Wraps another backbone to perform late fusion
 
     Ignore:
+        >>> # xdoctest: +REQUIRES(module:mmcv)
         >>> from bioharn.models.new_models_v1 import *  # NOQA
         >>> monkeypatch_build_norm_layer()
-
-
         >>> from bioharn.models.new_models_v1 import *  # NOQA
         >>> from bioharn.models.mm_models import _demo_batch  # NOQA
         >>> channels = ChannelSpec.coerce('rgb,mx|my,disparity')
@@ -379,7 +379,6 @@ class LateFusionPyramidBackbone(nn.Module):
         >>> print(nh.data.data_containers.nestshape(fused_outputs))
         [torch.Size([4, 18, 64, 64]), torch.Size([4, 36, 32, 32]),
          torch.Size([4, 72, 16, 16]), torch.Size([4, 144, 8, 8])]
-
         >>> nh.util.number_of_parameters(self)
     """
     def __init__(self, channels='rgb', input_stats=None, fuse_method='cat',
@@ -480,6 +479,8 @@ class LateFusionPyramidBackbone(nn.Module):
                     'norm_cfg': {'type': 'GN', 'num_groups': 'auto'},
                     'type': HRNet_V2
                 }
+            if build_backbone is None:
+                raise Exception('mmcv is not installed')
             chan_backbone = build_backbone(hrnet_backbone_config)
             chan_backbones[chan_key] = chan_backbone
 
@@ -572,6 +573,7 @@ class MM_HRNetV2_w18_MaskRCNN(MM_Detector_V3):
 
     Example:
         >>> # xdoctest: +REQUIRES(module:mmdet)
+        >>> # xdoctest: +REQUIRES(module:mmcv)
         >>> # xdoctest: +REQUIRES(--cuda)
         >>> from bioharn.models.new_models_v1 import *  # NOQA
         >>> channels = ChannelSpec.coerce('rgb,mx|my')

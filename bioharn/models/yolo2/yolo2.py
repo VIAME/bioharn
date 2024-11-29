@@ -13,8 +13,8 @@ import torch.nn as nn
 import ubelt as ub
 from netharn import layers
 from distutils.version import LooseVersion
-from bioharn.channel_spec import ChannelSpec
 import torch.nn.functional as F
+from netharn.data.channel_spec import ChannelSpec  # NOQA
 
 
 _TORCH_HAS_BOOL_COMP = LooseVersion(torch.__version__) >= LooseVersion('1.2.0')

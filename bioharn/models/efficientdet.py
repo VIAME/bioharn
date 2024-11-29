@@ -1657,7 +1657,6 @@ class EfficientDet(nn.Module):
         >>> outputs = self.forward(batch)
         >>> loss = sum(outputs['loss_parts'].values())
         >>> loss.backward()
-
         >>> # Test ignore class
         >>> classes = ['a', 'b', 'c', 'ignore']
         >>> channels = ChannelSpec.coerce('rgb')
@@ -1666,8 +1665,6 @@ class EfficientDet(nn.Module):
         >>> outputs = self.forward(batch)
         >>> loss = sum(outputs['loss_parts'].values())
         >>> loss.backward()
-
-
         >>> # Test empty truth case
         >>> from bioharn.models.efficientdet import *  # NOQA
         >>> from bioharn.models.mm_models import _demo_batch
@@ -1685,7 +1682,6 @@ class EfficientDet(nn.Module):
         >>>     arch='efficientdet', init='noop', xpu=0, channels='rgb',
         >>>     workers=0, normalize_inputs=False, sampler_backend=None)
         >>> harn.initialize()
-
         >>> self = harn.raw_model
         >>> batch = harn._demo_batch(tag='vali')
         >>> outputs = self.forward(batch)
