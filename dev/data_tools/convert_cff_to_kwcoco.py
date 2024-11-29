@@ -197,7 +197,7 @@ def process_annotation_row(row):
     ann['category_name'] = catname
     ann['category_id'] = row['orgID']
     if poly is not None:
-        ann['poly'] = poly.to_coco('new')
+        ann['segmentation'] = poly.to_coco('new')
     return ann
 
 
