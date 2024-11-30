@@ -531,7 +531,7 @@ class DetectFitDataset(torch.utils.data.Dataset):
             if ignore_catname in norm_classes:
                 ignore_cidx = norm_classes.index(ignore_catname)
                 ignore_boxes = dets.boxes.compress(dets.class_idxs == ignore_cidx)
-                ignore_tlbr = ignore_boxes.to_tlbr()
+                ignore_tlbr = ignore_boxes.to_ltrb()
                 for tlbr_row in ignore_tlbr.data:
                     tl_x, tl_y, br_x, br_y  = tlbr_row
                     slx = slice(int(tl_x), int(br_x))

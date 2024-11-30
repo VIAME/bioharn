@@ -1802,7 +1802,7 @@ class EfficientDet(nn.Module):
                 cxywh_tensor = nh.data.collate.padded_collate(label['cxywh'].data[0], -1)
                 boxes_tensor = kwimage.Boxes(cxywh_tensor, 'cxywh')
 
-            tlbr_tensor = boxes_tensor.to_tlbr().data
+            tlbr_tensor = boxes_tensor.to_ltrb().data
             cidx_tensor = nh.data.collate.padded_collate(
                 [c[:, None] for c in label['class_idxs'].data[0]], -1)
             annotations = torch.cat([tlbr_tensor, cidx_tensor.float()], axis=2)
