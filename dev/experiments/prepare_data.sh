@@ -59,6 +59,9 @@ KWCOCO_BUNDLE_DPATH=$DVC_DATA_DPATH
 NEWSTYLE_DSET=$KWCOCO_BUNDLE_DPATH/data-with-polys.kwcoco.zip
 OLDSTYLE_DSET=$KWCOCO_BUNDLE_DPATH/data-with-closed-polys.kwcoco.zip
 kwcoco conform "$NEWSTYLE_DSET" "$OLDSTYLE_DSET" --legacy=True
+
+kwcoco validate "$OLDSTYLE_DSET" --workers 10
+
 #INPUT_DSET=$RAW_DSET
 INPUT_DSET=$OLDSTYLE_DSET
 
@@ -115,3 +118,35 @@ kwcoco split "$LEARN_FPATH" --rng 10631407 --dst1 "$TRAIN_FPATH" --dst2 "$VALI_F
 
 cd "$KWCOCO_BUNDLE_DPATH"
 kwcoco stats "$TRAIN_FPATH" "$VALI_FPATH" "$TEST_FPATH"
+
+
+python -c "if 1:
+import kwcoco
+import kwimage
+dset = kwcoco.CocoDataset('/home/joncrall/data/dvc-repos/viame_dvc/private/Benthic/HABCAM-FISH/data-with-polys.kwcoco.zip')
+for ann in dset.dataset['annotations']:
+    ann.pop('poly', None)
+dset.dump()
+
+for ann in dset.annots().objs_iter():
+    sseg = kwimage.Segmentation.coerce(ann['segmentation'])
+    sseg.to_coco('orig')
+
+tmp = dset.subset([3]).copy()
+tmp.conform(legacy=True)
+from kwcoco.compat_dataset import COCO
+
+coco = tmp._aspycoco()
+coco.annToMask(coco.dataset['annotations'][1])
+
+import kwimage
+from kwcoco import coco_schema
+poly = kwimage.Polygon.random().to_coco(style='orig')
+mpoly = kwimage.MultiPolygon.random().to_coco(style='orig')
+
+coco_schema.MSCOCO_POLYGON.validate(poly)
+coco_schema.MSCOCO_MULTIPOLYGON.validate(mpoly)
+
+
+    ...
+"
