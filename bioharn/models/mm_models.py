@@ -277,7 +277,7 @@ def _demo_batch(bsize=1, channels='rgb', h=256, w=256, classes=3,
 
         dets = dets.tensor()
         label = {
-            'tlbr': data_containers.ItemContainer(dets.boxes.to_tlbr().data.float(), stack=False),
+            'tlbr': data_containers.ItemContainer(dets.boxes.to_ltrb().data.float(), stack=False),
             'class_idxs': data_containers.ItemContainer(dets.class_idxs, stack=False),
             'weight': data_containers.ItemContainer(torch.FloatTensor(rng.rand(len(dets))), stack=False)
         }
@@ -484,7 +484,7 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
 
             if 'cxywh' in label:
                 mm_inputs['gt_bboxes'] = DC(
-                    [[kwimage.Boxes(b, 'cxywh').to_tlbr().data for b in bbs]
+                    [[kwimage.Boxes(b, 'cxywh').to_ltrb().data for b in bbs]
                      for bbs in label['cxywh'].data],
                     label['cxywh'].stack,
                     label['cxywh'].padding_value)
@@ -492,7 +492,7 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
             if 'tlbr' in label:
                 assert 'gt_bboxes' not in mm_inputs, 'already have boxes'
                 mm_inputs['gt_bboxes'] = DC(
-                    [[kwimage.Boxes(b, 'tlbr').to_tlbr().data for b in bbs]
+                    [[kwimage.Boxes(b, 'tlbr').to_ltrb().data for b in bbs]
                      for bbs in label['tlbr'].data],
                     label['tlbr'].stack,
                     label['tlbr'].padding_value)
@@ -547,7 +547,7 @@ def _batch_to_mm_inputs(batch, ignore_thresh=0.1):
                 mm_inputs['gt_labels'] = label['class_idxs']
                 if 'cxywh' in label:
                     mm_inputs['gt_bboxes'] = [
-                        kwimage.Boxes(b, 'cxywh').to_tlbr().data
+                        kwimage.Boxes(b, 'cxywh').to_ltrb().data
                         for b in label['cxywh']
                     ]
                 elif 'tlbr' in label:
