@@ -60,6 +60,28 @@ NEWSTYLE_DSET=$KWCOCO_BUNDLE_DPATH/data-with-polys.kwcoco.zip
 OLDSTYLE_DSET=$KWCOCO_BUNDLE_DPATH/data-with-closed-polys.kwcoco.zip
 kwcoco conform "$NEWSTYLE_DSET" "$OLDSTYLE_DSET" --legacy=True
 
+# Manual cleanup, remove bad annotations
+python -c "if 1:
+import kwcoco
+import kwimage
+dset = kwcoco.CocoDataset('/home/joncrall/data/dvc-repos/viame_dvc/private/Benthic/HABCAM-FISH/data-with-closed-polys.kwcoco.zip')
+
+to_remove = []
+for ann in dset.dataset['annotations']:
+    ann.pop('poly', None)
+    if 'segmentation' not in ann:
+        to_remove.append(ann)
+    if ann['area'] < 1:
+        to_remove.append(ann)
+dset.remove_annotations(to_remove, verbose=3)
+dset.dump()
+
+# Test that the pycocotools interface works
+coco = dset._aspycoco()
+for ann in coco.dataset['annotations']:
+    coco.annToRLE(ann)
+"
+
 kwcoco validate "$OLDSTYLE_DSET" --workers 10
 
 #INPUT_DSET=$RAW_DSET
@@ -123,8 +145,12 @@ kwcoco stats "$TRAIN_FPATH" "$VALI_FPATH" "$TEST_FPATH"
 python -c "if 1:
 import kwcoco
 import kwimage
-dset = kwcoco.CocoDataset('/home/joncrall/data/dvc-repos/viame_dvc/private/Benthic/HABCAM-FISH/data-with-polys.kwcoco.zip')
+dset = kwcoco.CocoDataset('/home/joncrall/data/dvc-repos/viame_dvc/private/Benthic/HABCAM-FISH/data-with-closed-polys.kwcoco.zip')
+
+missing = 0
 for ann in dset.dataset['annotations']:
+    if 'segmentation' not in ann:
+        missing += 1
     ann.pop('poly', None)
 dset.dump()
 
