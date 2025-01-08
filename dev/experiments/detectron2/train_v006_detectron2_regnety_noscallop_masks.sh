@@ -63,16 +63,16 @@ cat "$DEFAULT_ROOT_DIR"/train_config.yaml
 python -m geowatch.tasks.detectron2.fit --config "$DEFAULT_ROOT_DIR"/train_config.yaml
 
 # TODO: ensure fit does this
-kwcoco info /home/joncrall/data/dvc-repos/viame_dvc/private/Benthic/HABCAM-FISH/train-v04-noscallop.kwcoco.zip -c inf | jq .categories > categories.json
+kwcoco info /home/joncrall/data/dvc-repos/viame_dvc/private/Benthic/HABCAM-FISH/train-v04-noscallop.kwcoco.zip -c inf | jq .categories > "$DEFAULT_ROOT_DIR"/categories.json
 
 # Check which models exist
 ls "$DEFAULT_ROOT_DIR"/*/model_*.pth
 
 python -m geowatch.tasks.detectron2.predict \
-    --checkpoint_fpath "$HOME"/data/dvc-repos/viame_dvc/experiments/training/toothbrush/joncrall/HABCAM-FISH/runs/viame2024-train_v005_detectron2_regnety_noscallop/v_b541bce7/model_0179999.pth \
+    --checkpoint_fpath "$HOME"/data/dvc-repos/viame_dvc/experiments/training/toothbrush/joncrall/HABCAM-FISH/runs/viame2024-train_v006_detectron2_regnety_noscallop/v_2d8da9cd/model_0179999.pth \
     --base "auto" \
     --src_fpath "$TEST_FPATH" \
-    --dst_fpath "$DEFAULT_ROOT_DIR"/oneoff_evaluate_3class/pred.kwcoco.json \
+    --dst_fpath "$DEFAULT_ROOT_DIR"/oneoff_evaluate/pred.kwcoco.json \
     --workers=4
 
     #--base "new_baselines/mask_rcnn_regnety_4gf_dds_FPN_400ep_LSJ.py" \
@@ -80,13 +80,13 @@ python -m geowatch.tasks.detectron2.predict \
 
 kwcoco eval_detections \
     --true_dataset "$TEST_FPATH" \
-    --pred_dataset "$DEFAULT_ROOT_DIR"/oneoff_evaluate_3class/pred.kwcoco.json \
-    --out_dpath "$DEFAULT_ROOT_DIR"/oneoff_evaluate_3class/coco_metrics
+    --pred_dataset "$DEFAULT_ROOT_DIR"/oneoff_evaluate/pred.kwcoco.json \
+    --out_dpath "$DEFAULT_ROOT_DIR"/oneoff_evaluate/coco_metrics
 
 python ~/code/kwcoco/dev/poc/detection_confusor_analysis.py \
     --true_fpath "$TEST_FPATH" \
-    --pred_fpath "$DEFAULT_ROOT_DIR"/oneoff_evaluate_3class/pred.kwcoco.json \
-    --out_dpath "$DEFAULT_ROOT_DIR"/oneoff_evaluate_3class/confusion_analysis
+    --pred_fpath "$DEFAULT_ROOT_DIR"/oneoff_evaluate/pred.kwcoco.json \
+    --out_dpath "$DEFAULT_ROOT_DIR"/oneoff_evaluate/confusion_analysis
 
 
 
