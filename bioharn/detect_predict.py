@@ -79,6 +79,18 @@ class DetectPredictConfig(scfg.Config):
     }
 
 
+def patch_numpy():
+    import numpy as np
+    np.bool = bool
+    np.int = int
+    np.float = float
+    np.str = str
+    if np.lib.NumpyVersion(np.__version__) >= '2.0.0b1':
+        np.string_ = np.bytes_
+        np.unicode_ = np.str_
+        np.Inf = np.inf
+
+
 def _ensure_upgraded_model(deployed_fpath):
     """
     Example:
@@ -215,6 +227,9 @@ class DetectPredictor(object):
         >>> final = predictor.predict(inputs)
     """
     def __init__(predictor, config):
+
+        patch_numpy()  # HACK
+
         predictor.config = DetectPredictConfig(config)
         predictor.model = None
         predictor.xpu = None
