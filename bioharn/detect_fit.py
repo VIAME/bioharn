@@ -957,7 +957,8 @@ def setup_harn(cmdline=True, **kw):
             cfgstr = ub.hash_data(depends)
             cacher = ub.Cacher('dset_mean', cfgstr=cfgstr + 'v8')
         except RuntimeError:
-            cacher = ub.Cacher('dset_mean', depends=depends + 'v8')
+            depends['version'] = 8
+            cacher = ub.Cacher('dset_mean', depends=depends)
         input_stats = cacher.tryload()
         if input_stats is None:
             # Use parallel workers to load data faster
