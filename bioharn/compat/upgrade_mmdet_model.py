@@ -220,7 +220,7 @@ def upgrade_deployed_mmdet_model(config):
     in_file = ub.augpath(temp_fpath, suffix='_prepared')
     torch.save(checkpoint, in_file)
 
-    # checkpoint = torch.load(in_file)
+    # checkpoint = torch.load(in_file, weights_only=False)
     out_file = ub.augpath(temp_fpath, suffix='_upgrade2x')
 
     print('num_classes_old = {!r}'.format(num_classes_old))
@@ -232,7 +232,7 @@ def upgrade_deployed_mmdet_model(config):
     new_model = mm_models.MM_CascadeRCNN(**new_initkw)
     new_model._initkw = new_initkw
 
-    new_model_state = torch.load(out_file)
+    new_model_state = torch.load(out_file, weights_only=False)
 
     # print(new_model.detector.roi_head.bbox_head[0].fc_cls.weight.shape)
     # print(model_state_2['bbox_head.0.fc_cls.weight'].shape)
@@ -401,7 +401,7 @@ def convert(in_file, out_file, num_classes):
     and this tool is used for upgrading checkpoints trained with old versions
     to the latest one.
     """
-    checkpoint = torch.load(in_file)
+    checkpoint = torch.load(in_file, weights_only=False)
     in_state_dict = checkpoint.pop('state_dict')
     out_state_dict = OrderedDict()
     meta_info = checkpoint['meta']

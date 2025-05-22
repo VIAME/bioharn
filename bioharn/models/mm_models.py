@@ -972,7 +972,7 @@ class MM_RetinaNet(MM_Detector):
         det.draw()
 
         # filename = '/home/joncrall/Downloads/retinanet_r50_fpn_1x_20181125-7b0c2548.pth'
-        checkpoint = torch.load(filename)
+        checkpoint = torch.load(filename, weights_only=False)
         state_dict = checkpoint['state_dict']
         ours = self.detector.state_dict()
 
@@ -1298,7 +1298,7 @@ def _load_mmcv_weights(filename, map_location=None):
     else:
         if not os.path.isfile(filename):
             raise IOError('{} is not a checkpoint file'.format(filename))
-        checkpoint = torch.load(filename, map_location=map_location)
+        checkpoint = torch.load(filename, map_location=map_location, weights_only=False)
     # get state_dict from checkpoint
     if isinstance(checkpoint, OrderedDict):
         state_dict = checkpoint

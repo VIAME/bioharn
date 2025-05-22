@@ -110,7 +110,7 @@ def upgrade_deployed_mmdet_model(config):
     in_file = ub.augpath(temp_fpath, suffix='_prepared')
     torch.save(checkpoint, in_file)
 
-    # checkpoint = torch.load(in_file)
+    # checkpoint = torch.load(in_file, weights_only=False)
 
     out_file = ub.augpath(temp_fpath, suffix='_upgrade2x')
     upgrade_module.convert(in_file, out_file, num_classes_old + 1)
@@ -123,7 +123,7 @@ def upgrade_deployed_mmdet_model(config):
 
     print(new_model.detector.roi_head.bbox_head[0].fc_cls.weight.shape)
 
-    new_model_state = torch.load(out_file)
+    new_model_state = torch.load(out_file, weights_only=False)
     print(model_state_2['bbox_head.0.fc_cls.weight'].shape)
     print(new_model_state['state_dict']['roi_head.bbox_head.0.fc_cls.weight'].shape)
 
